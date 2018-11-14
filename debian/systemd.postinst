@@ -113,6 +113,7 @@ fi
 
 #DEBHELPER#
 
-if [ -n "$2" ]; then
+# skip daemon-reexec and try-restarts during shutdown to avoid hitting LP: #1803391
+if [ -n "$2" ] && [ "$(systemctl is-system-running)" != "stopping" ]; then
     _restart_managers
 fi
