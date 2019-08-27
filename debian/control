@@ -209,7 +209,7 @@ Depends: ${shlibs:Depends},
          systemd (= ${binary:Version}),
          libpam-runtime (>= 1.0.1-6),
          dbus,
-         systemd-sysv
+         systemd-shim (>= 10-4~) | systemd-sysv
 Provides: logind (= ${binary:Version}), default-logind (= ${binary:Version})
 Description: system and service manager - PAM module
  This package contains the PAM module which registers user sessions in
