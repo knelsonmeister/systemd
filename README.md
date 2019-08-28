@@ -1,5 +1,5 @@
 # systemd with systemd-shim support for MX Linux
-This repo contains the debian directory necessary to build a Debian Buster based debian package for MX Linux that has support for systemd-shim (available here: https://github.com/knelsonmeister/systemd-shim)
+This repo contains the debian directory necessary to build a Debian Buster based debian package for MX Linux that has support for systemd-shim.  It needs a modified systemd-shim (available here: https://github.com/knelsonmeister/systemd-shim)
 
 ## Current Version: 241-5
 Based on: http://deb.debian.org/debian/pool/main/s/systemd/systemd_241-5.debian.tar.xz
