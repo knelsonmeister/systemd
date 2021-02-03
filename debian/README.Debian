@@ -96,3 +96,17 @@ dynamically manage /etc/resolv.conf:
   ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
 Debian's networkd has been modified to also work with the resolvconf package.
+
+KillUserProcesses behavior in Debian
+====================================
+
+If KillUserProcesses=yes is configured in logind.conf(5), the session scope
+will be terminated when the user logs out of that session.
+
+See logind.conf(5):
+
+| Note that setting KillUserProcesses=yes will break tools like screen(1) and
+| tmux(1), unless they are moved out of the session scope.
+
+The default for KillUserProcesses in /etc/systemd/logind.conf is set
+to "yes" in upstream systemd, though Debian defaults to "no" (see #825394).

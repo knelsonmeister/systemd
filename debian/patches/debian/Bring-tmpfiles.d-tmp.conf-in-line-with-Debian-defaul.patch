@@ -8,10 +8,10 @@ Closes: #675422
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/tmpfiles.d/tmp.conf b/tmpfiles.d/tmp.conf
-index 22555a0..8fb117f 100644
+index fe5225d..39cb5cc 100644
 --- a/tmpfiles.d/tmp.conf
 +++ b/tmpfiles.d/tmp.conf
-@@ -8,8 +8,8 @@
+@@ -8,5 +8,5 @@
  # See tmpfiles.d(5) for details
  
  # Clear tmp directories separately, to make them easier to override
@@ -19,6 +19,3 @@ index 22555a0..8fb117f 100644
 -q /var/tmp 1777 root root 30d
 +D /tmp 1777 root root -
 +#q /var/tmp 1777 root root 30d
- 
- # Exclude namespace mountpoints created with PrivateTmp=yes
- x /tmp/systemd-private-%b-*

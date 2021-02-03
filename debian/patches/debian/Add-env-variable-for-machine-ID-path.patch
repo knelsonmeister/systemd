@@ -20,7 +20,7 @@ Bug: https://bugs.freedesktop.org/show_bug.cgi?id=62344
  2 files changed, 8 insertions(+), 5 deletions(-)
 
 diff --git a/src/libsystemd/sd-id128/sd-id128.c b/src/libsystemd/sd-id128/sd-id128.c
-index e72af15..b194143 100644
+index d5de935..78612a0 100644
 --- a/src/libsystemd/sd-id128/sd-id128.c
 +++ b/src/libsystemd/sd-id128/sd-id128.c
 @@ -88,7 +88,7 @@ _public_ int sd_id128_get_machine(sd_id128_t *ret) {
@@ -33,20 +33,20 @@ index e72af15..b194143 100644
                          return r;
  
 diff --git a/src/test/test-fs-util.c b/src/test/test-fs-util.c
-index e049abc..fef8515 100644
+index d1f9252..4c93adb 100644
 --- a/src/test/test-fs-util.c
 +++ b/src/test/test-fs-util.c
-@@ -185,7 +185,7 @@ static void test_chase_symlinks(void) {
+@@ -211,7 +211,7 @@ static void test_chase_symlinks(void) {
          assert_se(streq(result, "/test-chase.fsldajfl"));
          result = mfree(result);
  
--        r = chase_symlinks("/etc/machine-id/foo", NULL, 0, &result);
-+        r = chase_symlinks("/etc/passwd/foo", NULL, 0, &result);
+-        r = chase_symlinks("/etc/machine-id/foo", NULL, 0, &result, NULL);
++        r = chase_symlinks("/etc/passwd/foo", NULL, 0, &result, NULL);
          assert_se(r == -ENOTDIR);
          result = mfree(result);
  
-@@ -258,23 +258,26 @@ static void test_chase_symlinks(void) {
-                 assert_se(chase_symlinks(q, NULL, CHASE_SAFE, NULL) >= 0);
+@@ -284,23 +284,26 @@ static void test_chase_symlinks(void) {
+                 assert_se(chase_symlinks(q, NULL, CHASE_SAFE, NULL, NULL) >= 0);
          }
  
 -        p = strjoina(temp, "/machine-id-test");
@@ -54,8 +54,8 @@ index e049abc..fef8515 100644
 +        p = strjoina(temp, "/passwd-test");
 +        assert_se(symlink("/usr/../etc/./passwd", p) >= 0);
  
-         pfd = chase_symlinks(p, NULL, CHASE_OPEN, NULL);
-         if (pfd != -ENOENT) {
+         r = chase_symlinks(p, NULL, 0, NULL, &pfd);
+         if (r != -ENOENT) {
                  _cleanup_close_ int fd = -1;
 +/*
                  sd_id128_t a, b;

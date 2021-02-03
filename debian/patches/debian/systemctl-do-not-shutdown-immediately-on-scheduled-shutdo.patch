@@ -1,0 +1,35 @@
+From: Ioanna Alifieraki <ioanna-maria.alifieraki@canonical.com>
+Date: Thu, 17 Dec 2020 14:52:07 +0000
+Subject: systemctl: do not shutdown immediately on scheduled shutdown
+
+When, for whatever reason, a scheduled shutdown fails to be set, systemd
+will proceed with immediate shutdown without allowing the user to react.
+This is counterintuitive because when a scheduled shutdown is issued,
+it means the user wants to shutdown at a specified time in the future,
+not immediately. This patch prevents the immediate shutdown and informs
+the user that no action will be taken.
+
+Fixes: #17575
+---
+ src/systemctl/systemctl-logind.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/systemctl/systemctl-logind.c b/src/systemctl/systemctl-logind.c
+index 405f12a..92a86a3 100644
+--- a/src/systemctl/systemctl-logind.c
++++ b/src/systemctl/systemctl-logind.c
+@@ -316,10 +316,10 @@ int logind_schedule_shutdown(void) {
+ 
+         r = bus_call_method(bus, bus_login_mgr, "ScheduleShutdown", &error, NULL, "st", action, arg_when);
+         if (r < 0)
+-                return log_warning_errno(r, "Failed to call ScheduleShutdown in logind, proceeding with immediate shutdown: %s", bus_error_message(&error, r));
+-
+-        if (!arg_quiet)
+-                log_info("%s scheduled for %s, use 'shutdown -c' to cancel.", log_action, format_timestamp_style(date, sizeof(date), arg_when, arg_timestamp_style));
++                log_warning_errno(r, "Failed to call ScheduleShutdown in logind, no action will be taken: %s", bus_error_message(&error, r));
++        else
++                if (!arg_quiet)
++                        log_info("%s scheduled for %s, use 'shutdown -c' to cancel.", log_action, format_timestamp_style(date, sizeof(date), arg_when, arg_timestamp_style));
+         return 0;
+ #else
+         return log_error_errno(SYNTHETIC_ERRNO(ENOSYS),

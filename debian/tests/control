@@ -94,7 +94,7 @@ Depends: systemd-tests,
   tree,
   perl,
   xz-utils,
-Restrictions: needs-root, allow-stderr, isolation-container
+Restrictions: needs-root, allow-stderr, isolation-container, skippable
 
 Tests: root-unittests
 Depends: systemd-tests,
@@ -108,7 +108,8 @@ Depends: systemd-tests,
   acl,
   iputils-ping,
   dbus-user-session,
-Restrictions: needs-root, allow-stderr, isolation-container
+  zstd,
+Restrictions: needs-root, allow-stderr, isolation-container, breaks-testbed
 
 Tests: upstream
 Depends: libsystemd-dev,
@@ -119,6 +120,7 @@ Depends: libsystemd-dev,
   iproute2,
   liblz4-tool,
   acl,
+  dmeventd,
   kbd,
   cryptsetup-bin,
   net-tools,
@@ -127,7 +129,9 @@ Depends: libsystemd-dev,
   strace,
   qemu-system-x86 [amd64 i386],
   qemu-system-arm [arm64 armhf],
+  qemu-system-ppc [ppc64el],
   qemu-system-s390x [s390x],
+  seabios,
   less,
   pkg-config,
   gcc,
@@ -143,6 +147,8 @@ Depends: libsystemd-dev,
   busybox-static,
   plymouth,
   e2fsprogs,
+  zstd,
+  squashfs-tools,
 Restrictions: needs-root, allow-stderr, isolation-machine
 
 Tests: boot-smoke

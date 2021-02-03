@@ -12,7 +12,7 @@ names for PCI cards such as "enp0s1" for ethernet, or wlp1s0" for a WIFI card
 so that replacing a broken network card does not change the name  (as long
 as the new card is fitted into the bus in the old card's slot.) As location
 based naming does not work well for USB devices, these use a MAC based naming
-schema (see /lib/udev/rules.d/73-usb-net-by-mac.rules).
+schema (see /lib/systemd/network/73-usb-net-by-mac.link).
 
 This has been enabled by default since udev 220-7, which affects new
 installations/hardware. Existing installations/hardware which already got
@@ -28,6 +28,7 @@ You can disable these stable names and go back to the kernel-provided ones
 
   - Disable the default *.link rules with
     "ln -s /dev/null /etc/systemd/network/99-default.link"
+    "ln -s /dev/null /etc/systemd/network/73-usb-net-by-mac.link"
     and rebuild the initrd with "update-initramfs -u".
 
 See this page for more information:
@@ -128,7 +129,7 @@ interfaces. These can be customized in two different ways:
    (kernel/bios/path/MAC based naming) in an /etc/systemd/network/*.link file,
    for individual devices or entire device classes. See man systemd.link(5) for
    details about this. /lib/systemd/network/99-default.link is the default
-   policy. Note that /lib/udev/rules.d/73-usb-net-by-mac.rules uses MAC based
+   policy. Note that /lib/systemd/network/73-usb-net-by-mac.link uses MAC based
    names for USB devices.
 
 Any of the above changes require an initrd update with "update-initramfs -u" to

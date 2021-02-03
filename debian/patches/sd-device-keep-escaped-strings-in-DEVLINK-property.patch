@@ -1,0 +1,29 @@
+From: Yu Watanabe <watanabe.yu+github@gmail.com>
+Date: Sun, 6 Dec 2020 21:10:34 +0900
+Subject: sd-device: keep escaped strings in DEVLINK= property
+
+This fixes a bug introduced by 87a4d416e5126b6fb2528ae192a6a6a8033539ce.
+
+Fixes #17772.
+
+(cherry picked from commit 31063db0b4842a452c6eadde5b969aaee2a0516a)
+---
+ src/libsystemd/sd-device/device-private.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/libsystemd/sd-device/device-private.c b/src/libsystemd/sd-device/device-private.c
+index 2801ebd..9070dfb 100644
+--- a/src/libsystemd/sd-device/device-private.c
++++ b/src/libsystemd/sd-device/device-private.c
+@@ -319,7 +319,10 @@ static int device_amend(sd_device *device, const char *key, const char *value) {
+                 for (const char *p = value;;) {
+                         _cleanup_free_ char *word = NULL;
+ 
+-                        r = extract_first_word(&p, &word, NULL, 0);
++                        /* udev rules may set escaped strings, and sd-device does not modify the input
++                         * strings. So, it is also necessary to keep the strings received through
++                         * sd-device-monitor. */
++                        r = extract_first_word(&p, &word, NULL, EXTRACT_RETAIN_ESCAPE);
+                         if (r < 0)
+                                 return r;
+                         if (r == 0)

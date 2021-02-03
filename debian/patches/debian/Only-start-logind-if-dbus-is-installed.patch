@@ -11,13 +11,13 @@ Part of #772700
  1 file changed, 1 insertion(+)
 
 diff --git a/units/systemd-logind.service.in b/units/systemd-logind.service.in
-index 38a7f26..16f1d9d 100644
+index f131b60..952a07c 100644
 --- a/units/systemd-logind.service.in
 +++ b/units/systemd-logind.service.in
-@@ -14,6 +14,7 @@ Documentation=https://www.freedesktop.org/wiki/Software/systemd/logind
- Documentation=https://www.freedesktop.org/wiki/Software/systemd/multiseat
- Wants=user.slice
- After=nss-user-lookup.target user.slice
+@@ -16,6 +16,7 @@ Documentation=man:org.freedesktop.login1(5)
+ 
+ Wants=user.slice modprobe@drm.service
+ After=nss-user-lookup.target user.slice modprobe@drm.service
 +ConditionPathExists=/lib/systemd/system/dbus.service
  
  # Ask for the dbus socket.

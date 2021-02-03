@@ -4,53 +4,68 @@
 # Author: Martin Pitt <martin.pitt@ubuntu.com>
 
 import os
-import sys
-import unittest
-import subprocess
-import time
 import random
+import subprocess
+import sys
+import time
+import unittest
+
 from glob import glob
+from threading import Thread
 
 
-@unittest.skipIf(os.path.isdir('/sys/module/scsi_debug'),
-                 'The scsi_debug module is already loaded')
+TIMEOUT_SERVICE_START = 10
+TIMEOUT_PASSWORD_AGENT_STOP = 10
+TIMEOUT_PLAINTEXT_DEV = 30
+TIMEOUT_SCSI_DEBUG_ADD_HOST = 5
+
+SCSI_DEBUG_DIR = '/sys/bus/pseudo/drivers/scsi_debug'
+
 class FakeDriveTestBase(unittest.TestCase):
     @classmethod
-    def setUpClass(klass):
-        # create a fake SCSI hard drive
-        subprocess.check_call(['modprobe', 'scsi_debug', 'dev_size_mb=32'])
-        # wait until drive got created
-        sys_dirs = []
-        while not sys_dirs:
-            sys_dirs = glob('/sys/bus/pseudo/drivers/scsi_debug/adapter*/host*/target*/*:*/block')
-            time.sleep(0.1)
-        assert len(sys_dirs) == 1
-        devs = os.listdir(sys_dirs[0])
-        assert len(devs) == 1
-        klass.device = '/dev/' + devs[0]
+    def setUpClass(cls):
+        if os.path.isdir(SCSI_DEBUG_DIR):
+            return
 
-    @classmethod
-    def tearDownClass(klass):
-        # create a fake SCSI hard drive
-        subprocess.check_call(['rmmod', 'scsi_debug'])
+        # Consider missing scsi_debug module a test failure
+        subprocess.check_call(['modprobe', 'scsi_debug', 'dev_size_mb=32'])
+        assert os.path.isdir(SCSI_DEBUG_DIR)
+
+    def setUp(self):
+        existing_adapters = set(glob(os.path.join(SCSI_DEBUG_DIR, 'adapter*')))
+        with open(os.path.join(SCSI_DEBUG_DIR, 'add_host'), 'w') as f:
+            f.write('1')
+        new_adapters = set(glob(os.path.join(SCSI_DEBUG_DIR, 'adapter*'))) - existing_adapters
+        self.assertEqual(len(new_adapters), 1)
+        self.adapter = new_adapters.pop()
+        for timeout in range(TIMEOUT_SCSI_DEBUG_ADD_HOST):
+            devices = set(glob(os.path.join(self.adapter, 'host*/target*/*:*/block/*')))
+            if len(devices) > 0:
+                break
+            time.sleep(1)
+        else:
+            self.fail('Timed out waiting for scsi_debug block device name')
+        self.assertEqual(len(devices), 1)
+        self.device = os.path.join('/dev/', os.path.basename(devices.pop()))
 
     def tearDown(self):
-        # clear drive
-        with open(self.device, 'wb') as f:
-            block = b'0' * 1048576
-            try:
-                while True:
-                    f.write(block)
-            except OSError:
-                pass
-        subprocess.check_call(['udevadm', 'settle'])
-        subprocess.check_call(['systemctl', 'daemon-reload'])
+        existing_adapters = set(glob(os.path.join(SCSI_DEBUG_DIR, 'adapter*')))
+        with open(os.path.join(SCSI_DEBUG_DIR, 'add_host'), 'w') as f:
+            f.write('-1')
+        removed_adapters = existing_adapters - set(glob(os.path.join(SCSI_DEBUG_DIR, 'adapter*')))
+        self.assertEqual(len(removed_adapters), 1)
+        adapter = removed_adapters.pop()
+        self.assertEqual(self.adapter, adapter)
+        self.adapter = None
+        self.device = None
 
 
 class CryptsetupTest(FakeDriveTestBase):
     def setUp(self):
-        self.plaintext_name = 'testcrypt1'
+        testname = self.id().split('.')[-1]
+        self.plaintext_name = 'testcrypt_%s' % testname
         self.plaintext_dev = '/dev/mapper/' + self.plaintext_name
+        self.service_name = 'systemd-cryptsetup@%s.service' % self.plaintext_name
         if os.path.exists(self.plaintext_dev):
             self.fail('%s exists already' % self.plaintext_dev)
 
@@ -60,17 +75,26 @@ class CryptsetupTest(FakeDriveTestBase):
             os.rename('/etc/crypttab', '/etc/crypttab.systemdtest')
         self.password = 'pwd%i' % random.randint(1000, 10000)
         self.password_agent = None
+        self.password_agent_stop = False
 
     def tearDown(self):
         if self.password_agent:
-            os.kill(self.password_agent, 9)
-            os.waitpid(self.password_agent, 0)
+            self.password_agent_stop = True
+            self.password_agent.join(timeout=TIMEOUT_PASSWORD_AGENT_STOP)
+            self.assertFalse(self.password_agent.is_alive())
             self.password_agent = None
+        for timeout in range(TIMEOUT_SERVICE_START):
+            state = subprocess.run(['systemctl', 'show', '--no-pager', self.service_name, '--property', 'ActiveState'],
+                                   stdout=subprocess.PIPE, universal_newlines=True).stdout
+            state = state.strip().replace('ActiveState=', '', 1)
+            if state in ['active', 'failed']:
+                break
+            time.sleep(1)
+        else:
+            self.fail('Timed out waiting for %s to start (or fail)' % self.service_name)
         subprocess.call(['umount', self.plaintext_dev], stderr=subprocess.DEVNULL)
-        subprocess.call(['systemctl', 'start', '--no-ask-password', 'systemd-cryptsetup@%s.service' % self.plaintext_name],
-                        stderr=subprocess.STDOUT)
-        subprocess.call(['systemctl', 'stop', 'systemd-cryptsetup@%s.service' % self.plaintext_name],
-                        stderr=subprocess.STDOUT)
+        if state == 'active':
+            subprocess.call(['systemctl', 'stop', self.service_name], stderr=subprocess.STDOUT)
         if os.path.exists('/etc/crypttab'):
             os.unlink('/etc/crypttab')
         if os.path.exists('/etc/crypttab.systemdtest'):
@@ -78,6 +102,7 @@ class CryptsetupTest(FakeDriveTestBase):
         if os.path.exists(self.plaintext_dev):
             subprocess.call(['dmsetup', 'remove', self.plaintext_dev],
                             stderr=subprocess.STDOUT)
+        subprocess.check_call(['systemctl', 'daemon-reload'])
 
         super().tearDown()
 
@@ -94,21 +119,18 @@ class CryptsetupTest(FakeDriveTestBase):
     def start_password_agent(self):
         '''Run password agent to answer passphrase request for crypt device'''
 
-        pid = os.fork()
-        if pid > 0:
-            self.password_agent = pid
-            return
-
         # wait for incoming request
         found = False
         while not found:
             for ask in glob('/run/systemd/ask-password/ask.*'):
                 with open(ask) as f:
                     contents = f.read()
-                    if 'disk scsi_debug' in contents and self.plaintext_name in contents:
+                    if self.plaintext_name in contents:
                         found = True
                         break
             if not found:
+                if self.password_agent_stop:
+                    return
                 time.sleep(0.5)
 
         # parse Socket=
@@ -116,28 +138,29 @@ class CryptsetupTest(FakeDriveTestBase):
             if line.startswith('Socket='):
                 socket = line.split('=', 1)[1]
                 break
+        else:
+            self.fail('Could not find socket')
 
         # send reply
         p = subprocess.Popen(['/lib/systemd/systemd-reply-password', '1', socket],
                              stdin=subprocess.PIPE)
         p.communicate(self.password.encode())
-        assert p.returncode == 0
-
-        os._exit(0)
+        self.assertEqual(p.returncode, 0)
 
     def apply(self, target):
         '''Tell systemd to generate and run the cryptsetup units'''
 
         subprocess.check_call(['systemctl', 'daemon-reload'])
 
-        self.start_password_agent()
+        self.password_agent = Thread(target=self.start_password_agent);
+        self.password_agent.start()
         subprocess.check_call(['systemctl', '--no-ask-password', 'restart', target])
-        for timeout in range(50):
+        for timeout in range(TIMEOUT_PLAINTEXT_DEV):
             if os.path.exists(self.plaintext_dev):
                 break
-            time.sleep(0.1)
+            time.sleep(1)
         else:
-            self.fail('timed out for %s to appear' % self.plaintext_dev)
+            self.fail('Timed out waiting for %s to appear' % self.plaintext_dev)
 
     def test_luks_by_devname(self):
         '''LUKS device by plain device name, empty'''
@@ -205,9 +228,9 @@ class CryptsetupTest(FakeDriveTestBase):
         with open('/proc/mounts') as f:
             self.assertNotIn(self.plaintext_name, f.read())
 
-        # device should be formatted with ext2
+        # device should be formatted with ext2 or (with newer systemd) ext4
         out = subprocess.check_output(['blkid', '-ovalue', '-sTYPE', self.plaintext_dev])
-        self.assertEqual(out, b'ext2\n')
+        self.assertRegex(out, b'ext[24]')
 
     def test_luks_fstab(self):
         '''LUKS device in /etc/fstab'''
@@ -224,7 +247,7 @@ class CryptsetupTest(FakeDriveTestBase):
         with open('/etc/fstab', 'a') as f:
             with open('/etc/fstab.systemdtest') as forig:
                 f.write(forig.read())
-            f.write('%s %s ext2 defaults 0 0\n' % (self.plaintext_dev, mountpoint))
+            f.write('%s %s auto defaults 0 0\n' % (self.plaintext_dev, mountpoint))
 
         # this should now be a requirement of local-fs.target
         self.apply('local-fs.target')
@@ -236,7 +259,7 @@ class CryptsetupTest(FakeDriveTestBase):
                 fields = line.split()
                 if fields[0] == self.plaintext_dev:
                     self.assertEqual(fields[1], mountpoint)
-                    self.assertEqual(fields[2], 'ext2')
+                    self.assertRegex(fields[2], 'ext[24]')
                     found = True
                     break
         if not found:

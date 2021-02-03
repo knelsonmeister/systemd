@@ -1,0 +1,69 @@
+From: Michael Biebl <biebl@debian.org>
+Date: Mon, 17 Aug 2020 22:11:19 +0200
+Subject: Keep journal files compatible with older versions
+
+Disable the KEYED-HASH journal feature by default and keep LZ4 (instead
+of ZSTD) as default compression for new journal files. Otherwise journal
+files are incompatible and can't be read by older journalctl
+implementations.
+
+This patch can be dropped in bullseye+1, as journalctl from bullseye
+will then be able to read journal files with those features.
+
+Closes: #968055
+---
+ src/journal/compress.h     | 10 +++++-----
+ src/journal/journal-file.c |  8 ++++----
+ 2 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/src/journal/compress.h b/src/journal/compress.h
+index db7f399..6cd9290 100644
+--- a/src/journal/compress.h
++++ b/src/journal/compress.h
+@@ -18,14 +18,14 @@ int compress_blob_zstd(const void *src, uint64_t src_size,
+ static inline int compress_blob(const void *src, uint64_t src_size,
+                                 void *dst, size_t dst_alloc_size, size_t *dst_size) {
+         int r;
+-#if HAVE_ZSTD
+-        r = compress_blob_zstd(src, src_size, dst, dst_alloc_size, dst_size);
+-        if (r == 0)
+-                return OBJECT_COMPRESSED_ZSTD;
+-#elif HAVE_LZ4
++#if HAVE_LZ4
+         r = compress_blob_lz4(src, src_size, dst, dst_alloc_size, dst_size);
+         if (r == 0)
+                 return OBJECT_COMPRESSED_LZ4;
++#elif HAVE_ZSTD
++        r = compress_blob_zstd(src, src_size, dst, dst_alloc_size, dst_size);
++        if (r == 0)
++                return OBJECT_COMPRESSED_ZSTD;
+ #elif HAVE_XZ
+         r = compress_blob_xz(src, src_size, dst, dst_alloc_size, dst_size);
+         if (r == 0)
+diff --git a/src/journal/journal-file.c b/src/journal/journal-file.c
+index bd9f9fe..35a61ff 100644
+--- a/src/journal/journal-file.c
++++ b/src/journal/journal-file.c
+@@ -3370,10 +3370,10 @@ int journal_file_open(
+                 .prot = prot_from_flags(flags),
+                 .writable = (flags & O_ACCMODE) != O_RDONLY,
+ 
+-#if HAVE_ZSTD
+-                .compress_zstd = compress,
+-#elif HAVE_LZ4
++#if HAVE_LZ4
+                 .compress_lz4 = compress,
++#elif HAVE_ZSTD
++                .compress_zstd = compress,
+ #elif HAVE_XZ
+                 .compress_xz = compress,
+ #endif
+@@ -3391,7 +3391,7 @@ int journal_file_open(
+         if (r < 0) {
+                 if (r != -ENXIO)
+                         log_debug_errno(r, "Failed to parse $SYSTEMD_JOURNAL_KEYED_HASH environment variable, ignoring.");
+-                f->keyed_hash = true;
++                f->keyed_hash = false;
+         } else
+                 f->keyed_hash = r;
+ 

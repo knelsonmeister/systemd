@@ -45,4 +45,3 @@ if diff --unified=0 $BL $BL.tmp; then
 else
   printf "\n\n\n$BL.tmp has changes!\n\n\n\n"
 fi
-

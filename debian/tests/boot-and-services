@@ -87,7 +87,7 @@ class ServicesTest(unittest.TestCase):
         else:
             out = subprocess.check_output(['nmcli', 'nm'])
         self.assertIn(b'enabled', out)
-        self.active_unit('network-manager')
+        self.active_unit('NetworkManager')
 
     def test_cron(self):
         out = subprocess.check_output(['ps', 'u', '-C', 'cron'])
@@ -109,7 +109,7 @@ class ServicesTest(unittest.TestCase):
             log = f.read()
         if not is_container:
             # has kernel messages
-            self.assertRegex(log, 'kernel:.*[cC]ommand line:')
+            self.assertRegex(log, 'kernel:.*')
         # has init messages
         self.assertRegex(log, 'systemd.*Reached target Graphical Interface')
         # has other services
@@ -124,14 +124,17 @@ class ServicesTest(unittest.TestCase):
     def test_tmp_mount(self):
         # check if we want to mount /tmp in fstab
         want_tmp_mount = False
-        with open('/etc/fstab') as f:
-            for l in f:
-                try:
-                    if not l.startswith('#') and l.split()[1] in ('/tmp', '/tmp/'):
-                        want_tmp_mount = True
-                        break
-                except IndexError:
-                    pass
+        try:
+            with open('/etc/fstab') as f:
+                for l in f:
+                    try:
+                        if not l.startswith('#') and l.split()[1] in ('/tmp', '/tmp/'):
+                            want_tmp_mount = True
+                            break
+                    except IndexError:
+                        pass
+        except FileNotFoundError:
+            pass
 
         # ensure that we actually do/don't have a /tmp mount
         (status, status_out) = subprocess.getstatusoutput('systemctl status tmp.mount')
@@ -186,7 +189,7 @@ class JournalTest(unittest.TestCase):
         out = subprocess.check_output(['journalctl'])
         if not is_container:
             # has kernel messages
-            self.assertRegex(out, b'kernel:.*[cC]ommand line:')
+            self.assertRegex(out, b'kernel:.*')
         # has init messages
         self.assertRegex(out, b'systemd.*Reached target Graphical Interface')
         # has other services
@@ -418,7 +421,7 @@ SystemCallFilter=access
         subprocess.check_call(['systemctl', 'reset-failed', 'scfail.service'])
 
         self.assertIn(b'failed', out)
-        self.assertIn(b'code=killed, signal=SYS', out)
+        self.assertRegex(out, b'code=(killed|dumped), signal=SYS')
         with open('/etc/machine-id') as f:
             self.assertNotIn(f.read().strip().encode('ASCII'), out)
 

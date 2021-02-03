@@ -17,13 +17,13 @@ Closes: #903224
  1 file changed, 2 deletions(-)
 
 diff --git a/units/systemd-udevd.service.in b/units/systemd-udevd.service.in
-index 6a3814e..2b9fa69 100644
+index f3458d9..225eac2 100644
 --- a/units/systemd-udevd.service.in
 +++ b/units/systemd-udevd.service.in
-@@ -29,8 +29,6 @@ PrivateMounts=yes
- MemoryDenyWriteExecute=yes
- RestrictRealtime=yes
+@@ -35,8 +35,6 @@ MemoryDenyWriteExecute=yes
  RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+ RestrictRealtime=yes
+ RestrictSUIDSGID=yes
 -SystemCallFilter=@system-service @module @raw-io
 -SystemCallErrorNumber=EPERM
  SystemCallArchitectures=native

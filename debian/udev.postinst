@@ -1,4 +1,6 @@
-#!/bin/sh -e
+#!/bin/sh
+
+set -e
 
 chrooted() {
   if [ "$(stat -c %d/%i /)" = "$(stat -Lc %d/%i /proc/1/root 2>/dev/null)" ];
@@ -35,57 +37,7 @@ enable_udev() {
   invoke-rc.d udev start
 }
 
-update_initramfs() {
-  [ -x /usr/sbin/update-initramfs -a -e /etc/initramfs-tools/initramfs.conf ] \
-    || return 0
-  update-initramfs -u
-}
-
 upgrade_fixes() {
-  if dpkg --compare-versions "$2" lt "226-1"; then
-    update-rc.d udev-finish remove
-  fi
-
-  # we enabled net.ifnames in 220-7 by default; don't change iface names in
-  # virtualized envs (where 75-persistent-net-generator.rules didn't work)
-  if dpkg --compare-versions "$2" lt-nl "220-7~" &&
-     [ ! -e /etc/udev/rules.d/70-persistent-net.rules ] &&
-     [ ! -e /etc/udev/rules.d/80-net-setup-link.rules ] &&
-     [ ! -e /etc/systemd/network/99-default.link ] &&
-     [ ! -L /etc/systemd/network/99-default.link ] &&
-     ! grep -q net.ifnames /proc/cmdline && ! chrooted; then
-    mkdir -p /etc/systemd/network
-    cat <<EOF > /etc/systemd/network/99-default.link
-# This machine is most likely a virtualized guest, where the old persistent
-# network interface mechanism (75-persistent-net-generator.rules) did not work.
-# This file disables /lib/systemd/network/99-default.link to avoid
-# changing network interface names on upgrade. Please read
-# /usr/share/doc/udev/README.Debian.gz about how to migrate to the currently
-# supported mechanism.
-EOF
-  fi
-
-  # 226 introduced predictable interface names for virtio
-  # (https://github.com/systemd/systemd/pull/1119); disable for upgrades
-  if dpkg --compare-versions "$2" lt-nl "226-2~" &&
-      [ ! -e /etc/systemd/network/50-virtio-kernel-names.link ] &&
-      ls -d /sys/bus/virtio/drivers/virtio_net/virt* >/dev/null 2>&1; then
-    echo "virtio network devices detected, disabling predictable interface names in /etc/systemd/network/50-virtio-kernel-names.link"
-    mkdir -p /etc/systemd/network/
-    cat <<EOF > /etc/systemd/network/50-virtio-kernel-names.link
-# udev 226 introduced predictable interface names for virtio;
-# disable this for upgrades. You can remove this file if you update your
-# network configuration to move to the ens* names instead.
-# See /usr/share/doc/udev/README.Debian.gz for details about predictable
-# network interface names.
-[Match]
-Driver=virtio_net
-
-[Link]
-NamePolicy=onboard kernel
-EOF
-  fi
-
   # new Default-Stop (see #791944)
   if dpkg --compare-versions "$2" lt-nl "239-8"; then
     update-rc.d -f udev remove
@@ -125,8 +77,6 @@ case "$1" in
 	fi
       fi
     fi
-
-    update_initramfs
     ;;
 
     triggered)
@@ -136,4 +86,3 @@ case "$1" in
 esac
 
 #DEBHELPER#
-

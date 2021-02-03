@@ -8,8 +8,11 @@ set -e
 . `dirname $0`/assert.sh
 
 fail() {
+    [ -n "$1" ] && echo "$1"
+    set +e
     journalctl --sync
     journalctl -a > "$AUTOPKGTEST_ARTIFACTS/boot-smoke-journal.txt"
+    systemctl --no-pager --no-legend list-jobs > "$AUTOPKGTEST_ARTIFACTS/boot-smoke-running-jobs.txt"
     udevadm info --export-db > "$AUTOPKGTEST_ARTIFACTS/boot-smoke-udevdb.txt"
     exit 1
 }
@@ -36,31 +39,43 @@ EOF
         done
     fi
 else
+    echo "waiting to boot..."
+    TIMEOUT=35
+    while [ $TIMEOUT -ge 0 ]; do
+        state="$(systemctl is-system-running || true)"
+        case $state in
+            running|degraded)
+                break
+                ;;
+            *)
+                sleep 1
+                TIMEOUT=$((TIMEOUT - 1))
+		;;
+        esac
+    done
+
+    echo "checking for running system"
+    if [ "$state" = "degraded" ]; then
+        systemctl --no-pager --no-legend --failed list-units > "$AUTOPKGTEST_ARTIFACTS/boot-smoke-failed-units.txt" || true
+        echo "systemctl is-system-running: degraded (non-fatal)"
+    elif [ "$state" != "running" ]; then
+        fail "system not running after timeout $RUNNING_TIMEOUT, state: $state"
+    fi
+
     echo "checking for failed unmounts for user systemd"
     # grep complete journal to catch shutdown messages
     if journalctl | grep -E "systemd\[([2-9]|[1-9][0-9]+)\].*Failed unmounting"; then
-        fail
+        fail "found failed unmount in journal"
     fi
+
     # grep only this boot's journal, earlier ones complain about missing "render" group
     echo "checking for connection timeouts"
     if journalctl -b | grep "Connection timed out"; then
-        fail
+        fail "found connection timeout in journal for this boot"
     fi
 
-    echo "checking that polkitd runs"
-    pidof polkitd
-
-    echo "checking that there are no running jobs"
-    TIMEOUT=10
-    while [ $TIMEOUT -ge 0 ]; do
-        running="$(systemctl --no-pager --no-legend list-jobs || true)"
-        [ -n "$running" ] || break
-        TIMEOUT=$((TIMEOUT - 1))
-    done
-    if [ -n "$running" ]; then
-        echo "running jobs after remaining timeout $TIMEOUT: $running"
-        fail
-    fi
+    echo "checking that NetworkManager runs"
+    pidof NetworkManager || fail "NetworkManager was not running"
 fi
 
 if [ "$AUTOPKGTEST_REBOOT_MARK" -ge 5 ]; then

@@ -19,10 +19,10 @@ Bug-Debian: https://bugs.debian.org/815020
  2 files changed, 1 insertion(+), 3 deletions(-)
 
 diff --git a/src/core/main.c b/src/core/main.c
-index 561f956..9ab9024 100644
+index a280b75..5c2a73a 100644
 --- a/src/core/main.c
 +++ b/src/core/main.c
-@@ -2454,8 +2454,6 @@ int main(int argc, char *argv[]) {
+@@ -2669,8 +2669,6 @@ int main(int argc, char *argv[]) {
                          kernel_timestamp = DUAL_TIMESTAMP_NULL;
                  }
  
@@ -32,12 +32,15 @@ index 561f956..9ab9024 100644
                  if (r < 0) {
                          log_emergency_errno(r, "Failed to fix up PID 1 environment: %m");
 diff --git a/sysctl.d/50-coredump.conf.in b/sysctl.d/50-coredump.conf.in
-index ccd5c2c..53e74a1 100644
+index 4338756..8e501c4 100644
 --- a/sysctl.d/50-coredump.conf.in
 +++ b/sysctl.d/50-coredump.conf.in
-@@ -9,4 +9,4 @@
- # and systemd-coredump(8) and core(5) for the explanation of the
- # setting below.
+@@ -13,7 +13,7 @@
+ # the core dump.
+ #
+ # See systemd-coredump(8) and core(5).
+-kernel.core_pattern=|@rootlibexecdir@/systemd-coredump %P %u %g %s %t %c %h
++kernel.core_pattern=|@rootlibexecdir@/systemd-coredump %P %u %g %s %t 9223372036854775808 %h
  
--kernel.core_pattern=|@rootlibexecdir@/systemd-coredump %P %u %g %s %t %c %h %e
-+kernel.core_pattern=|@rootlibexecdir@/systemd-coredump %P %u %g %s %t 9223372036854775808 %h %e
+ # Allow that 16 coredumps are dispatched in parallel by the kernel. We want to
+ # be able to collect process metadata from /proc/%P/ while processing
