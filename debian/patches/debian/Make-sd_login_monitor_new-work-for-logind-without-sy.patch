@@ -15,7 +15,7 @@ diff --git a/src/libsystemd/sd-login/sd-login.c b/src/libsystemd/sd-login/sd-log
 index c2f7133..7594d25 100644
 --- a/src/libsystemd/sd-login/sd-login.c
 +++ b/src/libsystemd/sd-login/sd-login.c
-@@ -990,8 +990,12 @@ _public_ int sd_login_monitor_new(const char *category, sd_login_monitor **m) {
+@@ -988,8 +988,12 @@ _public_ int sd_login_monitor_new(const char *category, sd_login_monitor **m) {
  
          if (!category || streq(category, "machine")) {
                  k = inotify_add_watch(fd, "/run/systemd/machines/", IN_MOVED_TO|IN_DELETE);

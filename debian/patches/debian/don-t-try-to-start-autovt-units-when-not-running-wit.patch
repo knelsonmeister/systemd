@@ -12,15 +12,15 @@ diff --git a/src/login/logind-core.c b/src/login/logind-core.c
 index dbae4bf..d391bce 100644
 --- a/src/login/logind-core.c
 +++ b/src/login/logind-core.c
-@@ -25,6 +25,7 @@
- #include "strv.h"
- #include "terminal-util.h"
+@@ -28,6 +28,7 @@
  #include "user-util.h"
+ #include "userdb.h"
+ #include "utmp-wtmp.h"
 +#include "sd-daemon.h"
  
  void manager_reset_config(Manager *m) {
          assert(m);
-@@ -538,6 +539,11 @@ int manager_spawn_autovt(Manager *m, unsigned int vtnr) {
+@@ -522,6 +522,11 @@ int manager_spawn_autovt(Manager *m, unsigned int vtnr) {
              vtnr != m->reserve_vt)
                  return 0;
  
