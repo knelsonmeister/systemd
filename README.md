@@ -14,7 +14,7 @@ Based on: http://deb.debian.org/debian/pool/main/s/systemd/systemd_247.2-5.debia
 ```
 wget http://deb.debian.org/debian/pool/main/s/systemd/systemd_247.2.orig.tar.gz
 tar xf systemd_247.2.orig.tar.gz
-cd systemd-247.2
+cd systemd-stable-247.2
 git clone https://github.com/knelsonmeister/systemd.git
 ln -s debian/patches .
 quilt push -a
