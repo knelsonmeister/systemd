@@ -411,7 +411,7 @@ index 697133a..4e1fedb 100644
          return r;
  }
 diff --git a/src/timedate/timedated.c b/src/timedate/timedated.c
-index 8bfcfd5..0f429a2 100644
+index 8149fac..42c8277 100644
 --- a/src/timedate/timedated.c
 +++ b/src/timedate/timedated.c
 @@ -283,6 +283,8 @@ static int context_read_data(Context *c) {

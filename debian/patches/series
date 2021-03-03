@@ -1,6 +1,3 @@
-sd-device-keep-escaped-strings-in-DEVLINK-property.patch
-test-fix-fd_is_mount_point-check.patch
-test-use-modern-qemu-numa-arguments.patch
 Add-helper-for-case-independent-string-equality-checks.patch
 localed-Run-locale-gen-if-available-to-generate-missing-l.patch
 debian/Use-Debian-specific-config-files.patch
@@ -24,8 +21,3 @@ debian/Keep-journal-files-compatible-with-older-versions.patch
 debian/Move-sysusers.d-sysctl.d-binfmt.d-modules-load.d-back-to-.patch
 debian/systemctl-do-not-shutdown-immediately-on-scheduled-shutdo.patch
 debian/test-disable-DnsmasqClientTest.test_resolved_etc_hosts-in.patch
-debian/don-t-try-to-start-autovt-units-when-not-running-wit.patch
-debian/Make-logind-hostnamed-localed-timedated-D-Bus-activa.patch
-debian/Start-logind-on-demand-via-libpam-systemd.patch
-debian/Make-sd_login_monitor_new-work-for-logind-without-sy.patch
-debian/Restore-old-user-runtime-path-functionality.patch

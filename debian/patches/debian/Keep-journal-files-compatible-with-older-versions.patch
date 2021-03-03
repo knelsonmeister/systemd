@@ -41,10 +41,10 @@ index db7f399..6cd9290 100644
          r = compress_blob_xz(src, src_size, dst, dst_alloc_size, dst_size);
          if (r == 0)
 diff --git a/src/journal/journal-file.c b/src/journal/journal-file.c
-index bd9f9fe..35a61ff 100644
+index 15336be..6ce18c9 100644
 --- a/src/journal/journal-file.c
 +++ b/src/journal/journal-file.c
-@@ -3370,10 +3370,10 @@ int journal_file_open(
+@@ -3411,10 +3411,10 @@ int journal_file_open(
                  .prot = prot_from_flags(flags),
                  .writable = (flags & O_ACCMODE) != O_RDONLY,
  
@@ -58,7 +58,7 @@ index bd9f9fe..35a61ff 100644
  #elif HAVE_XZ
                  .compress_xz = compress,
  #endif
-@@ -3391,7 +3391,7 @@ int journal_file_open(
+@@ -3432,7 +3432,7 @@ int journal_file_open(
          if (r < 0) {
                  if (r != -ENXIO)
                          log_debug_errno(r, "Failed to parse $SYSTEMD_JOURNAL_KEYED_HASH environment variable, ignoring.");
