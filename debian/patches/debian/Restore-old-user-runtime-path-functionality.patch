@@ -14,7 +14,7 @@ Restore the old user-runtime-path functionality for systems that default sysvini
 
  #include "alloc-util.h"
  #include "bus-common-errors.h"
-@@ -22,10 +23,12 @@
+@@ -22,10 +23,13 @@
  #include "logind-user.h"
  #include "logind-user-dbus.h"
  #include "mkdir.h"
@@ -22,12 +22,13 @@ Restore the old user-runtime-path functionality for systems that default sysvini
  #include "parse-util.h"
  #include "path-util.h"
  #include "rm-rf.h"
++#include "sd-daemon.h"
  #include "serialize.h"
 +#include "smack-util.h"
  #include "special.h"
  #include "stdio-util.h"
  #include "string-table.h"
-@@ -337,6 +340,58 @@ int user_load(User *u) {
+@@ -337,6 +341,58 @@ int user_load(User *u) {
          return 0;
  }
  
@@ -86,7 +87,7 @@ Restore the old user-runtime-path functionality for systems that default sysvini
  static void user_start_service(User *u) {
          _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
          int r;
-@@ -438,6 +493,8 @@ static int user_update_slice(User *u)
+@@ -438,6 +494,8 @@ static int user_update_slice(User *u)
  }
  
  int user_start(User *u) {
@@ -95,7 +96,7 @@ Restore the old user-runtime-path functionality for systems that default sysvini
          assert(u);
  
          if (u->started && !u->stopping)
-@@ -449,9 +506,15 @@ int user_start(User *u) {
+@@ -449,9 +507,17 @@ int user_start(User *u) {
           * so possibly pending units are stopped. */
          u->stopping = false;
  
@@ -103,16 +104,18 @@ Restore the old user-runtime-path functionality for systems that default sysvini
 +        if (!u->started) {
                  log_debug("Starting services for new user %s.", u->user_record->user_name);
  
-+                /* Make XDG_RUNTIME_DIR */
-+                r = user_mkdir_runtime_path(u);
-+                if (r < 0)
-+                        return r;
++                if (!sd_booted()) {
++                        /* Make XDG_RUNTIME_DIR */
++                        r = user_mkdir_runtime_path(u);
++                        if (r < 0)
++                                return r;
++                }
 +        }
 +
          /* Save the user data so far, because pam_systemd will read the XDG_RUNTIME_DIR out of it while starting up
           * systemd --user.  We need to do user_save_internal() because we have not "officially" started yet. */
          user_save_internal(u);
-@@ -492,6 +555,29 @@ static void user_stop_service(User *u, bool force) {
+@@ -492,6 +558,29 @@ static void user_stop_service(User *u, bool force) {
                  log_warning_errno(r, "Failed to stop user service '%s', ignoring: %s", u->service, bus_error_message(&error, r));
  }
  
@@ -142,14 +145,16 @@ Restore the old user-runtime-path functionality for systems that default sysvini
  int user_stop(User *u, bool force) {
          Session *s;
          int r = 0;
-@@ -545,6 +631,11 @@ int user_finalize(User *u) {
+@@ -545,6 +634,13 @@ int user_finalize(User *u) {
                          r = k;
          }
  
-+        /* Kill XDG_RUNTIME_DIR */
-+        k = user_remove_runtime_path(u);
-+        if (k < 0)
-+                r = k;
++        if (!sd_booted()) {
++                /* Kill XDG_RUNTIME_DIR */
++                k = user_remove_runtime_path(u);
++                if (k < 0)
++                        r = k;
++        }
 +
          /* Clean SysV + POSIX IPC objects, but only if this is not a system user. Background: in many setups cronjobs
           * are run in full PAM and thus logind sessions, even if the code run doesn't belong to actual users but to
