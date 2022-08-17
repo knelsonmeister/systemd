@@ -387,6 +387,7 @@ Suggests: ${dlopen:Suggests},
 # DEP17 M7: moving files between / and /usr, and between packages, so use Conflicts:
 Conflicts: systemd (<< 255~rc1-4~),
 Replaces: systemd (<< 255~rc1-4~),
+Breaks: systemd (<< ${binary:Version}),
 Description: /dev/ and hotplug management daemon
  udev is a daemon which dynamically creates and removes device nodes from
  /dev/, handles hotplug events and loads drivers at boot time.
