@@ -1,0 +1,162 @@
+From: Kevin Nelson <knelsonmeister@gmail.com>
+Date: Fri, 12 Jul 2019 21:07:01 +0500
+Subject: Restore old user-runtime-path functionality
+
+Restore the old user-runtime-path functionality for systems that default sysvinit and use systemd-shim
+
+--- a/src/login/logind-user.c	2019-07-12 20:54:02.969155412 -0500
++++ b/src/login/logind-user.c	2019-07-12 20:59:55.385281403 -0500
+@@ -2,6 +2,7 @@
+ 
+ #include <errno.h>
+ #include <unistd.h>
++#include <sys/mount.h>
+
+ #include "alloc-util.h"
+ #include "bus-common-errors.h"
+@@ -22,11 +23,14 @@
+ #include "logind-user-dbus.h"
+ #include "logind-user.h"
+ #include "mkdir-label.h"
++#include "mountpoint-util.h"
+ #include "parse-util.h"
+ #include "path-util.h"
+ #include "percent-util.h"
+ #include "rm-rf.h"
++#include "sd-daemon.h"
+ #include "serialize.h"
++#include "smack-util.h"
+ #include "special.h"
+ #include "stdio-util.h"
+ #include "string-table.h"
+@@ -338,6 +342,58 @@ int user_load(User *u) {
+         return 0;
+ }
+ 
++static int user_mkdir_runtime_path(User *u) {
++        int r;
++
++        assert(u);
++
++        r = mkdir_safe_label("/run/user", 0755, 0, 0, MKDIR_WARN_MODE);
++        if (r < 0)
++                return log_error_errno(r, "Failed to create /run/user: %m");
++
++        if (path_is_mount_point(u->runtime_path, NULL, 0) <= 0) {
++                _cleanup_free_ char *t = NULL;
++
++                (void) mkdir_label(u->runtime_path, 0700);
++
++                if (mac_smack_use())
++                        r = asprintf(&t, "mode=0700,smackfsroot=*,uid=" UID_FMT ",gid=" GID_FMT ",size=%" PRIu64, u->user_record->uid, u->user_record->gid, u->manager->runtime_dir_size);
++                else
++                        r = asprintf(&t, "mode=0700,uid=" UID_FMT ",gid=" GID_FMT ",size=%" PRIu64, u->user_record->uid, u->user_record->gid, u->manager->runtime_dir_size);
++                if (r < 0) {
++                        r = log_oom();
++                        goto fail;
++                }
++
++                r = mount("tmpfs", u->runtime_path, "tmpfs", MS_NODEV|MS_NOSUID, t);
++                if (r < 0) {
++                        if (errno != EPERM && errno != EACCES) {
++                                r = log_error_errno(errno, "Failed to mount per-user tmpfs directory %s: %m", u->runtime_path);
++                                goto fail;
++                        }
++
++                        log_debug_errno(errno, "Failed to mount per-user tmpfs directory %s, assuming containerized execution, ignoring: %m", u->runtime_path);
++
++                        r = chmod_and_chown(u->runtime_path, 0700, u->user_record->uid, u->user_record->gid);
++                        if (r < 0) {
++                                log_error_errno(r, "Failed to change runtime directory ownership and mode: %m");
++                                goto fail;
++                        }
++                }
++
++                r = label_fix(u->runtime_path, 0);
++                if (r < 0)
++                        log_warning_errno(r, "Failed to fix label of '%s', ignoring: %m", u->runtime_path);
++        }
++
++        return 0;
++
++fail:
++        /* Try to clean up, but ignore errors */
++        (void) rmdir(u->runtime_path);
++        return r;
++}
++
+ static void user_start_service(User *u) {
+         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+         int r;
+@@ -442,6 +495,8 @@ static int user_update_slice(User *u)
+ }
+ 
+ int user_start(User *u) {
++        int r;
++
+         assert(u);
+ 
+         if (u->started && !u->stopping)
+@@ -453,9 +508,17 @@ int user_start(User *u) {
+          * so possibly pending units are stopped. */
+         u->stopping = false;
+ 
+-        if (!u->started)
++        if (!u->started) {
+                 log_debug("Starting services for new user %s.", u->user_record->user_name);
+ 
++                if (!sd_booted()) {
++                        /* Make XDG_RUNTIME_DIR */
++                        r = user_mkdir_runtime_path(u);
++                        if (r < 0)
++                                return r;
++                }
++        }
++
+         /* Save the user data so far, because pam_systemd will read the XDG_RUNTIME_DIR out of it while starting up
+          * systemd --user.  We need to do user_save_internal() because we have not "officially" started yet. */
+         user_save_internal(u);
+@@ -496,6 +559,29 @@ static void user_stop_service(User *u, bool force) {
+                 log_warning_errno(r, "Failed to stop user service '%s', ignoring: %s", u->service, bus_error_message(&error, r));
+ }
+ 
++static int user_remove_runtime_path(User *u) {
++        int r;
++
++        assert(u);
++
++        r = rm_rf(u->runtime_path, 0);
++        if (r < 0)
++                log_error_errno(r, "Failed to remove runtime directory %s: %m", u->runtime_path);
++
++        /* Ignore cases where the directory isn't mounted, as that's
++         * quite possible, if we lacked the permissions to mount
++         * something */
++        r = umount2(u->runtime_path, MNT_DETACH);
++        if (r < 0 && errno != EINVAL && errno != ENOENT)
++                log_error_errno(errno, "Failed to unmount user runtime directory %s: %m", u->runtime_path);
++
++        r = rm_rf(u->runtime_path, REMOVE_ROOT);
++        if (r < 0)
++                log_error_errno(r, "Failed to remove runtime directory %s: %m", u->runtime_path);
++
++        return r;
++}
++
+ int user_stop(User *u, bool force) {
+         int r = 0;
+ 
+@@ -548,6 +634,13 @@ int user_finalize(User *u) {
+                         r = k;
+         }
+ 
++        if (!sd_booted()) {
++                /* Kill XDG_RUNTIME_DIR */
++                k = user_remove_runtime_path(u);
++                if (k < 0)
++                        r = k;
++        }
++
+         /* Clean SysV + POSIX IPC objects, but only if this is not a system user. Background: in many setups cronjobs
+          * are run in full PAM and thus logind sessions, even if the code run doesn't belong to actual users but to
+          * system components. Since enable RemoveIPC= globally for all users, we need to be a bit careful with such

@@ -216,7 +216,7 @@ Depends: ${shlibs:Depends},
          systemd (= ${binary:Version}),
          libpam-runtime,
          default-dbus-system-bus | dbus-system-bus,
-         systemd-sysv
+         systemd-shim (>= 10-4~) | systemd-sysv
 Recommends: dbus-user-session,
 Provides: logind (= ${binary:Version}), default-logind (= ${binary:Version})
 Description: system and service manager - PAM module
