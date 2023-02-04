@@ -1,0 +1,29 @@
+From: Frantisek Sumsal <frantisek@sumsal.cz>
+Date: Fri, 4 Nov 2022 09:44:34 +0100
+Subject: test: re-enable skipped systemd-firstboot --locale-messages= test
+
+Since the original issue should be resolved by #25253.
+
+(cherry picked from commit 59377dbef288bff2e9df1254f9cbccd3c7d726a5)
+---
+ test/units/testsuite-74.firstboot.sh | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/test/units/testsuite-74.firstboot.sh b/test/units/testsuite-74.firstboot.sh
+index 02f9f5c..f17b35e 100755
+--- a/test/units/testsuite-74.firstboot.sh
++++ b/test/units/testsuite-74.firstboot.sh
+@@ -33,10 +33,9 @@ touch "$ROOT/bin/fooshell" "$ROOT/bin/barshell"
+ systemd-firstboot --root="$ROOT" --locale=foo
+ grep -q "LANG=foo" "$ROOT/etc/locale.conf"
+ rm -fv "$ROOT/etc/locale.conf"
+-# FIXME: https://github.com/systemd/systemd/issues/25249
+-#systemd-firstboot --root="$ROOT" --locale-messages=foo
+-#grep -q "LC_MESSAGES=foo" "$ROOT/etc/locale.conf"
+-#rm -fv "$ROOT/etc/locale.conf"
++systemd-firstboot --root="$ROOT" --locale-messages=foo
++grep -q "LC_MESSAGES=foo" "$ROOT/etc/locale.conf"
++rm -fv "$ROOT/etc/locale.conf"
+ systemd-firstboot --root="$ROOT" --locale=foo --locale-messages=bar
+ grep -q "LANG=foo" "$ROOT/etc/locale.conf"
+ grep -q "LC_MESSAGES=bar" "$ROOT/etc/locale.conf"

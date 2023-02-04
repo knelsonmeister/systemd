@@ -1,9 +1,12 @@
 #!/bin/sh
-# test 20 successful reboots in a row
+# test $TEST_REBOOTS successful reboots in a row
 # Author: Martin Pitt <martin.pitt@ubuntu.com>
 # For bisecting/testing you can replace individual binaries in /lib/systemd
 # with --copy /host/path/systemd-foo:/tmp/systemd-replace/systemd-foo
 set -e
+
+IS_SYSTEM_RUNNING_TIMEOUT=300
+TEST_REBOOTS=5
 
 . `dirname $0`/assert.sh
 
@@ -29,6 +32,12 @@ Section "Device"
 EndSection
 EOF
 
+    # This test installs network-manager, which seems to cause
+    # systemd-networkd-wait-online to be stuck as they conflict,
+    # so systemctl start network-online.target ran by autopkgtest
+    # gets stuck, at least in Debian Bullseye images.
+    # https://salsa.debian.org/ci-team/autopkgtest/-/blob/debian/5.21/virt/autopkgtest-virt-lxc#L131
+    systemctl disable systemd-networkd.service
 
     AUTOPKGTEST_REBOOT_MARK=0
     if [ -d /tmp/systemd-replace/ ]; then
@@ -40,7 +49,7 @@ EOF
     fi
 else
     echo "waiting to boot..."
-    TIMEOUT=35
+    TIMEOUT=${IS_SYSTEM_RUNNING_TIMEOUT}
     while [ $TIMEOUT -ge 0 ]; do
         state="$(systemctl is-system-running || true)"
         case $state in
@@ -59,7 +68,7 @@ else
         systemctl --no-pager --no-legend --failed list-units > "$AUTOPKGTEST_ARTIFACTS/boot-smoke-failed-units.txt" || true
         echo "systemctl is-system-running: degraded (non-fatal)"
     elif [ "$state" != "running" ]; then
-        fail "system not running after timeout $RUNNING_TIMEOUT, state: $state"
+        fail "system not running after timeout $IS_SYSTEM_RUNNING_TIMEOUT, state: $state"
     fi
 
     echo "checking for failed unmounts for user systemd"
@@ -78,7 +87,7 @@ else
     pidof NetworkManager || fail "NetworkManager was not running"
 fi
 
-if [ "$AUTOPKGTEST_REBOOT_MARK" -ge 5 ]; then
+if [ "$AUTOPKGTEST_REBOOT_MARK" -ge "$TEST_REBOOTS" ]; then
     exit 0
 fi
 

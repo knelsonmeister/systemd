@@ -40,8 +40,9 @@ class ServicesTest(unittest.TestCase):
     def test_no_failed(self):
         '''No failed units'''
 
-        out = subprocess.check_output(['systemctl', '--state=failed', '--no-legend'],
-                                      universal_newlines=True)
+        out = subprocess.check_output(
+                ['systemctl', '--state=failed', '--no-legend', '--plain'],
+                universal_newlines=True)
         failed = out.splitlines()
         # ignore /etc/modules failure as stuff that we put there by default
         # often fails
@@ -55,6 +56,8 @@ class ServicesTest(unittest.TestCase):
         failed = [f for f in failed if 'console-setup' not in f]
         # cpi.service fails on s390x
         failed = [f for f in failed if 'cpi.service' not in f]
+        # https://bugs.debian.org/969568
+        failed = [f for f in failed if 'rng-tools-debian.service' not in f]
         # https://bugs.debian.org/926138
         if is_container:
             failed = [f for f in failed if 'e2scrub_reap.service' not in f]
@@ -520,6 +523,14 @@ def pre_boot_setup():
     '''Test setup before rebooting testbed'''
 
     subprocess.check_call(['systemctl', 'set-default', 'graphical.target'],
+                          stderr=subprocess.STDOUT)
+
+    # This test installs network-manager, which seems to cause
+    # systemd-networkd-wait-online to be stuck as they conflict,
+    # so systemctl start network-online.target ran by autopkgtest
+    # gets stuck, at least in Debian Bullseye images.
+    # https://salsa.debian.org/ci-team/autopkgtest/-/blob/debian/5.21/virt/autopkgtest-virt-lxc#L131
+    subprocess.check_call(['systemctl', 'disable', 'systemd-networkd.service'],
                           stderr=subprocess.STDOUT)
 
     # create a few temporary files to ensure that they get cleaned up on boot

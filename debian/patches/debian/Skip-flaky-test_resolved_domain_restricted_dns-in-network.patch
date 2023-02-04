@@ -1,0 +1,24 @@
+From: Michael Biebl <biebl@debian.org>
+Date: Tue, 13 Dec 2022 00:32:17 +0100
+Subject: Skip flaky test_resolved_domain_restricted_dns in networkd-test.py
+
+This test is part of DnsmasqClientTest and does not work reliably under
+LXC/debci, so skip it for the time being.
+
+Closes: #1025908
+---
+ test/networkd-test.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/test/networkd-test.py b/test/networkd-test.py
+index 0a5ba11..4740de2 100755
+--- a/test/networkd-test.py
++++ b/test/networkd-test.py
+@@ -618,6 +618,7 @@ class DnsmasqClientTest(ClientTestBase, unittest.TestCase):
+         with open(self.dnsmasq_log) as f:
+             sys.stdout.write('\n\n---- dnsmasq log ----\n{}\n------\n\n'.format(f.read()))
+ 
++    @unittest.skip("test is flaky:  https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1025908")
+     def test_resolved_domain_restricted_dns(self):
+         '''resolved: domain-restricted DNS servers'''
+ 

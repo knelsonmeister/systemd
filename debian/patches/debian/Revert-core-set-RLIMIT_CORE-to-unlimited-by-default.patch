@@ -14,15 +14,40 @@ isn't what RLIMIT_CORE is supposed to do (it limits the size of the core
 
 Bug-Debian: https://bugs.debian.org/815020
 ---
- src/core/main.c              | 2 --
- sysctl.d/50-coredump.conf.in | 2 +-
- 2 files changed, 1 insertion(+), 3 deletions(-)
+ src/core/main.c              | 20 --------------------
+ sysctl.d/50-coredump.conf.in |  2 +-
+ 2 files changed, 1 insertion(+), 21 deletions(-)
 
 diff --git a/src/core/main.c b/src/core/main.c
-index a280b75..5c2a73a 100644
+index a3fdd1d..c8b7d16 100644
 --- a/src/core/main.c
 +++ b/src/core/main.c
-@@ -2669,8 +2669,6 @@ int main(int argc, char *argv[]) {
+@@ -1649,24 +1649,6 @@ static void cmdline_take_random_seed(void) {
+                    "This functionality should not be used outside of testing environments.");
+ }
+ 
+-static void initialize_coredump(bool skip_setup) {
+-#if ENABLE_COREDUMP
+-        if (getpid_cached() != 1)
+-                return;
+-
+-        /* Don't limit the core dump size, so that coredump handlers such as systemd-coredump (which honour
+-         * the limit) will process core dumps for system services by default. */
+-        if (setrlimit(RLIMIT_CORE, &RLIMIT_MAKE_CONST(RLIM_INFINITY)) < 0)
+-                log_warning_errno(errno, "Failed to set RLIMIT_CORE: %m");
+-
+-        /* But at the same time, turn off the core_pattern logic by default, so that no coredumps are stored
+-         * until the systemd-coredump tool is enabled via sysctl. However it can be changed via the kernel
+-         * command line later so core dumps can still be generated during early startup and in initrd. */
+-        if (!skip_setup)
+-                disable_coredumps();
+-#endif
+-}
+-
+ static void initialize_core_pattern(bool skip_setup) {
+         int r;
+ 
+@@ -2803,8 +2785,6 @@ int main(int argc, char *argv[]) {
                          kernel_timestamp = DUAL_TIMESTAMP_NULL;
                  }
  
@@ -32,15 +57,15 @@ index a280b75..5c2a73a 100644
                  if (r < 0) {
                          log_emergency_errno(r, "Failed to fix up PID 1 environment: %m");
 diff --git a/sysctl.d/50-coredump.conf.in b/sysctl.d/50-coredump.conf.in
-index 4338756..8e501c4 100644
+index 5fb551a..13495f1 100644
 --- a/sysctl.d/50-coredump.conf.in
 +++ b/sysctl.d/50-coredump.conf.in
 @@ -13,7 +13,7 @@
  # the core dump.
  #
  # See systemd-coredump(8) and core(5).
--kernel.core_pattern=|@rootlibexecdir@/systemd-coredump %P %u %g %s %t %c %h
-+kernel.core_pattern=|@rootlibexecdir@/systemd-coredump %P %u %g %s %t 9223372036854775808 %h
+-kernel.core_pattern=|{{ROOTLIBEXECDIR}}/systemd-coredump %P %u %g %s %t %c %h
++kernel.core_pattern=|{{ROOTLIBEXECDIR}}/systemd-coredump %P %u %g %s %t 9223372036854775808 %h
  
- # Allow that 16 coredumps are dispatched in parallel by the kernel. We want to
- # be able to collect process metadata from /proc/%P/ while processing
+ # Allow 16 coredumps to be dispatched in parallel by the kernel.
+ # We collect metadata from /proc/%P/, and thus need to make sure the crashed

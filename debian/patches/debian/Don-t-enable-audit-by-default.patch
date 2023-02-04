@@ -16,10 +16,10 @@ Bug-Debian: https://bugs.debian.org/773528
  3 files changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/man/journald.conf.xml b/man/journald.conf.xml
-index 2134a1d..a4a42a4 100644
+index 185e1dc..d963a1d 100644
 --- a/man/journald.conf.xml
 +++ b/man/journald.conf.xml
-@@ -417,7 +417,7 @@
+@@ -429,7 +429,7 @@
          <command>systemd-journald</command> collects generated audit records, it just controls whether it
          tells the kernel to generate them. This means if another tool turns on auditing even if
          <command>systemd-journald</command> left it off, it will still collect the generated
@@ -29,11 +29,11 @@ index 2134a1d..a4a42a4 100644
  
        <varlistentry>
 diff --git a/src/journal/journald-server.c b/src/journal/journald-server.c
-index ce15766..bd7fa8f 100644
+index 9e44ec7..e3ef708 100644
 --- a/src/journal/journald-server.c
 +++ b/src/journal/journald-server.c
-@@ -2188,7 +2188,7 @@ int server_init(Server *s, const char *namespace) {
-                 .compress.threshold_bytes = (uint64_t) -1,
+@@ -2275,7 +2275,7 @@ int server_init(Server *s, const char *namespace) {
+                 .compress.threshold_bytes = UINT64_MAX,
                  .seal = true,
  
 -                .set_audit = true,
@@ -42,10 +42,10 @@ index ce15766..bd7fa8f 100644
                  .watchdog_usec = USEC_INFINITY,
  
 diff --git a/src/journal/journald.conf b/src/journal/journald.conf
-index d6cd5b1..5e4b0e2 100644
+index 64f4d4b..a690681 100644
 --- a/src/journal/journald.conf
 +++ b/src/journal/journald.conf
-@@ -41,4 +41,4 @@
+@@ -44,4 +44,4 @@
  #MaxLevelWall=emerg
  #LineMax=48K
  #ReadKMsg=yes

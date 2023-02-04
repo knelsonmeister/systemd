@@ -1,0 +1,33 @@
+From: Michael Biebl <biebl@debian.org>
+Date: Sun, 22 Jan 2023 22:49:06 +0100
+Subject: test: fix TEST-73-LOCALE on Debian
+
+Fix incorrection assumption about the Debian patch being buggy and
+actually making TEST-73-LOCALE fail on Debian.
+
+```
+ # localectl set-locale LANG=C.UTF-8
+ # cat /etc/default/locale
+ LANG=C.UTF-8
+```
+
+(cherry picked from commit a4bc35740a052d0c69269f44d81f350dd7930b69)
+---
+ test/units/testsuite-73.sh | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/test/units/testsuite-73.sh b/test/units/testsuite-73.sh
+index f9e2dce..1e493c0 100755
+--- a/test/units/testsuite-73.sh
++++ b/test/units/testsuite-73.sh
+@@ -118,9 +118,7 @@ LC_CTYPE=$i"
+ 
+         assert_rc 0 localectl set-locale "$i"
+         if [[ -f /etc/default/locale ]]; then
+-            # Debian/Ubuntu patch is buggy, and LC_CTYPE= still exists.
+-            assert_eq "$(cat /etc/default/locale)" "LANG=$i
+-LC_CTYPE=$i"
++            assert_eq "$(cat /etc/default/locale)" "LANG=$i"
+         else
+             assert_eq "$(cat /etc/locale.conf)" "LANG=$i"
+         fi

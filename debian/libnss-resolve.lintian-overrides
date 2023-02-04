@@ -1,2 +1,2 @@
-# package is a NSS module, not a system library
-libnss-resolve: package-name-doesnt-match-sonames
+# Lintian is really bad at associating manpages
+libnss-resolve: spare-manual-page

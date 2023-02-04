@@ -48,5 +48,5 @@ assert_in "X11 Model: pc101" "$STATUS"
 if [ -z "$TEST_UPSTREAM" ]; then
     rm /etc/default/keyboard
     systemctl stop systemd-localed
-    assert_in "X11 Layout: n/a" "`localectl --no-pager`"
+    assert_in "X11 Layout: (unset)" "`localectl --no-pager`"
 fi

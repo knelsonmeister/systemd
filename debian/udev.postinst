@@ -38,10 +38,7 @@ enable_udev() {
 }
 
 upgrade_fixes() {
-  # new Default-Stop (see #791944)
-  if dpkg --compare-versions "$2" lt-nl "239-8"; then
-    update-rc.d -f udev remove
-  fi
+  :
 }
 
 update_hwdb() {
@@ -53,8 +50,9 @@ case "$1" in
     # update/create hwdb before we (re)start udev
     update_hwdb
 
-    # Add new system group used by udev rules
+    # Add new system groups used by udev rules
     addgroup --quiet --system input
+    addgroup --quiet --system sgx
 
     # Make /dev/kvm accessible to kvm group
     addgroup --quiet --system kvm

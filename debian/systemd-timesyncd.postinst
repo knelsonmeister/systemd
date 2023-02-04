@@ -18,9 +18,6 @@ _adopt_conffile() {
     fi
 }
 
-adduser --quiet --system --group --no-create-home --home /run/systemd \
-    --gecos "systemd Time Synchronization" systemd-timesync
-
 if [ "$1" = configure ] && [ -z "$2" ]; then
     _adopt_conffile /etc/dhcp/dhclient-exit-hooks.d/timesyncd systemd-timesyncd
     _adopt_conffile /etc/systemd/timesyncd.conf systemd-timesyncd

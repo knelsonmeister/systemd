@@ -1,0 +1,2 @@
+# Lintian is really bad at associating manpages
+systemd-coredump: spare-manual-page
