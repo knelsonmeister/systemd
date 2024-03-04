@@ -75,6 +75,7 @@ Build-Depends: debhelper-compat (= 13),
                python3-lxml:native,
                python3-pefile:native <!stage1 !nocheck> <!stage1 !noinsttest>,
                python3-pyelftools [amd64 i386 arm64 armhf riscv64] <!stage1>,
+               jq [amd64 arm64] <!stage1 !pkg.systemd.upstream>,
                python3-pyparsing <!nocheck>,
                python3-evdev:native <!nocheck>,
                tzdata-legacy <!nocheck> | tzdata (<< 2024a-1) <!nocheck>,
@@ -549,6 +550,22 @@ Description: simple UEFI boot manager - EFI binaries
  line. It supports systems with UEFI firmware only.
  .
  This package contains the EFI binaries.
+
+Package: systemd-boot-efi-amd64-signed-template
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends},
+Build-Profiles: <!stage1 !pkg.systemd.upstream>
+Description: Template for signed systemd-boot-efi package
+ This package is used to control code signing by the Debian signing
+ service.
+
+Package: systemd-boot-efi-arm64-signed-template
+Architecture: arm64
+Depends: ${shlibs:Depends}, ${misc:Depends},
+Build-Profiles: <!stage1 !pkg.systemd.upstream>
+Description: Template for signed systemd-boot-efi package
+ This package is used to control code signing by the Debian signing
+ service.
 
 Package: systemd-ukify
 Build-Profiles: <!stage1 !pkg.systemd.noukify>
