@@ -277,6 +277,7 @@ ifeq ($(DEB_VENDOR),Ubuntu)
 	install -D --mode=644 debian/extra/udev.py debian/udev/usr/share/apport/package-hooks/udev.py
 	install -D --mode=644 debian/extra/systemd.py debian/systemd/usr/share/apport/package-hooks/systemd.py
 	install --mode=644 debian/extra/rules-ubuntu/*.rules debian/udev/usr/lib/udev/rules.d/
+	install --mode=644 debian/extra/resolved.conf.d/cache-no-negative.conf debian/systemd-resolved/usr/lib/systemd/
 	cp -a debian/extra/units-ubuntu/* debian/systemd/usr/lib/systemd/system/
 endif
 
