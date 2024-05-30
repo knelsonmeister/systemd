@@ -45,7 +45,6 @@ usr/bin/systemd-machine-id-setup
 usr/bin/systemd-mount
 usr/bin/systemd-notify
 usr/bin/systemd-path
-usr/bin/systemd-repart
 usr/bin/systemd-run
 usr/bin/systemd-socket-activate
 usr/bin/systemd-stdio-bridge
@@ -83,7 +82,6 @@ usr/lib/systemd/network/80-wifi-adhoc.network
 usr/lib/systemd/network/80-wifi-ap.network.example
 usr/lib/systemd/network/80-wifi-station.network.example
 usr/lib/systemd/network/89-ethernet.network.example
-usr/lib/systemd/repart/
 usr/lib/systemd/resolv.conf
 usr/lib/systemd/ssh_config.d/20-systemd-ssh-proxy.conf
 usr/lib/systemd/system/autovt@.service
@@ -192,7 +190,6 @@ usr/lib/systemd/system/initrd-root-device.target
 <!stage1> usr/lib/systemd/system/initrd-root-device.target.wants/remote-cryptsetup.target
 <!stage1> usr/lib/systemd/system/initrd-root-device.target.wants/remote-veritysetup.target
 usr/lib/systemd/system/initrd-root-fs.target
-usr/lib/systemd/system/initrd-root-fs.target.wants/systemd-repart.service
 usr/lib/systemd/system/initrd-switch-root.service
 usr/lib/systemd/system/initrd-switch-root.target
 usr/lib/systemd/system/initrd.target
@@ -294,7 +291,6 @@ usr/lib/systemd/system/sysinit.target.wants/systemd-modules-load.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-pcrphase.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-pcrphase-sysinit.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-random-seed.service
-usr/lib/systemd/system/sysinit.target.wants/systemd-repart.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-sysctl.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-sysusers.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup-dev-early.service
@@ -377,7 +373,6 @@ usr/lib/systemd/system/systemd-quotacheck*.service
 usr/lib/systemd/system/systemd-random-seed.service
 usr/lib/systemd/system/systemd-reboot.service
 usr/lib/systemd/system/systemd-remount-fs.service
-usr/lib/systemd/system/systemd-repart.service
 usr/lib/systemd/system/systemd-rfkill.service
 usr/lib/systemd/system/systemd-rfkill.socket
 usr/lib/systemd/system/systemd-soft-reboot.service

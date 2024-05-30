@@ -72,7 +72,6 @@ debian/tmp/usr/share/man/man5/org.freedesktop.timedate1.5
 debian/tmp/usr/share/man/man5/os-release.5
 debian/tmp/usr/share/man/man5/pstore.conf.5
 debian/tmp/usr/share/man/man5/pstore.conf.d.5
-debian/tmp/usr/share/man/man5/repart.d.5
 debian/tmp/usr/share/man/man5/sleep.conf.d.5
 debian/tmp/usr/share/man/man5/sysctl.d.5
 debian/tmp/usr/share/man/man5/system.conf.d.5
@@ -234,8 +233,6 @@ debian/tmp/usr/share/man/man8/systemd-rc-local-generator.8
 debian/tmp/usr/share/man/man8/systemd-reboot.service.8
 debian/tmp/usr/share/man/man8/systemd-remount-fs.8
 debian/tmp/usr/share/man/man8/systemd-remount-fs.service.8
-debian/tmp/usr/share/man/man8/systemd-repart.8
-debian/tmp/usr/share/man/man8/systemd-repart.service.8
 debian/tmp/usr/share/man/man8/systemd-rfkill.8
 debian/tmp/usr/share/man/man8/systemd-rfkill.service.8
 debian/tmp/usr/share/man/man8/systemd-rfkill.socket.8

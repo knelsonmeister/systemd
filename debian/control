@@ -97,6 +97,7 @@ Suggests: systemd-container,
           systemd-userdbd,
           systemd-boot,
           systemd-resolved,
+          systemd-repart,
           libtss2-tcti-device0,
           polkitd,
           ${dlopen:Suggests},
@@ -635,3 +636,17 @@ Description: systemd development files
  are different from the libsystemd's and libudev's pkg-config files, which can
  still be found in the respective dev packages, but instead provide data such as
  the installation directories for units, and more.
+
+Package: systemd-repart
+Architecture: linux-any
+Section: admin
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+Recommends: ${dlopen:Recommends},
+Suggests: ${dlopen:Suggests},
+Breaks: systemd (<< 256-2~),
+Replaces: systemd (<< 256-2~),
+Description: Provides the systemd-repart utility
+ systemd-repart is a configuration-driven system partitioning tool. It follows
+ the Discoverable Partitions Specification and provides support for encryption
+ and dm-verity among other things.
