@@ -108,7 +108,6 @@ debian/tmp/usr/share/man/man7/bootup.7
 debian/tmp/usr/share/man/man7/daemon.7
 debian/tmp/usr/share/man/man7/file-hierarchy.7
 debian/tmp/usr/share/man/man7/kernel-command-line.7
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man7/sd-stub.7
 debian/tmp/usr/share/man/man7/smbios-type-11.7
 debian/tmp/usr/share/man/man7/systemd.directives.7
 debian/tmp/usr/share/man/man7/systemd.environment-generator.7
@@ -119,7 +118,6 @@ debian/tmp/usr/share/man/man7/systemd.journal-fields.7
 debian/tmp/usr/share/man/man7/systemd.net-naming-scheme.7
 debian/tmp/usr/share/man/man7/systemd.offline-updates.7
 debian/tmp/usr/share/man/man7/systemd.special.7
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man7/systemd-stub.7
 debian/tmp/usr/share/man/man7/systemd.syntax.7
 debian/tmp/usr/share/man/man7/systemd.system-credentials.7
 debian/tmp/usr/share/man/man7/systemd.time.7

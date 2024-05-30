@@ -540,8 +540,8 @@ Recommends: efibootmgr,
             ${dlopen:Recommends},
 Suggests: systemd-ukify,
           ${dlopen:Suggests},
-Breaks: systemd (<< 251.2-3~)
-Replaces: systemd (<< 251.2-3~)
+Breaks: systemd (<< 256-2~), systemd-boot-efi (<< 256-2~),
+Replaces: systemd (<< 256-2~), systemd-boot-efi (<< 256-2~),
 Description: simple UEFI boot manager - tools and services
  systemd-boot (short: sd-boot) is a simple UEFI boot manager. It provides a
  textual menu to select the entry to boot and an editor for the kernel command
