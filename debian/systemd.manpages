@@ -58,7 +58,6 @@ debian/tmp/usr/share/man/man5/modules-load.d.5
 debian/tmp/usr/share/man/man5/networkd.conf.5
 debian/tmp/usr/share/man/man5/networkd.conf.d.5
 debian/tmp/usr/share/man/man5/org.freedesktop.hostname1.5
-<!stage1> debian/tmp/usr/share/man/man5/org.freedesktop.import1.5
 debian/tmp/usr/share/man/man5/org.freedesktop.locale1.5
 debian/tmp/usr/share/man/man5/org.freedesktop.LogControl1.5
 debian/tmp/usr/share/man/man5/org.freedesktop.login1.5
@@ -166,8 +165,6 @@ debian/tmp/usr/share/man/man8/systemd-hibernate.service.8
 debian/tmp/usr/share/man/man8/systemd-hostnamed.8
 debian/tmp/usr/share/man/man8/systemd-hostnamed.service.8
 debian/tmp/usr/share/man/man8/systemd-hybrid-sleep.service.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-importd.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-importd.service.8
 debian/tmp/usr/share/man/man8/systemd-initctl.8
 debian/tmp/usr/share/man/man8/systemd-initctl.service.8
 debian/tmp/usr/share/man/man8/systemd-initctl.socket.8
