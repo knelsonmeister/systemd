@@ -161,6 +161,8 @@ Depends: ${shlibs:Depends},
 Recommends: libnss-mymachines,
             ${dlopen:Recommends},
 Suggests: ${dlopen:Suggests},
+Breaks: systemd (<< 256-2~),
+Replaces: systemd (<< 256-2~),
 Description: systemd container/nspawn tools
  This package provides systemd's tools for nspawn and container/VM management:
   * systemd-nspawn

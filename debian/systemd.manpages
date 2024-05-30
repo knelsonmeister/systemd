@@ -100,7 +100,6 @@ debian/tmp/usr/share/man/man5/systemd.timer.5
 debian/tmp/usr/share/man/man5/systemd.unit.5
 debian/tmp/usr/share/man/man5/systemd-user.conf.5
 debian/tmp/usr/share/man/man5/systemd-user-runtime-dir.5
-<!stage1> debian/tmp/usr/share/man/man5/sysupdate.d.5
 debian/tmp/usr/share/man/man5/sysusers.d.5
 debian/tmp/usr/share/man/man5/tmpfiles.d.5
 debian/tmp/usr/share/man/man5/user.conf.d.5
@@ -242,11 +241,6 @@ debian/tmp/usr/share/man/man8/systemd-sysctl.service.8
 debian/tmp/usr/share/man/man8/systemd-sysext.8
 debian/tmp/usr/share/man/man8/systemd-sysext.service.8
 debian/tmp/usr/share/man/man8/systemd-system-update-generator.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate-reboot.service.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate-reboot.timer.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate.service.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate.timer.8
 debian/tmp/usr/share/man/man8/systemd-sysusers.8
 debian/tmp/usr/share/man/man8/systemd-sysusers.service.8
 debian/tmp/usr/share/man/man8/systemd-sysv-generator.8
