@@ -272,9 +272,8 @@ execute_before_dh_install:
 	fi
 	# remove obsolete compat symlink
 	rm -f debian/tmp/usr/bin/systemd-resolve
-	# we don't want repart and shutdown standalone binaries for now
+	# we don't want the repart standalone binary for now
 	rm -f debian/tmp/usr/bin/systemd-repart.standalone
-	rm -f debian/tmp/usr/lib/systemd/systemd-shutdown.standalone
 	# files shipped by cryptsetup
 ifeq (, $(filter stage1, $(DEB_BUILD_PROFILES)))
 	rm -f debian/tmp/usr/share/man/man5/crypttab.5

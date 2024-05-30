@@ -468,6 +468,18 @@ Description: standalone tmpfiles binary for use in non-systemd systems
  This package conflicts with the main systemd package and is meant for use in
  non-systemd systems.
 
+Package: systemd-standalone-shutdown
+Architecture: linux-any
+Conflicts: systemd,
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+Recommends: ${dlopen:Recommends},
+Suggests: ${dlopen:Suggests},
+Description: standalone shutdown binary for use in exitrds
+ Standalone shutdown binary with minimal dependencies.
+ This package conflicts with the main systemd package and is meant for use in
+ minimal exitrd images. Not intended for normal systems.
+
 Package: systemd-oomd
 Architecture: linux-any
 Depends: ${shlibs:Depends},
