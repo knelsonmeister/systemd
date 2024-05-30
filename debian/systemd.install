@@ -33,8 +33,6 @@ usr/bin/systemd-cgls
 usr/bin/systemd-cgtop
 usr/bin/systemd-confext
 usr/bin/systemd-creds
-<!stage1> usr/bin/systemd-cryptenroll
-<!stage1> usr/bin/systemd-cryptsetup
 usr/bin/systemd-delta
 usr/bin/systemd-detect-virt
 usr/bin/systemd-escape
@@ -93,8 +91,6 @@ usr/lib/systemd/system/capsule.slice
 usr/lib/systemd/system/capsule@.service
 usr/lib/systemd/system/console-getty.service
 usr/lib/systemd/system/container-getty@.service
-<!stage1> usr/lib/systemd/system/cryptsetup-pre.target
-<!stage1> usr/lib/systemd/system/cryptsetup.target
 usr/lib/systemd/system/ctrl-alt-del.target
 usr/lib/systemd/systemd
 usr/lib/systemd/systemd-backlight
@@ -107,7 +103,6 @@ usr/lib/systemd/system/dbus-org.freedesktop.locale1.service
 usr/lib/systemd/system/dbus-org.freedesktop.login1.service
 usr/lib/systemd/system/dbus-org.freedesktop.timedate1.service
 usr/lib/systemd/systemd-cgroups-agent
-<!stage1> usr/lib/systemd/systemd-cryptsetup
 usr/lib/systemd/system/debug-shell.service
 usr/lib/systemd/system/default.target
 usr/lib/systemd/system/dev-hugepages.mount
@@ -118,7 +113,6 @@ usr/lib/systemd/systemd-growfs
 usr/lib/systemd/systemd-hibernate-resume
 usr/lib/systemd/systemd-hostnamed
 usr/lib/systemd/systemd-initctl
-<!stage1> usr/lib/systemd/systemd-integritysetup
 usr/lib/systemd/systemd-journald
 usr/lib/systemd/systemd-localed
 usr/lib/systemd/systemd-logind
@@ -152,7 +146,6 @@ usr/lib/systemd/systemd-update-done
 usr/lib/systemd/systemd-update-utmp
 usr/lib/systemd/systemd-user-runtime-dir
 usr/lib/systemd/systemd-user-sessions
-<!stage1> usr/lib/systemd/systemd-veritysetup
 usr/lib/systemd/systemd-volatile-root
 usr/lib/systemd/systemd-xdg-autostart-condition
 usr/lib/systemd/system/emergency.service
@@ -161,20 +154,17 @@ usr/lib/systemd/system/exit.target
 usr/lib/systemd/system/factory-reset.target
 usr/lib/systemd/system/final.target
 usr/lib/systemd/system/first-boot-complete.target
-<!stage1> usr/lib/systemd/system-generators/systemd-cryptsetup-generator
 usr/lib/systemd/system-generators/systemd-debug-generator
 usr/lib/systemd/system-generators/systemd-fstab-generator
 usr/lib/systemd/system-generators/systemd-getty-generator
 usr/lib/systemd/system-generators/systemd-gpt-auto-generator
 usr/lib/systemd/system-generators/systemd-hibernate-resume-generator
-<!stage1> usr/lib/systemd/system-generators/systemd-integritysetup-generator
 usr/lib/systemd/system-generators/systemd-rc-local-generator
 usr/lib/systemd/system-generators/systemd-run-generator
 usr/lib/systemd/system-generators/systemd-ssh-generator
 usr/lib/systemd/system-generators/systemd-system-update-generator
 usr/lib/systemd/system-generators/systemd-sysv-generator
 usr/lib/systemd/system-generators/systemd-tpm2-generator
-<!stage1> usr/lib/systemd/system-generators/systemd-veritysetup-generator
 usr/lib/systemd/system/getty-pre.target
 usr/lib/systemd/system/getty@.service
 usr/lib/systemd/system/getty.target
@@ -187,8 +177,6 @@ usr/lib/systemd/system/initrd-cleanup.service
 usr/lib/systemd/system/initrd-fs.target
 usr/lib/systemd/system/initrd-parse-etc.service
 usr/lib/systemd/system/initrd-root-device.target
-<!stage1> usr/lib/systemd/system/initrd-root-device.target.wants/remote-cryptsetup.target
-<!stage1> usr/lib/systemd/system/initrd-root-device.target.wants/remote-veritysetup.target
 usr/lib/systemd/system/initrd-root-fs.target
 usr/lib/systemd/system/initrd-switch-root.service
 usr/lib/systemd/system/initrd-switch-root.target
@@ -198,8 +186,6 @@ usr/lib/systemd/system/initrd.target.wants/systemd-battery-check.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/initrd.target.wants/systemd-pcrphase-initrd.service
 usr/lib/systemd/system/initrd-udevadm-cleanup-db.service
 usr/lib/systemd/system/initrd-usr-fs.target
-<!stage1> usr/lib/systemd/system/integritysetup-pre.target
-<!stage1> usr/lib/systemd/system/integritysetup.target
 usr/lib/systemd/system/kexec.target
 usr/lib/systemd/system/kmod-static-nodes.service
 usr/lib/systemd/system/ldconfig.service
@@ -228,10 +214,8 @@ usr/lib/systemd/system/proc-sys-fs-binfmt_misc.mount
 usr/lib/systemd/system/quotaon*.service
 usr/lib/systemd/system/rc-local.service
 usr/lib/systemd/system/reboot.target
-<!stage1> usr/lib/systemd/system/remote-cryptsetup.target
 usr/lib/systemd/system/remote-fs-pre.target
 usr/lib/systemd/system/remote-fs.target
-<!stage1> usr/lib/systemd/system/remote-veritysetup.target
 usr/lib/systemd/system/rescue.service
 usr/lib/systemd/system/rescue.target
 usr/lib/systemd/system/rescue.target.wants/systemd-update-utmp-runlevel.service
@@ -267,11 +251,9 @@ usr/lib/systemd/system/suspend-then-hibernate.target
 usr/lib/systemd/system/swap.target
 usr/lib/systemd/system/sys-fs-fuse-connections.mount
 usr/lib/systemd/system/sysinit.target
-<!stage1> usr/lib/systemd/system/sysinit.target.wants/cryptsetup.target
 usr/lib/systemd/system/sysinit.target.wants/systemd-hibernate-clear.service
 usr/lib/systemd/system/sysinit.target.wants/dev-hugepages.mount
 usr/lib/systemd/system/sysinit.target.wants/dev-mqueue.mount
-<!stage1> usr/lib/systemd/system/sysinit.target.wants/integritysetup.target
 usr/lib/systemd/system/sysinit.target.wants/kmod-static-nodes.service
 usr/lib/systemd/system/sysinit.target.wants/ldconfig.service
 usr/lib/systemd/system/sysinit.target.wants/proc-sys-fs-binfmt_misc.automount
@@ -300,7 +282,6 @@ usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-update-done.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-update-utmp.service
-<!stage1> usr/lib/systemd/system/sysinit.target.wants/veritysetup.target
 usr/lib/systemd/system/sys-kernel-config.mount
 usr/lib/systemd/system/sys-kernel-debug.mount
 usr/lib/systemd/system/sys-kernel-tracing.mount
@@ -402,8 +383,6 @@ usr/lib/systemd/system/systemd-update-utmp-runlevel.service
 usr/lib/systemd/system/systemd-update-utmp.service
 usr/lib/systemd/system/systemd-user-sessions.service
 usr/lib/systemd/system/systemd-volatile-root.service
-<!stage1> usr/lib/systemd/system/system-systemd\x2dcryptsetup.slice
-<!stage1> usr/lib/systemd/system/system-systemd\x2dveritysetup.slice
 usr/lib/systemd/system/system-update-cleanup.service
 usr/lib/systemd/system/system-update-pre.target
 usr/lib/systemd/system/system-update.target
@@ -421,8 +400,6 @@ usr/lib/systemd/system/user@.service
 usr/lib/systemd/system/user@.service.d/10-login-barrier.conf
 usr/lib/systemd/system/user.slice
 usr/lib/systemd/system/user-.slice.d/10-defaults.conf
-<!stage1> usr/lib/systemd/system/veritysetup-pre.target
-<!stage1> usr/lib/systemd/system/veritysetup.target
 usr/lib/systemd/user/app.slice
 usr/lib/systemd/user/background.slice
 usr/lib/systemd/user/basic.target
@@ -469,7 +446,6 @@ usr/lib/udev/rules.d/70-uaccess.rules
 usr/lib/udev/rules.d/71-seat.rules
 usr/lib/udev/rules.d/73-seat-late.rules
 usr/lib/udev/rules.d/99-systemd.rules
-<!stage1> usr/lib/*/cryptsetup/
 usr/share/bash-completion/completions/busctl
 usr/share/bash-completion/completions/hostnamectl
 usr/share/bash-completion/completions/journalctl
@@ -484,7 +460,6 @@ usr/share/bash-completion/completions/systemd-cat
 usr/share/bash-completion/completions/systemd-cgls
 usr/share/bash-completion/completions/systemd-cgtop
 usr/share/bash-completion/completions/systemd-confext
-<!stage1> usr/share/bash-completion/completions/systemd-cryptenroll
 usr/share/bash-completion/completions/systemd-delta
 usr/share/bash-completion/completions/systemd-detect-virt
 usr/share/bash-completion/completions/systemd-dissect

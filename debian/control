@@ -91,6 +91,7 @@ Multi-Arch: foreign
 Priority: important
 Recommends: default-dbus-system-bus | dbus-system-bus,
             systemd-timesyncd | time-daemon,
+            systemd-cryptsetup,
             ${dlopen:Recommends},
 Suggests: systemd-container,
           systemd-homed,
@@ -650,3 +651,17 @@ Description: Provides the systemd-repart utility
  systemd-repart is a configuration-driven system partitioning tool. It follows
  the Discoverable Partitions Specification and provides support for encryption
  and dm-verity among other things.
+
+Package: systemd-cryptsetup
+Build-Profiles: <!stage1>
+Architecture: linux-any
+Section: admin
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+Recommends: ${dlopen:Recommends},
+Suggests: ${dlopen:Suggests},
+Breaks: systemd (<< 256-2~),
+Replaces: systemd (<< 256-2~),
+Description: Provides cryptsetup, integritysetup and veritysetup utilities
+ Utilities and units that integrated cryptsetup/integritysetup/veritysetup
+ support in systemd.
