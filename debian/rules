@@ -214,7 +214,7 @@ endif
 
 override_dh_auto_configure:
 	dh_auto_configure \
-		-- $(CONFFLAGS) $(CONFFLAGS_DISTRO) $(CONFFLAGS_UPSTREAM)
+		-- --reconfigure $(CONFFLAGS) $(CONFFLAGS_DISTRO) $(CONFFLAGS_UPSTREAM)
 
 execute_before_dh_auto_build:
 	# blhc false positives: C++ fuzz test program, cc -E flags listing, PE-COFF EFI binaries
