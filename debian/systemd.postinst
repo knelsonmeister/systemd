@@ -16,6 +16,18 @@ _update_binfmt() {
     _systemctl restart systemd-binfmt.service || true
 }
 
+_restart_managers() {
+    _systemctl daemon-reexec || true
+    # Re-exec user instances so that running user managers are updated too.
+    # SIGRTMIN+25 -> reexec. Note that this is asynchronous, but we can't use
+    # D-Bus as dbus-user-session is not guaranteed to be available.
+    _systemctl kill --kill-whom='main' --signal='SIGRTMIN+25' 'user@*.service' || true
+    # do not restart logind
+    # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=919509
+    _systemctl try-restart systemd-networkd.service || true
+    _systemctl try-restart systemd-journald.service || true
+}
+
 # Update Message Catalogs database and binfmt registrations in response to dpkg triggers
 if [ "$1" = "triggered" ]; then
     shift
@@ -26,6 +38,9 @@ if [ "$1" = "triggered" ]; then
                 ;;
             /usr/lib/binfmt.d)
                 _update_binfmt
+                ;;
+            libc-upgrade)
+                _restart_managers
                 ;;
         esac
     done
@@ -78,13 +93,5 @@ fi
 #DEBHELPER#
 
 if [ -n "$2" ]; then
-    _systemctl daemon-reexec || true
-    # Re-exec user instances so that running user managers are updated too.
-    # SIGRTMIN+25 -> reexec. Note that this is asynchronous, but we can't use
-    # D-Bus as dbus-user-session is not guaranteed to be available.
-    _systemctl kill --kill-whom='main' --signal='SIGRTMIN+25' 'user@*.service' || true
-    # do not restart logind
-    # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=919509
-    _systemctl try-restart systemd-networkd.service || true
-    _systemctl try-restart systemd-journald.service || true
+    _restart_managers
 fi
