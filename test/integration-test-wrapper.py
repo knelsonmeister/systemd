@@ -40,6 +40,7 @@ ExecStart=false
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--mkosi', required=True)
     parser.add_argument('--meson-source-dir', required=True, type=Path)
     parser.add_argument('--meson-build-dir', required=True, type=Path)
     parser.add_argument('--name', required=True)
@@ -47,6 +48,7 @@ def main():
     parser.add_argument('--storage', required=True)
     parser.add_argument('--firmware', required=True)
     parser.add_argument('--slow', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--vm', action=argparse.BooleanOptionalAction)
     parser.add_argument('--exit-code', required=True, type=int)
     parser.add_argument('mkosi_args', nargs="*")
     args = parser.parse_args()
@@ -102,7 +104,7 @@ def main():
         journal_file = None
 
     cmd = [
-        'mkosi',
+        args.mkosi,
         '--directory', os.fspath(args.meson_source_dir),
         '--output-dir', os.fspath(args.meson_build_dir / 'mkosi.output'),
         '--extra-search-path', os.fspath(args.meson_build_dir),
@@ -144,7 +146,7 @@ def main():
             ),
         ]),
         '--credential', f"journal.storage={'persistent' if sys.stderr.isatty() else args.storage}",
-        'qemu',
+        'qemu' if args.vm or os.getuid() != 0 else 'boot',
     ]
 
     result = subprocess.run(cmd)
@@ -165,7 +167,7 @@ def main():
             j = json.loads(
                 subprocess.run(
                     [
-                        "mkosi",
+                        args.mkosi,
                         "--directory", os.fspath(args.meson_source_dir),
                         "--json",
                         "summary",

@@ -130,6 +130,14 @@ Deprecations and removals:
 
 Features:
 
+* consider reworking json_build() to imply a top-level JSON_BUILD_OBJECT(),
+  since that's what we want in 99% of cases. Then provide json_build_any() or
+  so that can build other variant types top-level too.
+
+* rework tpm2_parse_pcr_argument_to_mask() to refuse literal hash value
+  specifications. They are currently parsed but ignored. We should refuse them
+  however, to not confuse people.
+
 * use name_to_handle_at() with AT_HANDLE_FID instead of .st_ino (inode
   number) for identifying inodes, for example in copy.c when finding hard
   links, or loop-util.c for tracking backing files, and other places.
@@ -498,7 +506,6 @@ Features:
   - get_ctty_devnr()
   - pid1: sd_notify() receiver should use SCM_PIDFD to authenticate client
   - actually wait for POLLIN on pidref's pidfd in service logic
-  - exec_spawn() + safe_fork()
   - openpt_allocate_in_namespace()
   - unit_attach_pid_to_cgroup_via_bus()
   - cg_attach() – requires new kernel feature
@@ -1802,7 +1809,7 @@ Features:
 
 * fstab-generator: default to tmpfs-as-root if only usr= is specified on the kernel cmdline
 
-* docs: bring https://www.freedesktop.org/wiki/Software/systemd/MyServiceCantGetRealtime up to date
+* docs: bring https://systemd.io/MY_SERVICE_CANT_GET_REATLIME up to date
 
 * add a job mode that will fail if a transaction would mean stopping
   running units. Use this in timedated to manage the NTP service

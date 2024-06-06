@@ -204,11 +204,13 @@ sshconfdir = get_option('sshconfdir')
 if sshconfdir == ''
         sshconfdir = sysconfdir / 'ssh/ssh_config.d'
 endif
+conf.set10('LINK_SSH_PROXY_DROPIN', sshconfdir != 'no' and not sshconfdir.startswith('/usr/'))
 
 sshdconfdir = get_option('sshdconfdir')
 if sshdconfdir == ''
         sshdconfdir = sysconfdir / 'ssh/sshd_config.d'
 endif
+conf.set10('LINK_SSHD_USERDB_DROPIN', sshdconfdir != 'no' and not sshdconfdir.startswith('/usr/'))
 
 sshdprivsepdir = get_option('sshdprivsepdir')
 conf.set10('CREATE_SSHDPRIVSEPDIR', sshdprivsepdir != 'no' and not sshdprivsepdir.startswith('/usr/'))
@@ -940,7 +942,7 @@ foreach option : ['adm-gid',
         name = option.underscorify().to_upper()
         val = get_option(option)
 
-        # Ensure provided GID argument is numeric, otherwise fall back to default assignment
+        # Ensure provided GID argument is positive, otherwise fall back to default assignment
         conf.set(name, val > 0 ? val : '-')
         if val > 0
                 static_ugids += '@0@:@1@'.format(option, val)
@@ -1266,6 +1268,9 @@ foreach ident : ['crypt_set_metadata_size',
         have_ident = have and cc.has_function(
                 ident,
                 prefix : '#include <libcryptsetup.h>',
+                # crypt_reencrypt() raises a deprecation warning so make sure -Wno-deprecated-declarations is
+                # specified otherwise we fail to detect crypt_reencrypt() if -Werror is used.
+                args : '-Wno-deprecated-declarations',
                 dependencies : libcryptsetup)
         conf.set10('HAVE_' + ident.to_upper(), have_ident)
 endforeach
@@ -2082,8 +2087,6 @@ libsystemd = shared_library(
         install_tag: 'libsystemd',
         install_dir : libdir)
 
-alias_target('libsystemd', libsystemd)
-
 install_libsystemd_static = static_library(
         'systemd',
         libsystemd_sources,
@@ -2109,6 +2112,12 @@ install_libsystemd_static = static_library(
                         userspace],
         c_args : libsystemd_c_args + (static_libsystemd_pic ? [] : ['-fno-PIC']))
 
+if static_libsystemd != 'false'
+        alias_target('libsystemd', libsystemd, install_libsystemd_static)
+else
+        alias_target('libsystemd', libsystemd)
+endif
+
 libudev = shared_library(
         'udev',
         version : libudev_version,
@@ -2123,8 +2132,6 @@ libudev = shared_library(
         install : true,
         install_tag: 'libudev',
         install_dir : libdir)
-
-alias_target('libudev', libudev)
 
 install_libudev_static = static_library(
         'udev',
@@ -2144,6 +2151,12 @@ install_libudev_static = static_library(
                         userspace],
         c_args : static_libudev_pic ? [] : ['-fno-PIC'],
         pic : static_libudev_pic)
+
+if static_libudev != 'false'
+        alias_target('libudev', libudev, install_libudev_static)
+else
+        alias_target('libudev', libudev)
+endif
 
 #####################################################################
 
@@ -2525,6 +2538,8 @@ alias_target('fuzzers', fuzzer_exes)
 
 test_dlopen = executables_by_name.get('test-dlopen')
 
+nss_targets = []
+pam_targets = []
 foreach dict : modules
         name = dict.get('name')
         is_nss = name.startswith('nss_')
@@ -2573,6 +2588,11 @@ foreach dict : modules
                 # Unfortunately shared_library insists on creating the symlink…
                 meson.add_install_script(sh, '-c', 'rm $DESTDIR@0@/lib@1@.so'.format(libdir, name),
                                          install_tag : 'nss')
+                nss_targets += lib
+        endif
+
+        if is_pam
+                pam_targets += lib
         endif
 
         if want_tests != 'false' and (is_nss or is_pam)
@@ -2584,6 +2604,14 @@ foreach dict : modules
                      suite : is_nss ? 'nss' : 'pam')
         endif
 endforeach
+
+# We need the actual targets to build aliases
+if nss_targets.length() > 0
+        alias_target('nss', nss_targets)
+endif
+if pam_targets.length() > 0
+        alias_target('pam', pam_targets)
+endif
 
 #####################################################################
 
@@ -2620,21 +2648,31 @@ foreach executable : ['systemd-journal-remote', 'systemd-measure']
 endforeach
 
 if mkosi.found()
+        genkey = custom_target('genkey',
+                output : ['mkosi.key', 'mkosi.crt'],
+                command : [mkosi, '--force', 'genkey'],
+                depends : mkosi_depends,
+        )
+
         custom_target('mkosi',
                 build_always_stale : true,
                 build_by_default: false,
                 console : true,
                 output : '.',
                 command : [
-                        'mkosi',
+                        mkosi,
                         '--directory', meson.current_source_dir(),
                         '--output-dir', meson.current_build_dir() / 'mkosi.output',
                         '--cache-dir', meson.current_build_dir() / 'mkosi.cache',
                         '--build-dir', meson.current_build_dir() / 'mkosi.builddir',
+                        '--secure-boot-key', meson.current_build_dir() / 'mkosi.key',
+                        '--secure-boot-certificate', meson.current_build_dir() / 'mkosi.crt',
+                        '--verity-key', meson.current_build_dir() / 'mkosi.key',
+                        '--verity-certificate', meson.current_build_dir() / 'mkosi.crt',
                         '--force',
                         'build',
                 ],
-                depends : mkosi_depends,
+                depends : mkosi_depends + [genkey],
         )
 endif
 

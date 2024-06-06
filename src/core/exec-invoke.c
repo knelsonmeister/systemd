@@ -3585,26 +3585,29 @@ static int send_user_lookup(
         return 0;
 }
 
-static int acquire_home(const ExecContext *c, uid_t uid, const char** home, char **buf) {
+static int acquire_home(const ExecContext *c, const char **home, char **ret_buf) {
         int r;
 
         assert(c);
         assert(home);
-        assert(buf);
+        assert(ret_buf);
 
         /* If WorkingDirectory=~ is set, try to acquire a usable home directory. */
 
-        if (*home)
+        if (*home) /* Already acquired from get_fixed_user()? */
                 return 0;
 
         if (!c->working_directory_home)
                 return 0;
 
-        r = get_home_dir(buf);
+        if (c->dynamic_user)
+                return -EADDRNOTAVAIL;
+
+        r = get_home_dir(ret_buf);
         if (r < 0)
                 return r;
 
-        *home = *buf;
+        *home = *ret_buf;
         return 1;
 }
 
@@ -4291,7 +4294,7 @@ int exec_invoke(
 
         params->user_lookup_fd = safe_close(params->user_lookup_fd);
 
-        r = acquire_home(context, uid, &home, &home_buffer);
+        r = acquire_home(context, &home, &home_buffer);
         if (r < 0) {
                 *exit_status = EXIT_CHDIR;
                 return log_exec_error_errno(context, params, r, "Failed to determine $HOME for user: %m");
@@ -4750,7 +4753,7 @@ int exec_invoke(
 
                 if (ns_type_supported(NAMESPACE_IPC)) {
                         r = setup_shareable_ns(runtime->shared->ipcns_storage_socket, CLONE_NEWIPC);
-                        if (r == -EPERM)
+                        if (ERRNO_IS_NEG_PRIVILEGE(r))
                                 log_exec_warning_errno(context, params, r,
                                                        "PrivateIPC=yes is configured, but IPC namespace setup failed, ignoring: %m");
                         else if (r < 0) {

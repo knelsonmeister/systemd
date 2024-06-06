@@ -1371,7 +1371,7 @@ static void test_usr(void) {
 
         log_warning("/usr appears to be on its own filesystem and is not already mounted. This is not a supported setup. "
                     "Some things will probably break (sometimes even silently) in mysterious ways. "
-                    "Consult https://www.freedesktop.org/wiki/Software/systemd/separate-usr-is-broken for more information.");
+                    "Consult https://systemd.io/SEPARATE_USR_IS_BROKEN for more information.");
 }
 
 static int enforce_syscall_archs(Set *archs) {
@@ -1649,7 +1649,7 @@ static int become_shutdown(int objective, int retval) {
         (void) watchdog_setup_pretimeout(0);
         (void) watchdog_setup_pretimeout_governor(NULL);
         r = watchdog_setup(watchdog_timer);
-        watchdog_close(r < 0);
+        watchdog_close(/* disarm= */ r < 0);
 
         /* The environment block: */
 
