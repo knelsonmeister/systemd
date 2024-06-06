@@ -1,3 +1,27 @@
+systemd (256~rc4-1) unstable; urgency=high
+
+  [ Luca Boccassi ]
+  * Restart managers on libc-upgrade dpkg trigger (Closes: #1072373)
+  * LimitCORE: restore default hard limit to infinity. The intention was
+    to change the soft limit, but by default it applies to both unless
+    specified, so fix it.
+  * New upstream version 256~rc4
+  * Drop patches merged upstream
+
+  [ Nick Rosbrook ]
+  * debian/extra: set ManagedOOMSwap=auto on -.slice. This has the effect
+    of disabling swap kill by default, so cgroups will only be monitored
+    for memory pressure, and not swap usage.
+  * debian/extra: use a drop-in resolved.conf to configure Cache=no-
+    negative. Only ship this on Ubuntu.
+  * debian/extra: use a dropin to configure Nice=-1 on systemd-
+    journald.service. Only ship this on Ubuntu.
+
+  [ Dan Streetman ]
+  * debian/tests/storage: without scsi_debug, skip test
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 06 Jun 2024 20:49:17 +0100
+
 systemd (256~rc3-7) unstable; urgency=medium
 
   * NEWS: note that any leftover file in /tmp/ will be invisible due to
