@@ -1,2 +1,1 @@
-test-fix-iscsi-TEST-64-UDEV-STORAGE-on-Debian.patch
 debian/localectl-disable-keymap-support.patch
