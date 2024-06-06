@@ -42,23 +42,31 @@ run_test() {
 
     local test="$1"
     local name="${test##*/}"
+    local environment=
 
     echo "Executing test $name as unit $name.service"
 
-    systemd-run --quiet --property Delegate=1 --unit="$name" --wait "$test" && ret=0 || ret=$?
+    case "$name" in
+        test-journal-flush)
+            environment="SYSTEMD_LOG_LEVEL=info"
+            ;;
+        test-journal-verify)
+            environment="SYSTEMD_LOG_LEVEL=crit"
+            ;;
+    esac
+
+    systemd-run \
+        --quiet \
+        --property Delegate=1 \
+        --property EnvironmentFile=-/usr/lib/systemd/systemd-asan-env \
+        --property "Environment=$environment" \
+        --unit="$name" \
+        --wait "$test" && ret=0 || ret=$?
 
     exec {LOCK_FD}> /lock
     flock --exclusive ${LOCK_FD}
 
-    if [[ $ret -ne 0 && $ret != 77 && $ret != 127 ]]; then
-        echo "$name failed with $ret"
-        echo "$name" >>/failed-tests
-        {
-            echo "--- $name begin ---"
-            journalctl --unit="$name" --no-hostname -o short-monotonic
-            echo "--- $name end ---"
-        } >>/failed
-    elif [[ $ret == 77 || $ret == 127 ]]; then
+    if [[ $ret -eq 77 ]] || [[ $ret -eq 127 ]]; then
         echo "$name skipped"
         echo "$name" >>/skipped-tests
         {
@@ -66,6 +74,14 @@ run_test() {
             journalctl --unit="$name" --no-hostname -o short-monotonic
             echo "--- $name end ---"
         } >>/skipped
+    elif [[ $ret -ne 0 ]]; then
+        echo "$name failed with $ret"
+        echo "$name" >>/failed-tests
+        {
+            echo "--- $name begin ---"
+            journalctl --unit="$name" --no-hostname -o short-monotonic
+            echo "--- $name end ---"
+        } >>/failed
     else
         echo "$name OK"
         echo "$name" >>/testok

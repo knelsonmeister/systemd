@@ -329,7 +329,7 @@ int enroll_tpm2(struct crypt_device *cd,
 
                                 r = tpm2_load_pcr_signature(signature_path, &signature_json);
                                 if (r < 0)
-                                        return log_debug_errno(r, "Failed to read TPM PCR signature: %m");
+                                        return log_error_errno(r, "Failed to read TPM PCR signature: %m");
                         }
                 }
         } else
@@ -342,6 +342,8 @@ int enroll_tpm2(struct crypt_device *cd,
                 r = tpm2_pcrlock_policy_load(pcrlock_path, &pcrlock_policy);
                 if (r < 0)
                         return r;
+                if (r == 0)
+                        return log_error_errno(SYNTHETIC_ERRNO(ENOENT), "Couldn't find pcrlock policy %s.", pcrlock_path);
 
                 any_pcr_value_specified = true;
                 flags |= TPM2_FLAGS_USE_PCRLOCK;
@@ -371,8 +373,10 @@ int enroll_tpm2(struct crypt_device *cd,
 
         uint16_t hash_pcr_bank = 0;
         uint32_t hash_pcr_mask = 0;
+
         if (n_hash_pcr_values > 0) {
                 size_t hash_count;
+
                 r = tpm2_pcr_values_hash_count(hash_pcr_values, n_hash_pcr_values, &hash_count);
                 if (r < 0)
                         return log_error_errno(r, "Could not get hash count: %m");
@@ -380,10 +384,21 @@ int enroll_tpm2(struct crypt_device *cd,
                 if (hash_count > 1)
                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Multiple PCR banks selected.");
 
+                /* If we use a literal PCR value policy, derive the bank to use from the algorithm specified on the hash values */
                 hash_pcr_bank = hash_pcr_values[0].hash;
                 r = tpm2_pcr_values_to_mask(hash_pcr_values, n_hash_pcr_values, hash_pcr_bank, &hash_pcr_mask);
                 if (r < 0)
                         return log_error_errno(r, "Could not get hash mask: %m");
+        } else if (pubkey_pcr_mask != 0) {
+
+                /* If no literal PCR value policy is used, then let's determine the mask to use automatically
+                 * from the measurements of the TPM. */
+                r = tpm2_get_best_pcr_bank(
+                                tpm2_context,
+                                pubkey_pcr_mask,
+                                &hash_pcr_bank);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to determine best PCR bank: %m");
         }
 
         TPM2B_DIGEST policy = TPM2B_DIGEST_MAKE(NULL, TPM2_SHA256_DIGEST_SIZE);
