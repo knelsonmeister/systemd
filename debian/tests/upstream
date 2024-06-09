@@ -1,31 +1,119 @@
 #!/bin/sh
-# run upstream system integration tests
-# Author: Martin Pitt <martin.pitt@ubuntu.com>
+# run upstream system integration tests via mkosi
 set -e
+set -x
 
-DPKGARCH=$(dpkg --print-architecture)
+cleanup () {
+    if [ -f "${workdir}/btrfs/build/meson-logs/testlog.txt" ]; then
+        cp "${workdir}/btrfs/build/meson-logs/testlog.txt" "$AUTOPKGTEST_ARTIFACTS"
+    fi
+    if [ -d "${workdir}/btrfs/build/test/journal" ]; then
+        cp -r "${workdir}/btrfs/build/test/journal" "$AUTOPKGTEST_ARTIFACTS"
+    fi
+    if [ -n "$workdir" ]; then
+        umount "$workdir/btrfs" || true
+        losetup --detach "$loop" || true
+        rm -rf "$workdir"
+    fi
+}
 
-# Because this test is used both by upstream and by Debian, we use different deny-list filenames.
-# For more details see https://salsa.debian.org/systemd-team/systemd/merge_requests/52
-case "${DEB_BUILD_PROFILES:-}" in
-    *pkg.systemd.upstream*)
-        denylist="deny-list-ubuntu-ci"
-        if [ "$DPKGARCH" = ppc64el ]; then
-            export TEST_NO_QEMU=1
-        fi
-        ;;
-    *)
-        denylist="deny-list-upstream-ci"
-        ;;
-esac
+# apparmor is not compatible with swtpm
+aa-teardown >/dev/null 2>&1 || true
+# we need user namespaces for some tests running in nspawn
+sysctl -we kernel.apparmor_restrict_unprivileged_unconfined=0
+sysctl -we kernel.apparmor_restrict_unprivileged_userns=0
 
-export DENY_LIST_MARKERS="$denylist-$DPKGARCH $denylist"
+mkdir -p /run/systemd/resolved.conf.d/
+tee /run/systemd/resolved.conf.d/dns.conf <<EOF
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com
+EOF
+systemctl try-reload-or-restart systemd-resolved.service
+
+workdir="$(mktemp --directory --tmpdir=/var/tmp integration-tests.XXXXXXXXXX)"
+trap cleanup EXIT
+
+# We need to make nearly identical copies of large images, so set up a BTRFS volume that
+# can use copy-on-write and compression, as the available disk space is very limited
+truncate --size=100G "$workdir/btrfs.raw"
+mkfs.btrfs "$workdir/btrfs.raw"
+mkdir -p "$workdir/btrfs"
+loop="$(losetup --find --show --direct-io=on "$workdir/btrfs.raw")"
+mount "$loop" "$workdir/btrfs" --options compress=zstd:1,user_subvol_rm_allowed,noatime,discard=async,space_cache=v2
+
+# mkosi will drop privileges and fail if it detects that is ran under sudo,
+# so unset these variables to hide it
+unset SUDO_USER SUDO_UID SUDO_GID
+
+mkosi_tree="${AUTOPKGTEST_TMP}/mkosi"
+git clone https://github.com/systemd/mkosi.git "$mkosi_tree"
+# If we have it, pin the mkosi version to the same one used by Github Actions, to ensure consistency
+if [ -f .github/workflows/mkosi.yml ]; then
+    mkosi_hash="$(grep systemd/mkosi@ .github/workflows/mkosi.yml | sed "s|.*systemd/mkosi@||g")"
+    git -C "$mkosi_tree" checkout "$mkosi_hash"
+fi
+
+tee mkosi.local.conf <<EOF
+[Output]
+Format=disk
+WorkspaceDirectory=$workdir
+PackageCacheDirectory=$workdir/cache
+
+[Distribution]
+PackageManagerTrees=/etc/apt/preferences.d/:/etc/apt/preferences.d/
+
+[Content]
+Environment=NO_BUILD=1 NO_SYNC=1 ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS" TEST_SAVE_JOURNAL=fail TEST_SHOW_JOURNAL=warning
+
+[Host]
+RuntimeBuildSources=no
+Incremental=no
+EOF
+
+# reprepro is unhappy about non-existing directories
+package_directories=""
+if [ -d "${AUTOPKGTEST_TMP}/../binaries" ]; then
+    package_directories="${AUTOPKGTEST_TMP}/../binaries,$package_directories"
+fi
+if [ -d /var/cache/apt/archives/ ]; then
+    package_directories="/var/cache/apt/archives/,$package_directories"
+fi
+if [ -n "$package_directories" ]; then
+    tee -a mkosi.local.conf <<EOF
+[Content]
+PackageDirectories=$package_directories
+EOF
+fi
+
+# Everything is already built and installed, but these dependencies will cause rebuilds which we want to
+# avoid, so patch them out
+sed -i "/depends : mkosi_depends/d" meson.build
+
+# qemu/vsock does not appear to work on ppc64el/s390x, so skip those tests
+dpkgarch=$(dpkg --print-architecture)
+if [ "$dpkgarch" = ppc64el ] || [ "$dpkgarch" = s390x ]; then
+    export TEST_NO_QEMU=1
+fi
+
+# If we don't have KVM, the explicitly disable it, as mkosi will fail. But try to load the module first.
+modprobe kvm || true
+if [ ! -e /dev/kvm ]; then
+    export TEST_NO_KVM=1
+fi
+
 export ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS"
+export PATH="${mkosi_tree}/bin:$PATH"
 export TEST_SAVE_JOURNAL=fail
 export TEST_SHOW_JOURNAL=warning
-export TEST_REQUIRE_INSTALL_TESTS=0
-export TEST_PREFER_NSPAWN=1
-export NO_BUILD=1
 export QEMU_TIMEOUT=2400
 export NSPAWN_TIMEOUT=2400
-test/run-integration-tests.sh
+export SYSTEMD_INTEGRATION_TESTS=1
+export NO_BUILD=1
+export NO_SYNC=1
+
+mkosi summary
+meson setup "${workdir}/btrfs/build" -Dintegration-tests=true -Dtests=true
+mkosi --debug genkey
+cp mkosi.key mkosi.crt "${workdir}/btrfs/build"
+meson compile -C "${workdir}/btrfs/build" mkosi
+meson test -C "${workdir}/btrfs/build" -v  --no-rebuild --suite integration-tests --print-errorlogs --no-stdsplit
