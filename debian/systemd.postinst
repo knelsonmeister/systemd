@@ -78,9 +78,19 @@ if [ -n "$2" ] && dpkg --compare-versions "$2" lt 256~rc3-3 && [ ! -f "$DPKG_ROO
 fi
 
 # We used to ship tmp.mount in /usr/share as an example, and some users link it in /etc/,
-# remove the link as a workaround until Trixie ships
+# remove the link as a workaround until Trixie ships. This method would also have created
+# a link in local-fs.target.wants, so remove that too.
 if [ -n "$2" ] && [ -L "$DPKG_ROOT/etc/systemd/system/tmp.mount" ] && [ "$(readlink "$DPKG_ROOT/etc/systemd/system/tmp.mount")" = "/usr/share/systemd/tmp.mount" ]; then
     rm -f "$DPKG_ROOT/etc/systemd/system/tmp.mount"
+    rm -f "$DPKG_ROOT/etc/systemd/system/local-fs.target.wants/tmp.mount"
+fi
+
+# The user may have used 'systemctl enable /usr/share/systemd/tmp.mount', which
+# would have created a symlink in the local-fs.target.wants directory (as the
+# pre-Trixie tmp.mount included an [install] section for that purpose). If it
+# exists, remove it.
+if [ -n "$2" ] && [ -L "$DPKG_ROOT/etc/systemd/system/local-fs.target.wants/tmp.mount" ] && [ "$(readlink "$DPKG_ROOT/etc/systemd/system/local-fs.target.wants/tmp.mount")" = "/usr/share/systemd/tmp.mount" ]; then
+    rm -f "$DPKG_ROOT/etc/systemd/system/local-fs.target.wants/tmp.mount"
 fi
 
 # Unless it's already running, ensure /tmp/ does not get overwritten by
