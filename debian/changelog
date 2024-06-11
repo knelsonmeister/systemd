@@ -1,3 +1,19 @@
+systemd (256-1) unstable; urgency=medium
+
+  [ Kevin Fleming ]
+  * Additional workaround for links to legacy /usr/share/systemd/tmp.mount
+    placeholder
+
+  [ Yu Watanabe ]
+  * debian/extra/network: use NamePolicy=mac only when ID_NET_NAME_MAC is
+    set.
+
+  [ Luca Boccassi ]
+  * New upstream version 256. For a full list of changes, see:
+    https://github.com/systemd/systemd/releases/tag/v256
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 11 Jun 2024 22:59:12 +0100
+
 systemd (256~rc4-1) unstable; urgency=high
 
   [ Luca Boccassi ]
