@@ -1,3 +1,26 @@
+systemd (256-2) experimental; urgency=medium
+
+  * Add templated packages for UEFI Secure Boot signing of systemd-boot.
+  * Add systemd-standalone-shutdown package for exitrds. Allows building
+    minimal exitrd images, used to gracefully cleanup complex root
+    filesystems storage. Not intended for normal systems.
+  * Add systemd-repart package to reduce dependencies sd-repart pulls in
+    several libraries that binaries in the main systemd package do not
+    need, so split it out to reduce the dependencies of the main package
+  * Add systemd-cryptsetup package to reduce dependencies sd-
+    cryptsetup/integritysetup/veritysetup pull in several libraries that
+    other files in the main systemd package do not need, so split them out
+    to reduce the dependencies of the main package
+  * Move sd-sysupdate to systemd-container
+  * Move importd manpages to systemd-container, where the binaries are.
+    Left behind when importd was moved
+  * Move systemd-boot/stub manpages to systemd-boot. The EFI packages
+    should just have the EFI binaries, no point in duplicating the docs.
+    And the stub manpage should also be in the boot package, not the main
+    package.
+
+ -- Luca Boccassi <bluca@debian.org>  Wed, 12 Jun 2024 01:30:51 +0100
+
 systemd (256-1) unstable; urgency=medium
 
   [ Kevin Fleming ]
