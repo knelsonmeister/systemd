@@ -9,9 +9,9 @@ include /usr/share/dpkg/default.mk
 include /usr/share/debhelper/dh_package_notes/package-notes.mk
 
 ifeq (amd64,$(DEB_HOST_ARCH))
-export DEB_HOST_ARCH_EFI=x64
+export TEMPLATE_EFI_ARCH=x64
 else ifeq (arm64,$(DEB_HOST_ARCH))
-export DEB_HOST_ARCH_EFI=aa64
+export TEMPLATE_EFI_ARCH=aa64
 endif
 
 
@@ -293,8 +293,8 @@ endif
 
 ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 ifeq ($(DEB_VENDOR),Debian)
-ifneq ($(DEB_HOST_ARCH_EFI),)
-	debian/extra/gen-signing-template $(DEB_VERSION) $(DEB_HOST_ARCH) $(DEB_HOST_ARCH_EFI)
+ifneq ($(TEMPLATE_EFI_ARCH),)
+	debian/extra/gen-signing-template $(DEB_VERSION) $(DEB_HOST_ARCH) $(TEMPLATE_EFI_ARCH)
 endif
 endif
 endif

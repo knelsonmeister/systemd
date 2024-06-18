@@ -4,7 +4,7 @@ set -euE
 
 export DEB_VERSION="$1"
 export DEB_HOST_ARCH="$2"
-export DEB_HOST_ARCH_EFI="$3"
+export TEMPLATE_EFI_ARCH="$3"
 
 DISTRIBUTION="$(dpkg-parsechangelog -SDistribution)"
 URGENCY="$(dpkg-parsechangelog -SUrgency)"
@@ -16,7 +16,7 @@ DEB_VERSION_SOURCE="$(echo "$DEB_VERSION" | sed -re 's/\+b[[:digit:]]+$//')"
 export DEB_VERSION_SOURCE
 SIGN_TEMPLATE_DIR="debian/systemd-boot-efi-${DEB_HOST_ARCH}-signed-template/usr/share/code-signing/systemd-boot-efi-${DEB_HOST_ARCH}-signed-template"
 SIGN_SOURCE_DIR="${SIGN_TEMPLATE_DIR}/source-template/debian"
-FILE=usr/lib/systemd/boot/efi/systemd-boot${DEB_HOST_ARCH_EFI}.efi
+FILE=usr/lib/systemd/boot/efi/systemd-boot${TEMPLATE_EFI_ARCH}.efi
 
 for i in $(find debian/signing-template -type f -printf '%P\n'); do
 	mkdir -p "$SIGN_SOURCE_DIR/$(dirname "$i")"
