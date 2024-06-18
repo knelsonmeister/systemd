@@ -574,17 +574,17 @@ Package: systemd-boot-efi-amd64-signed-template
 Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends},
 Build-Profiles: <!stage1 !pkg.systemd.upstream>
-Description: Template for signed systemd-boot-efi package
+Description: Template for signed systemd-boot-efi package (amd64)
  This package is used to control code signing by the Debian signing
- service.
+ service (amd64 variant).
 
 Package: systemd-boot-efi-arm64-signed-template
 Architecture: arm64
 Depends: ${shlibs:Depends}, ${misc:Depends},
 Build-Profiles: <!stage1 !pkg.systemd.upstream>
-Description: Template for signed systemd-boot-efi package
+Description: Template for signed systemd-boot-efi package (arm64)
  This package is used to control code signing by the Debian signing
- service.
+ service (arm64 variant).
 
 Package: systemd-ukify
 Build-Profiles: <!stage1 !pkg.systemd.noukify>
