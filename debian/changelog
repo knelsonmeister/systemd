@@ -1,3 +1,21 @@
+systemd (256.1-1) unstable; urgency=medium
+
+  * Bump versioned breaks against dracut to 102-2 (Closes: #1073290)
+  * autopkgtest: switch upstream suite to mkosi-based builds
+  * Add conflict against sysv-rc, insserv and startpar in systemd-sysv.
+    They are not needed, and having them installed causes problems.
+    (Closes: #1072562)
+  * New upstream version 256.1
+  * Drop section from binary packages where it matches the source package
+  * Override Lintian false positives about spare manpages
+  * Deduplicate template packages descriptions
+  * Add Lintian override for template package false positives
+  * Rename EFI architecture variable to avoid dpkg clash. Fixes Lintian
+    warning: debian-rules-sets-dpkg-architecture-variable
+  * Upload to unstable.
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 18 Jun 2024 23:19:16 +0100
+
 systemd (256-2) experimental; urgency=medium
 
   * Add templated packages for UEFI Secure Boot signing of systemd-boot.
