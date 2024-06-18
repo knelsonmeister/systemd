@@ -8,6 +8,13 @@ export LC_ALL = C.UTF-8
 include /usr/share/dpkg/default.mk
 include /usr/share/debhelper/dh_package_notes/package-notes.mk
 
+ifeq (amd64,$(DEB_HOST_ARCH))
+export DEB_HOST_ARCH_EFI=x64
+else ifeq (arm64,$(DEB_HOST_ARCH))
+export DEB_HOST_ARCH_EFI=aa64
+endif
+
+
 ifeq ($(DEB_VENDOR),Ubuntu)
     DEFAULT_NTP_SERVERS = ntp.ubuntu.com
     SUPPORT_URL = http://www.ubuntu.com/support
@@ -265,9 +272,8 @@ execute_before_dh_install:
 	fi
 	# remove obsolete compat symlink
 	rm -f debian/tmp/usr/bin/systemd-resolve
-	# we don't want repart and shutdown standalone binaries for now
+	# we don't want the repart standalone binary for now
 	rm -f debian/tmp/usr/bin/systemd-repart.standalone
-	rm -f debian/tmp/usr/lib/systemd/systemd-shutdown.standalone
 	# files shipped by cryptsetup
 ifeq (, $(filter stage1, $(DEB_BUILD_PROFILES)))
 	rm -f debian/tmp/usr/share/man/man5/crypttab.5
@@ -283,6 +289,14 @@ ifeq ($(DEB_VENDOR),Ubuntu)
 	install --mode=644 debian/extra/rules-ubuntu/*.rules debian/udev/usr/lib/udev/rules.d/
 	install -D --mode=644 debian/extra/resolved.conf.d/cache-no-negative.conf debian/systemd-resolved/usr/lib/systemd/resolved.conf.d/cache-no-negative.conf
 	cp -a debian/extra/units-ubuntu/* debian/systemd/usr/lib/systemd/system/
+endif
+
+ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
+ifeq ($(DEB_VENDOR),Debian)
+ifneq ($(DEB_HOST_ARCH_EFI),)
+	debian/extra/gen-signing-template $(DEB_VERSION) $(DEB_HOST_ARCH) $(DEB_HOST_ARCH_EFI)
+endif
+endif
 endif
 
 	# Remove empty directories from /usr/lib.

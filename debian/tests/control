@@ -25,6 +25,7 @@ Restrictions: needs-root, allow-stderr, breaks-testbed
 Tests: storage
 Depends: systemd,
   systemd-resolved,
+  systemd-cryptsetup,
   libpam-systemd,
   libnss-systemd,
   acl,
@@ -39,6 +40,7 @@ Tests: networkd-test.py
 Tests-Directory: test
 Depends: systemd,
   systemd-resolved,
+  systemd-cryptsetup,
   libpam-systemd,
   libnss-systemd,
   acl,
@@ -56,6 +58,7 @@ Restrictions: needs-root, isolation-container, breaks-testbed
 Tests: build-login
 Depends: systemd,
   systemd-resolved,
+  systemd-cryptsetup,
   libpam-systemd,
   libnss-systemd,
   acl,
@@ -141,6 +144,8 @@ Depends: systemd (>= 254~),
   systemd-homed,
   systemd-resolved,
   systemd-boot [amd64 arm64 armhf i386 riscv64],
+  systemd-repart,
+  systemd-cryptsetup,
   systemd-boot-efi [amd64 arm64 armhf i386 riscv64],
   libnss-myhostname,
   libnss-mymachines,

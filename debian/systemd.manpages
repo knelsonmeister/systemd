@@ -15,7 +15,6 @@ debian/tmp/usr/share/man/man1/systemd-cat.1
 debian/tmp/usr/share/man/man1/systemd-cgls.1
 debian/tmp/usr/share/man/man1/systemd-cgtop.1
 debian/tmp/usr/share/man/man1/systemd-creds.1
-<!stage1> debian/tmp/usr/share/man/man1/systemd-cryptenroll.1
 debian/tmp/usr/share/man/man1/systemd-delta.1
 debian/tmp/usr/share/man/man1/systemd-detect-virt.1
 debian/tmp/usr/share/man/man1/systemd-escape.1
@@ -45,7 +44,6 @@ debian/tmp/usr/share/man/man5/environment.d.5
 debian/tmp/usr/share/man/man5/extension-release.5
 debian/tmp/usr/share/man/man5/hostname.5
 debian/tmp/usr/share/man/man5/initrd-release.5
-<!stage1> debian/tmp/usr/share/man/man5/integritytab.5
 debian/tmp/usr/share/man/man5/iocost.conf.5
 debian/tmp/usr/share/man/man5/journald.conf.5
 debian/tmp/usr/share/man/man5/journald@.conf.5
@@ -60,7 +58,6 @@ debian/tmp/usr/share/man/man5/modules-load.d.5
 debian/tmp/usr/share/man/man5/networkd.conf.5
 debian/tmp/usr/share/man/man5/networkd.conf.d.5
 debian/tmp/usr/share/man/man5/org.freedesktop.hostname1.5
-<!stage1> debian/tmp/usr/share/man/man5/org.freedesktop.import1.5
 debian/tmp/usr/share/man/man5/org.freedesktop.locale1.5
 debian/tmp/usr/share/man/man5/org.freedesktop.LogControl1.5
 debian/tmp/usr/share/man/man5/org.freedesktop.login1.5
@@ -72,7 +69,6 @@ debian/tmp/usr/share/man/man5/org.freedesktop.timedate1.5
 debian/tmp/usr/share/man/man5/os-release.5
 debian/tmp/usr/share/man/man5/pstore.conf.5
 debian/tmp/usr/share/man/man5/pstore.conf.d.5
-debian/tmp/usr/share/man/man5/repart.d.5
 debian/tmp/usr/share/man/man5/sleep.conf.d.5
 debian/tmp/usr/share/man/man5/sysctl.d.5
 debian/tmp/usr/share/man/man5/system.conf.d.5
@@ -103,18 +99,15 @@ debian/tmp/usr/share/man/man5/systemd.timer.5
 debian/tmp/usr/share/man/man5/systemd.unit.5
 debian/tmp/usr/share/man/man5/systemd-user.conf.5
 debian/tmp/usr/share/man/man5/systemd-user-runtime-dir.5
-<!stage1> debian/tmp/usr/share/man/man5/sysupdate.d.5
 debian/tmp/usr/share/man/man5/sysusers.d.5
 debian/tmp/usr/share/man/man5/tmpfiles.d.5
 debian/tmp/usr/share/man/man5/user.conf.d.5
 debian/tmp/usr/share/man/man5/user-runtime-dir@.service.5
 debian/tmp/usr/share/man/man5/user@.service.5
-<!stage1> debian/tmp/usr/share/man/man5/veritytab.5
 debian/tmp/usr/share/man/man7/bootup.7
 debian/tmp/usr/share/man/man7/daemon.7
 debian/tmp/usr/share/man/man7/file-hierarchy.7
 debian/tmp/usr/share/man/man7/kernel-command-line.7
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man7/sd-stub.7
 debian/tmp/usr/share/man/man7/smbios-type-11.7
 debian/tmp/usr/share/man/man7/systemd.directives.7
 debian/tmp/usr/share/man/man7/systemd.environment-generator.7
@@ -125,7 +118,6 @@ debian/tmp/usr/share/man/man7/systemd.journal-fields.7
 debian/tmp/usr/share/man/man7/systemd.net-naming-scheme.7
 debian/tmp/usr/share/man/man7/systemd.offline-updates.7
 debian/tmp/usr/share/man/man7/systemd.special.7
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man7/systemd-stub.7
 debian/tmp/usr/share/man/man7/systemd.syntax.7
 debian/tmp/usr/share/man/man7/systemd.system-credentials.7
 debian/tmp/usr/share/man/man7/systemd.time.7
@@ -150,9 +142,6 @@ debian/tmp/usr/share/man/man8/systemd-boot-check-no-failures.service.8
 <!stage1> debian/tmp/usr/share/man/man8/systemd-bsod.service.8
 debian/tmp/usr/share/man/man8/systemd-confext.8
 debian/tmp/usr/share/man/man8/systemd-confext.service.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-cryptsetup.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-cryptsetup-generator.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-cryptsetup@.service.8
 debian/tmp/usr/share/man/man8/systemd-debug-generator.8
 debian/tmp/usr/share/man/man8/systemd-environment-d-generator.8
 debian/tmp/usr/share/man/man8/systemd-fsck.8
@@ -174,14 +163,9 @@ debian/tmp/usr/share/man/man8/systemd-hibernate.service.8
 debian/tmp/usr/share/man/man8/systemd-hostnamed.8
 debian/tmp/usr/share/man/man8/systemd-hostnamed.service.8
 debian/tmp/usr/share/man/man8/systemd-hybrid-sleep.service.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-importd.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-importd.service.8
 debian/tmp/usr/share/man/man8/systemd-initctl.8
 debian/tmp/usr/share/man/man8/systemd-initctl.service.8
 debian/tmp/usr/share/man/man8/systemd-initctl.socket.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-integritysetup.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-integritysetup-generator.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-integritysetup@.service.8
 debian/tmp/usr/share/man/man8/systemd-journald.8
 debian/tmp/usr/share/man/man8/systemd-journald-audit.socket.8
 debian/tmp/usr/share/man/man8/systemd-journald-dev-log.socket.8
@@ -234,8 +218,6 @@ debian/tmp/usr/share/man/man8/systemd-rc-local-generator.8
 debian/tmp/usr/share/man/man8/systemd-reboot.service.8
 debian/tmp/usr/share/man/man8/systemd-remount-fs.8
 debian/tmp/usr/share/man/man8/systemd-remount-fs.service.8
-debian/tmp/usr/share/man/man8/systemd-repart.8
-debian/tmp/usr/share/man/man8/systemd-repart.service.8
 debian/tmp/usr/share/man/man8/systemd-rfkill.8
 debian/tmp/usr/share/man/man8/systemd-rfkill.service.8
 debian/tmp/usr/share/man/man8/systemd-rfkill.socket.8
@@ -254,11 +236,6 @@ debian/tmp/usr/share/man/man8/systemd-sysctl.service.8
 debian/tmp/usr/share/man/man8/systemd-sysext.8
 debian/tmp/usr/share/man/man8/systemd-sysext.service.8
 debian/tmp/usr/share/man/man8/systemd-system-update-generator.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate-reboot.service.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate-reboot.timer.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate.service.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-sysupdate.timer.8
 debian/tmp/usr/share/man/man8/systemd-sysusers.8
 debian/tmp/usr/share/man/man8/systemd-sysusers.service.8
 debian/tmp/usr/share/man/man8/systemd-sysv-generator.8
@@ -284,9 +261,6 @@ debian/tmp/usr/share/man/man8/systemd-update-utmp-runlevel.service.8
 debian/tmp/usr/share/man/man8/systemd-update-utmp.service.8
 debian/tmp/usr/share/man/man8/systemd-user-sessions.8
 debian/tmp/usr/share/man/man8/systemd-user-sessions.service.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-veritysetup.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-veritysetup-generator.8
-<!stage1> debian/tmp/usr/share/man/man8/systemd-veritysetup@.service.8
 debian/tmp/usr/share/man/man8/systemd-volatile-root.8
 debian/tmp/usr/share/man/man8/systemd-volatile-root.service.8
 debian/tmp/usr/share/man/man8/systemd-xdg-autostart-generator.8
