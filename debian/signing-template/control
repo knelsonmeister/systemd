@@ -11,7 +11,6 @@ Vcs-Git: https://salsa.debian.org/systemd-team/systemd.git
 Vcs-Browser: https://salsa.debian.org/systemd-team/systemd
 
 Package: systemd-boot-efi-${DEB_HOST_ARCH}-signed
-Section: admin
 Architecture: ${DEB_HOST_ARCH}
 Provides: systemd-boot-efi-signed
 Built-Using: systemd (= ${DEB_VERSION_SOURCE})

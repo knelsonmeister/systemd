@@ -645,7 +645,6 @@ Description: systemd development files
 
 Package: systemd-repart
 Architecture: linux-any
-Section: admin
 Depends: ${shlibs:Depends},
          ${misc:Depends},
 Recommends: ${dlopen:Recommends},
@@ -660,7 +659,6 @@ Description: Provides the systemd-repart utility
 Package: systemd-cryptsetup
 Build-Profiles: <!stage1>
 Architecture: linux-any
-Section: admin
 Depends: ${shlibs:Depends},
          ${misc:Depends},
 Recommends: ${dlopen:Recommends},
