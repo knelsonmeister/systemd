@@ -164,8 +164,7 @@ Depends: ${shlibs:Depends},
 Recommends: libnss-mymachines,
             ${dlopen:Recommends},
 Suggests: ${dlopen:Suggests},
-Breaks: systemd (<< 256-2~),
-Replaces: systemd (<< 256-2~),
+Conflicts: systemd (<< 256-2~),
 Description: systemd container/nspawn tools
  This package provides systemd's tools for nspawn and container/VM management:
   * systemd-nspawn
@@ -543,8 +542,7 @@ Recommends: efibootmgr,
             ${dlopen:Recommends},
 Suggests: systemd-ukify,
           ${dlopen:Suggests},
-Breaks: systemd (<< 256-2~), systemd-boot-efi (<< 256-2~),
-Replaces: systemd (<< 256-2~), systemd-boot-efi (<< 256-2~),
+Conflicts: systemd (<< 256-2~), systemd-boot-efi (<< 256-2~),
 Description: simple UEFI boot manager - tools and services
  systemd-boot (short: sd-boot) is a simple UEFI boot manager. It provides a
  textual menu to select the entry to boot and an editor for the kernel command
@@ -649,8 +647,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
 Recommends: ${dlopen:Recommends},
 Suggests: ${dlopen:Suggests},
-Breaks: systemd (<< 256-2~),
-Replaces: systemd (<< 256-2~),
+Conflicts: systemd (<< 256-2~),
 Description: Provides the systemd-repart utility
  systemd-repart is a configuration-driven system partitioning tool. It follows
  the Discoverable Partitions Specification and provides support for encryption
@@ -663,8 +660,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
 Recommends: ${dlopen:Recommends},
 Suggests: ${dlopen:Suggests},
-Breaks: systemd (<< 256-2~),
-Replaces: systemd (<< 256-2~),
+Conflicts: systemd (<< 256-2~),
 Description: Provides cryptsetup, integritysetup and veritysetup utilities
  Utilities and units that integrated cryptsetup/integritysetup/veritysetup
  support in systemd.
