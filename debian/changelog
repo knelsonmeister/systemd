@@ -1,3 +1,12 @@
+systemd (256.1-2) unstable; urgency=medium
+
+  * Bump breaks/replaces to conflicts for DEP17. Breaks/replaces are not
+    enough when moving files between packages and between locations as per
+    DEP17, so bump to Conflicts. (Closes: #1073922)
+  * autopkgtest: add dependency on libcryptsetup-dev in unit-tests suite
+
+ -- Luca Boccassi <bluca@debian.org>  Sun, 23 Jun 2024 13:33:33 +0100
+
 systemd (256.1-1) unstable; urgency=medium
 
   * Bump versioned breaks against dracut to 102-2 (Closes: #1073290)
