@@ -90,6 +90,7 @@ Architecture: linux-any
 Multi-Arch: foreign
 Priority: important
 Recommends: default-dbus-system-bus | dbus-system-bus,
+            linux-sysctl-defaults,
             systemd-timesyncd | time-daemon,
             systemd-cryptsetup,
             ${dlopen:Recommends},
