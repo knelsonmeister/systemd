@@ -1,4 +1,4 @@
 # make dh_missing happy for -A builds
 usr/bin/systemd-sysusers.standalone
 usr/bin/systemd-tmpfiles.standalone
-usr/bin/systemd-shutdown.standalone
+usr/lib/systemd/systemd-shutdown.standalone
