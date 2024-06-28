@@ -9,6 +9,7 @@ debian/tmp/usr/share/man/man5/sysupdate.d.5
 debian/tmp/usr/share/man/man1/machinectl.1
 debian/tmp/usr/share/man/man1/portablectl.1
 debian/tmp/usr/share/man/man1/systemd-dissect.1
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-import-generator.8
 debian/tmp/usr/share/man/man8/systemd-importd.8
 debian/tmp/usr/share/man/man8/systemd-importd.service.8
 debian/tmp/usr/share/man/man8/systemd-machined.8

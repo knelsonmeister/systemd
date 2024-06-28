@@ -17,8 +17,11 @@ usr/lib/systemd/systemd-nsresourcework
 usr/lib/systemd/systemd-portabled
 usr/lib/systemd/systemd-pull
 usr/lib/systemd/systemd-sysupdate
+<pkg.systemd.upstream> usr/lib/systemd/system-generators/systemd-import-generator
+<pkg.systemd.upstream> usr/lib/systemd/system/sockets.target.wants/systemd-importd.socket
 usr/lib/systemd/system/systemd-nspawn@.service
 usr/lib/systemd/system/systemd-importd.service
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-importd.socket
 usr/lib/systemd/system/systemd-machined.service
 usr/lib/systemd/system/systemd-mountfsd*
 usr/lib/systemd/system/systemd-nsresourced*
