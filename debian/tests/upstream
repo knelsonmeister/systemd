@@ -90,8 +90,9 @@ fi
 sed -i "/depends : mkosi_depends/d" meson.build
 
 # qemu/vsock does not appear to work on ppc64el/s390x, so skip those tests
+# qemu tests time out on arm64, so skip them
 dpkgarch=$(dpkg --print-architecture)
-if [ "$dpkgarch" = ppc64el ] || [ "$dpkgarch" = s390x ]; then
+if [ "$dpkgarch" = ppc64el ] || [ "$dpkgarch" = s390x ] || [ "$dpkgarch" = arm64 ]; then
     export TEST_NO_QEMU=1
 fi
 
