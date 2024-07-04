@@ -47,7 +47,7 @@ if [ -n "${KEEP_DEBIAN_PATCHES:-}" ]; then
                 echo "ERROR: $0 must be started from a branch when using KEEP_DEBIAN_PATCHES" >&2
                 exit 1
         fi
-        gbp pq import 2> /dev/null && gbp pq switch || true
+        ( gbp pq import 2> /dev/null && gbp pq switch ) || true
         if ! git branch --contains "$BRANCH_NAME" | grep -q patch-queue/"$BRANCH_NAME"; then
                 echo "ERROR: patch-queue/$BRANCH_NAME exists but it is not rebased, please rebase it." >&2
                 exit 1
@@ -64,7 +64,7 @@ rm -rf debian/patches
 [ -n "${KEEP_DEBIAN_TESTS:-}" ] || sed -i '/# NOUPSTREAM/ q' debian/tests/control
 
 # create new git commit with debian/ changes
-if [ -d .git -a -n "$(git status --short debian)" ]; then
+if [ -d .git ] && [ -n "$(git status --short debian)" ]; then
     git add debian
     git commit -n -m "checkout-upstream: edit debian/ files for upstream testing"
 fi
@@ -90,7 +90,7 @@ mkdir -p debian/tmp
 UPSTREAM_VER=$(cd debian/tmp/upstream; git describe | sed 's/^v//;s/-/./g')
 
 # clean out original upstream sources
-find -mindepth 1 -maxdepth 1 -name debian -o -name .git -prune -o -print0 | xargs -0n1 rm -rf
+find . -mindepth 1 -maxdepth 1 -name debian -o -name .git -prune -o -print0 | xargs -0n1 rm -rf
 
 # These options changes are only needed for the upstream CI, and we don't want to pollute d/rules with them.
 # Also we want to ensure running on an older branch (e.g.: for the systemd-stable repository) doesn't break.
@@ -106,7 +106,7 @@ mv debian/tmp/upstream/* .
 rm -rf debian/tmp
 
 # create new git commit with upstream code
-if [ -d .git -a -n "$(git status --short)" ] ; then
+if [ -d .git ] && [ -n "$(git status --short)" ] ; then
     git add .
     git commit -n -m "checkout-upstream: replace with upstream code at version ${UPSTREAM_VER}"
 fi
@@ -114,7 +114,7 @@ fi
 # import Debian patches which apply cleanly
 if [ -n "${KEEP_DEBIAN_PATCHES:-}" ]; then
     for c in $(git log "$BRANCH_NAME"..patch-queue/"$BRANCH_NAME" --format='%H' --reverse); do
-        if ! git cherry-pick $c; then
+        if ! git cherry-pick "$c"; then
             git cherry-pick --abort
             git reset --hard
             git clean -dxf
