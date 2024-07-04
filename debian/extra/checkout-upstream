@@ -84,7 +84,7 @@ mkdir -p debian/tmp
  git config user.email "$DUMMY_USER_EMAIL"
  git config user.name "$DUMMY_USER_NAME"
  if  [ -n "${UPSTREAM_PULL_REQUEST:-}" ] && [ "${UPSTREAM_REPO}" != "https://github.com/systemd/systemd-stable.git" ]; then
-     git rebase main
+     git rebase main || git rebase --abort
  fi
 )
 UPSTREAM_VER=$(cd debian/tmp/upstream; git describe | sed 's/^v//;s/-/./g')
