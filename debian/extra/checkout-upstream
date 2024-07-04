@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Prepare systemd source package in current directory for testing an upstream
 # commit, branch, or PR, without Debian patches. This replaces everything
 # except the debian/ directory with an upstream checkout.
@@ -41,6 +41,31 @@ if [ -d .git ]; then
     git config --get user.email || git config user.email "$DUMMY_USER_EMAIL"
 fi
 
+mkdir -p debian/tmp
+(cd debian/tmp
+ git clone "${UPSTREAM_REPO}" upstream || (rm -rf upstream; sleep 60; git clone "${UPSTREAM_REPO}" upstream)
+ cd upstream
+ $FETCH
+ $CO
+ git config user.email "$DUMMY_USER_EMAIL"
+ git config user.name "$DUMMY_USER_NAME"
+ if  [ -n "${UPSTREAM_PULL_REQUEST:-}" ] && [ "${UPSTREAM_REPO}" != "https://github.com/systemd/systemd-stable.git" ]; then
+     git rebase main || git rebase --abort
+ fi
+)
+if [ -f debian/tmp/upstream/meson.version ]; then
+    UPSTREAM_VER=$(cat debian/tmp/upstream/meson.version)
+else
+    UPSTREAM_VER=$(cd debian/tmp/upstream; git describe | sed 's/^v//;s/-/./g')
+fi
+
+# If we are on a stable branch, check out the corresponding packaging branch. For some settings like
+# build dependencies it is already too late, but this is mostly relevant for the dh_install files and
+# the tests.
+if [ -d .git ] && echo "$UPSTREAM_VER" | grep -q '\.'; then
+    git checkout "ci/v${UPSTREAM_VER%%.*}-stable"
+fi
+
 if [ -n "${KEEP_DEBIAN_PATCHES:-}" ]; then
         # set up pq branch if it does not exist
         if [ "$BRANCH_NAME" = HEAD ]; then
@@ -68,26 +93,6 @@ if [ -d .git ] && [ -n "$(git status --short debian)" ]; then
     git add debian
     git commit -n -m "checkout-upstream: edit debian/ files for upstream testing"
 fi
-
-########
-# Everything below this changes only code outside debian/
-# besides temporary use of debian/tmp/
-# and the update to debian/changelog
-########
-
-mkdir -p debian/tmp
-(cd debian/tmp
- git clone "${UPSTREAM_REPO}" upstream || (rm -rf upstream; sleep 60; git clone "${UPSTREAM_REPO}" upstream)
- cd upstream
- $FETCH
- $CO
- git config user.email "$DUMMY_USER_EMAIL"
- git config user.name "$DUMMY_USER_NAME"
- if  [ -n "${UPSTREAM_PULL_REQUEST:-}" ] && [ "${UPSTREAM_REPO}" != "https://github.com/systemd/systemd-stable.git" ]; then
-     git rebase main || git rebase --abort
- fi
-)
-UPSTREAM_VER=$(cd debian/tmp/upstream; git describe | sed 's/^v//;s/-/./g')
 
 # clean out original upstream sources
 find . -mindepth 1 -maxdepth 1 -name debian -o -name .git -prune -o -print0 | xargs -0n1 rm -rf
