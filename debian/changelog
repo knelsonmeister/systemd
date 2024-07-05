@@ -1,3 +1,21 @@
+systemd (256.2-1) unstable; urgency=medium
+
+  * d/not-installed: fix shutdown.standalone path
+  * autopkgtest: skip qemu tests on arm64
+  * Add recommends on linux-sysctl-defaults. This package contains the
+    default sysctl settings, and is maintained by the kernel team. This is
+    not available in Ubuntu so keep it as a recommends for now, to avoid
+    breaking the upstream CI.
+    (Closes: #1027773)
+  * initramfs-tools: copy network drop-ins too (Closes: #1074564)
+  * d/e/checkout-upstream: fix shellcheck warnings
+  * d/e/checkout-upstream: do not fail if rebase fails
+  * d/e/checkout-upstream: switch packaging branch on upstream stable PRs.
+  * New upstream version 256.2 (Closes: #1074789)
+  * Install run0 zsh completion file
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 05 Jul 2024 19:15:59 +0100
+
 systemd (256.1-2) unstable; urgency=medium
 
   * Bump breaks/replaces to conflicts for DEP17. Breaks/replaces are not
