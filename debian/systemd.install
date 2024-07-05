@@ -499,7 +499,7 @@ usr/share/zsh/vendor-completions/_kernel-install
 usr/share/zsh/vendor-completions/_localectl
 usr/share/zsh/vendor-completions/_loginctl
 usr/share/zsh/vendor-completions/_networkctl
-<pkg.systemd.upstream> usr/share/zsh/vendor-completions/_run0
+usr/share/zsh/vendor-completions/_run0
 usr/share/zsh/vendor-completions/_sd_hosts_or_user_at_host
 usr/share/zsh/vendor-completions/_sd_outputmodes
 usr/share/zsh/vendor-completions/_sd_unit_files
