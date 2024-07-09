@@ -214,7 +214,8 @@ Depends: ${shlibs:Depends},
          systemd
 Recommends: ${dlopen:Recommends},
 Suggests: ${dlopen:Suggests},
-Conflicts: time-daemon
+Conflicts: time-daemon,
+           systemd (<< 256.2-2~),
 Replaces: time-daemon
 Provides: time-daemon
 Description: minimalistic service to synchronize local time with NTP servers
