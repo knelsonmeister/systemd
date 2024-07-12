@@ -20,6 +20,3 @@
 # Enable Debian specific units
 /usr/lib/systemd/system/getty-static.service /usr/lib/systemd/system/getty.target.wants/getty-static.service
 /usr/lib/systemd/system/run-lock.mount /usr/lib/systemd/system/local-fs.target.wants/run-lock.mount
-
-# Create a compat symlink as systemd-sysctl no longer reads /etc/sysctl.conf
-/etc/sysctl.conf /etc/sysctl.d/99-sysctl.conf
