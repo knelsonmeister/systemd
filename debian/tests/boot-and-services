@@ -129,6 +129,14 @@ class ServicesTest(unittest.TestCase):
     @unittest.skipIf('pkg.systemd.upstream' in os.environ.get('DEB_BUILD_PROFILES', ''),
                      'Debian specific configuration, N/A for upstream')
     def test_tmp_cleanup(self):
+        # autopkgtest overrides tmp.mount with empty /etc/systemd/system/tmp.mount
+        # as a workaround for issues where /tmp is filled up too easily. LP: #2069834
+        try:
+            if os.stat('/etc/systemd/system/tmp.mount').st_size == 0:
+                self.skipTest('autopkgtest environment has overridden tmp.mount')
+        except FileNotFoundError:
+            pass
+
         # systemd-tmpfiles-clean.timer only runs 15 mins after boot, shortcut
         # it
         self.assertEqual(subprocess.call(
