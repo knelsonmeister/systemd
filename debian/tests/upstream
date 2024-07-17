@@ -3,6 +3,8 @@
 set -e
 set -x
 
+UBUNTU_RELEASE="$(. /etc/os-release && [ "$ID" = "ubuntu" ] && echo "$VERSION_CODENAME" || echo "")"
+
 cleanup () {
     if [ -f "${workdir}/btrfs/build/meson-logs/testlog.txt" ]; then
         cp "${workdir}/btrfs/build/meson-logs/testlog.txt" "$AUTOPKGTEST_ARTIFACTS"
@@ -61,6 +63,7 @@ PackageCacheDirectory=$workdir/cache
 
 [Distribution]
 PackageManagerTrees=/etc/apt/preferences.d/:/etc/apt/preferences.d/
+${UBUNTU_RELEASE:+"Release=${UBUNTU_RELEASE}"}
 
 [Content]
 Environment=NO_BUILD=1 NO_SYNC=1 ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS" TEST_SAVE_JOURNAL=fail TEST_SHOW_JOURNAL=warning
