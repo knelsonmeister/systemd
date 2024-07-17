@@ -226,8 +226,8 @@ poweroff\n''')
         out = nspawn.communicate(timeout=60)[0]
         self.assertIn(b'Spawning container c1', out)
         self.assertIn(b'fake container started', out)
-        self.assertRegex(out, b'\n\s+1\s+0\s+init[\r\n]')
-        self.assertRegex(out, b'\n\s+2+\s+0\s.*rcS[\r\n]')
+        self.assertRegex(out, rb'\n\s+1\s+0\s+init[\r\n]')
+        self.assertRegex(out, rb'\n\s+2+\s+0\s.*rcS[\r\n]')
         self.assertRegex(out, b'Container c1.*shut down')
         self.assertEqual(nspawn.returncode, 0)
 
