@@ -510,6 +510,7 @@ usr/share/zsh/vendor-completions/_systemd-path
 usr/share/zsh/vendor-completions/_systemd-run
 usr/share/zsh/vendor-completions/_systemd-tmpfiles
 usr/share/zsh/vendor-completions/_timedatectl
+<pkg.systemd.upstream> usr/share/zsh/vendor-completions/_varlinkctl
 var/lib/systemd/
 ../extra/init-functions.d usr/lib/lsb/
 ../extra/tmpfiles.d/*.conf usr/lib/tmpfiles.d/
