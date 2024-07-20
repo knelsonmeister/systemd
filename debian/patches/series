@@ -1,1 +1,1 @@
-debian/localectl-disable-keymap-support.patch
+test-override-blocking-localed-policy-in-TEST-73-LOC.patch

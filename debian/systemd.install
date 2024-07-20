@@ -528,3 +528,4 @@ var/lib/systemd/
 ../extra/user.conf.d/10-coredump-debian.conf usr/lib/systemd/user.conf.d/
 ../extra/sysctl.d/10-coredump-debian.conf usr/lib/sysctl.d/
 ../extra/limits.d/10-coredump-debian.conf etc/security/limits.d/
+../extra/dbus-1/system.d/systemd-localed-read-only.conf usr/share/dbus-1/system.d/
