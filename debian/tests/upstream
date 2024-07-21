@@ -3,7 +3,25 @@
 set -e
 set -x
 
-UBUNTU_RELEASE="$(. /etc/os-release && [ "$ID" = "ubuntu" ] && echo "$VERSION_CODENAME" || echo "")"
+RELEASE=$(
+    . /etc/os-release;
+    if [ "$ID" = "ubuntu" ]; then
+        echo "$VERSION_CODENAME"
+    elif [ "$ID" = "debian" ]; then
+        if [ -n "$VERSION_ID" ] && [ -n "$VERSION_CODENAME" ]; then
+            echo "$VERSION_CODENAME"
+        else
+            debian_version="$(cat /etc/debian_version)"
+            if [ "${debian_version#*/}" = sid ]; then
+                if [ "$VERSION_CODENAME" = sid ] || grep -q -r sid /etc/apt/sources.list* || grep -q -r unstable /etc/apt/sources.list*; then
+                    echo "unstable"
+                else
+                    echo "$VERSION_CODENAME"
+                fi
+            fi
+        fi
+    fi
+)
 
 cleanup () {
     if [ -f "${workdir}/btrfs/build/meson-logs/testlog.txt" ]; then
@@ -63,7 +81,7 @@ PackageCacheDirectory=$workdir/cache
 
 [Distribution]
 PackageManagerTrees=/etc/apt/preferences.d/:/etc/apt/preferences.d/
-${UBUNTU_RELEASE:+"Release=${UBUNTU_RELEASE}"}
+${RELEASE:+"Release=${RELEASE}"}
 
 [Content]
 Environment=NO_BUILD=1 NO_SYNC=1 ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS" TEST_SAVE_JOURNAL=fail TEST_SHOW_JOURNAL=warning
