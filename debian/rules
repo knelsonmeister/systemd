@@ -86,7 +86,6 @@ CONFFLAGS = \
 	-Dlink-udev-shared=false \
 	-Dlink-systemctl-shared=false \
 	-Dntp-servers="$(DEFAULT_NTP_SERVERS)" \
-	-Ddns-servers='' \
 	-Dsystem-uid-max=999 \
 	-Dsystem-gid-max=999 \
 	-Dnobody-user=nobody \
@@ -221,6 +220,10 @@ CONFFLAGS += -Dvmlinux-h=disabled
 endif
 endif
 endif
+endif
+
+ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
+CONFFLAGS += -Ddns-servers=''
 endif
 
 override_dh_auto_configure:
