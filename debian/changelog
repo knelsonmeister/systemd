@@ -1,9 +1,27 @@
-systemd (256.2-2) UNRELEASED; urgency=medium
+systemd (256.4-1) unstable; urgency=medium
 
+  [ Nick Rosbrook ]
   * Move systemd-time-wait-sync to systemd-timesyncd package
     (LP: #1938058)
+  * d/t/boot-and-services: skip test_tmp_cleanup if tmp.mount is
+    overridden
+  * d/t/upstream: ensure correct ubuntu codename is used
+  * d/t/control: add Depends: lib{systemd,udev}-dev for upstream
 
- -- Nick Rosbrook <enr0n@ubuntu.com>  Wed, 10 Jul 2024 12:57:20 -0400
+  [ Luca Boccassi ]
+  * Drop /etc/sysctl.d/99-sysctl.conf symlink procps no longer ships
+    /etc/sysctl.conf (Closes: #1076190)
+  * autopkgtest: add allow-stderr to timedated test
+  * autopkgtest: set Release= in mkosi.local.conf to distinguish testing
+    vs unstable
+  * Drop out-of-tree localed patch and use D-Bus policy instead. We can
+    forbid changing locale/keymap/keyboard via a D-Bus policy instead of
+    an out-of-tree patch.
+  * New upstream version 256.4 (Closes: #1074789)
+  * Install varlinkctl zsh completion file
+  * Drop last patch, all merged upstream
+
+ -- Luca Boccassi <bluca@debian.org>  Wed, 24 Jul 2024 14:23:56 +0100
 
 systemd (256.2-1) unstable; urgency=medium
 
