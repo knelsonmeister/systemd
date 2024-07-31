@@ -2,7 +2,6 @@
 etc/binfmt.d/
 etc/credstore/
 etc/credstore.encrypted/
-etc/init.d/
 etc/kernel/install.d/
 etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf
 etc/systemd/journald.conf
