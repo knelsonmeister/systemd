@@ -236,10 +236,6 @@ execute_before_dh_auto_build:
 	@echo 'blhc: ignore-line-regexp: .*cc -E.*'
 	@echo 'blhc: ignore-line-regexp: .* -o src/boot/efi.*'
 
-execute_after_dh_auto_build:
-	# generate POT file for translators
-	ninja -C obj-$(DEB_HOST_GNU_TYPE) systemd-pot
-
 execute_before_dh_auto_clean:
 ifneq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 	debian/extra/checkout-upstream
@@ -252,7 +248,6 @@ execute_after_dh_auto_clean:
 	rm -rf src/ukify/__pycache__/
 	rm -rf tools/__pycache__/
 	rm -rf tools/chromiumos/__pycache__/
-	rm -f po/systemd.pot
 
 execute_before_dh_install:
 	# remove unnecessary / unused files
