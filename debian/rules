@@ -241,14 +241,6 @@ ifneq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 	debian/extra/checkout-upstream
 endif
 
-execute_after_dh_auto_clean:
-	rm -f debian/shlibs.local
-	# remove Python byte code files
-	rm -rf src/ukify/test/__pycache__/
-	rm -rf src/ukify/__pycache__/
-	rm -rf tools/__pycache__/
-	rm -rf tools/chromiumos/__pycache__/
-
 execute_before_dh_install:
 	# remove unnecessary / unused files
 	rm -rf debian/tmp/usr/share/doc/systemd/LICENSES/
