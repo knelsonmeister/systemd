@@ -242,34 +242,14 @@ ifneq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 endif
 
 execute_before_dh_install:
-	# remove unnecessary / unused files
+	# remove unnecessary / unused files that are picked up by wildcards/directory listings in dh_install
 	rm -rf debian/tmp/usr/share/doc/systemd/LICENSES/
 	rm -f debian/tmp/usr/share/doc/systemd/LICENSE.*
-	rm -f debian/tmp/etc/init.d/README
-	rm -f debian/tmp/usr/lib/*.d/README
 	rm -f debian/tmp/usr/lib/udev/*.d/README
-	rm -f debian/tmp/usr/lib/sysctl.d/50-default.conf
-	rm -f debian/tmp/etc/X11/xinit/xinitrc.d/50-systemd-user.sh
-	if [ -d debian/tmp/etc/X11/xinit/xinitrc.d/ ]; then \
-		rmdir -p --ignore-fail-on-non-empty debian/tmp/etc/X11/xinit/xinitrc.d/; \
-	fi
-	# remove etc.conf and usr/share/factory for now, we are not using them yet
-	find debian/tmp/ -name etc.conf -print -delete
-	rm -rf debian/tmp/usr/share/factory/
 	# replace upstream sysusers.d/basic.conf with proper users for Debian
 	if [ -d debian/tmp/usr/lib/sysusers.d/ ]; then \
 		debian/extra/make-sysusers-basic > debian/tmp/usr/lib/sysusers.d/basic.conf; \
 	fi
-	# remove obsolete compat symlink
-	rm -f debian/tmp/usr/bin/systemd-resolve
-	# we don't want the repart standalone binary for now
-	rm -f debian/tmp/usr/bin/systemd-repart.standalone
-	# files shipped by cryptsetup
-ifeq (, $(filter stage1, $(DEB_BUILD_PROFILES)))
-	rm -f debian/tmp/usr/share/man/man5/crypttab.5
-endif
-	# print empty directories, makes it easier to keep *.install files up-to-date
-	find debian/tmp -type d -empty -print
 
 execute_after_dh_install-arch:
 	# Ubuntu specific files
@@ -288,13 +268,6 @@ ifneq ($(TEMPLATE_EFI_ARCH),)
 endif
 endif
 endif
-
-	# Remove empty directories from /usr/lib.
-	# Those are not strictly needed and can trigger piuparts errors due to
-	# accidential directory removal by dpkg on merged-/usr systems.
-	if [ -d debian/systemd/usr/lib ]; then \
-		find debian/systemd/usr/lib -type d -empty -print -delete; \
-	fi
 
 	# Can be dropped once upstream CI stops running on Jammy, which needs
 	# the old pkla config files, which are created only when building with
