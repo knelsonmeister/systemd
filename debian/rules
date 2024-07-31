@@ -269,15 +269,6 @@ endif
 endif
 endif
 
-	# Can be dropped once upstream CI stops running on Jammy, which needs
-	# the old pkla config files, which are created only when building with
-	# old polkit versions.
-ifneq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
-	if [ -f debian/tmp/var/lib/polkit-1/localauthority/10-vendor.d/systemd-networkd.pkla ]; then \
-		dh_install -psystemd var/lib/polkit-1/localauthority/10-vendor.d/systemd-networkd.pkla; \
-	fi
-endif
-
 override_dh_missing:
 	dh_missing $(DH_MISSING)
 
