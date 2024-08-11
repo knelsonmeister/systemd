@@ -1,3 +1,28 @@
+systemd (256.4-3) unstable; urgency=medium
+
+  * Drop redundant pot build. This was added many years ago, when
+    apparently the upstream pot generation wasn't run or wasn't working.
+    This is not the case anymore, pot files are regenerated upstream and
+    checked in on every release, so this manual step just updates the
+    timestamp in the existing template and nothing else. Drop it.
+  * Use debian/clean instead of override in d/rules
+  * Stop shipping empty /etc/init.d directory. We do not have any need for
+    it, and will soon stop supporting legacy init files, so stop shipping
+    it
+  * Use d/not-installed instead of manual removals. We no longer install
+    in the main package with a wildcard so we do not need to manually
+    delete files, listing them in d/not-installed is sufficient. The only
+    exceptions are files picked up by directory/wildcard entries in
+    dh_install that have to be deleted.
+  * autopkgtest: run upstream test last. It is the most complex and thus
+    the most likely to show temporary failures, so move it last so that
+    it's easier to read the logs
+  * autopkgtest: use hint-testsuite-triggers to ensure other packages
+    changes trigger our testsuite
+  * Depend on new linux-bpf-dev package where available
+
+ -- Luca Boccassi <bluca@debian.org>  Sun, 11 Aug 2024 11:53:32 +0100
+
 systemd (256.4-2) unstable; urgency=medium
 
   * autopkgtest: allow localectl in localed tests.
