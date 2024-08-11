@@ -199,19 +199,10 @@ export PATH := $(shell dirname $(bpftool_binary)):$(PATH)
 endif
 endif
 
-# The vmlinux.h we want is in the headers package that linux-headers-ARCH depends on,
-# which itself is the package that provides linux-headers-generic that we build depend on.
-# This is available since Trixie. If we can't find it, default to auto for the upstream CI
-# so that it is generated at build time, or disabled for distribution builds, as we don't
-# want to depend on the buildd kernels.
-ifeq ($(DEB_VENDOR),Ubuntu)
-HEADERS_PACKAGE = $(shell dpkg-query --showformat='$${Depends}' --show linux-headers-generic | sed "s/.*\(linux-headers-.*)\)-generic.*/\1/")
-else
-HEADERS_PACKAGE = $(shell dpkg-query --showformat='$${Depends}' --show linux-headers-$(DEB_HOST_ARCH) | sed "s/.*\(linux-headers-.*-$(DEB_HOST_ARCH)\).*/\1/")
-endif
-
-ifneq ("$(wildcard /usr/src/$(HEADERS_PACKAGE)/vmlinux.h)","")
-CONFFLAGS += -Dvmlinux-h=provided -Dvmlinux-h-path=/usr/src/$(HEADERS_PACKAGE)/vmlinux.h
+# TODO: once linux-bpf-dev is available in all releases that we build for, drop the
+# conditional on the wildcard and the alternative dependency on linux-headers-generic
+ifneq ("$(wildcard /usr/include/$(DEB_HOST_MULTIARCH)/linux/bpf/vmlinux.h)","")
+CONFFLAGS += -Dvmlinux-h=provided -Dvmlinux-h-path=/usr/include/$(DEB_HOST_MULTIARCH)/linux/bpf/vmlinux.h
 else
 ifneq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 CONFFLAGS += -Dvmlinux-h=auto
