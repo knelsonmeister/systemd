@@ -1,3 +1,13 @@
+systemd (256.5-1) unstable; urgency=medium
+
+  * New upstream version 256.5
+  * Drop patch merged upstream
+  * autopkgtest: skip TEST-64-UDEV-STORAGE due to qemu crash. This tests
+    randomly causes qemu to crash, making it very flaky, skip it
+    downstream
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 15 Aug 2024 22:00:36 +0100
+
 systemd (256.4-3) unstable; urgency=medium
 
   * Drop redundant pot build. This was added many years ago, when
