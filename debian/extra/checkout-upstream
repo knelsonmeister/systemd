@@ -68,7 +68,8 @@ fi
 # build dependencies it is already too late, but this is mostly relevant for the dh_install files and
 # the tests.
 if [ -d .git ] && echo "$UPSTREAM_VER" | grep -q '\.'; then
-    git checkout "ci/v${UPSTREAM_VER%%.*}-stable"
+    rm -rf .pc
+    git reset --hard "origin/ci/v${UPSTREAM_VER%%.*}-stable"
 fi
 
 if [ -n "${KEEP_DEBIAN_PATCHES:-}" ]; then
