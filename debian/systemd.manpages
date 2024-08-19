@@ -23,8 +23,7 @@ debian/tmp/usr/share/man/man1/systemd-firstboot.service.1
 debian/tmp/usr/share/man/man1/systemd-id128.1
 debian/tmp/usr/share/man/man1/systemd-inhibit.1
 debian/tmp/usr/share/man/man1/systemd-machine-id-setup.1
-[amd64 i386 arm64 armhf riscv64] <!stage1 !pkg.systemd.upstream> debian/tmp/usr/share/man/man1/systemd-measure.1
-debian/tmp/usr/share/man/man1/systemd-measure.1
+<!stage1> debian/tmp/usr/share/man/man1/systemd-measure.1
 debian/tmp/usr/share/man/man1/systemd-mount.1
 debian/tmp/usr/share/man/man1/systemd-notify.1
 debian/tmp/usr/share/man/man1/systemd-path.1
