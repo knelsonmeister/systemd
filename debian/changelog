@@ -1,3 +1,16 @@
+systemd (256.5-2) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * Fix stage1 build (Closes: #1078821)
+
+  [ Luca Boccassi ]
+  * Disable utmp support, replaced by wtmpdb. utmp is not y2038-safe, util-
+    linux has now turned it off and relies on logind, so disable utmp
+    support in logind too, as it is no longer necessary. wtmpdb replaces
+    the functionality.
+
+ -- Luca Boccassi <bluca@debian.org>  Sun, 01 Sep 2024 22:03:06 +0100
+
 systemd (256.5-1) unstable; urgency=medium
 
   * New upstream version 256.5
