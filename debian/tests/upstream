@@ -92,17 +92,10 @@ Incremental=no
 EOF
 
 # reprepro is unhappy about non-existing directories
-package_directories=""
 if [ -d "${AUTOPKGTEST_TMP}/../binaries" ]; then
-    package_directories="${AUTOPKGTEST_TMP}/../binaries,$package_directories"
-fi
-if [ -d /var/cache/apt/archives/ ]; then
-    package_directories="/var/cache/apt/archives/,$package_directories"
-fi
-if [ -n "$package_directories" ]; then
     tee -a mkosi.local.conf <<EOF
 [Content]
-PackageDirectories=$package_directories
+PackageDirectories=${AUTOPKGTEST_TMP}/../binaries
 EOF
 fi
 
