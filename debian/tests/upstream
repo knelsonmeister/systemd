@@ -73,6 +73,29 @@ if [ -f .github/workflows/mkosi.yml ]; then
     git -C "$mkosi_tree" checkout "$mkosi_hash"
 fi
 
+apt_dir="/etc/apt"
+local_binaries=""
+if [ -d "${AUTOPKGTEST_TMP}/../binaries" ]; then
+    # If locally built binaries are being used, prepare /etc/apt so that
+    # it will not conflict with settings implied by PackageDirectories=
+    # used below.
+    local_binaries="$(realpath "${AUTOPKGTEST_TMP}/../binaries")"
+    apt_dir="$(mktemp -d)/apt"
+    cp -r /etc/apt "$apt_dir"
+
+    if [ -e "${apt_dir}/sources.list" ]; then
+        sed -i "\|${local_binaries}|d" "${apt_dir}/sources.list"
+    fi
+
+    for sources in $(find "${apt_dir}/sources.list.d" -type f -name "*.list"); do
+        sed -i "\|${local_binaries}|d" "$sources"
+    done
+
+    for sources in $(find "${apt_dir}/sources.list.d" -type f -name "*.sources"); do
+        sed -i "\|URIs:.*${local_binaries}|i Enabled: no" $sources
+    done
+fi
+
 tee mkosi.local.conf <<EOF
 [Output]
 Format=disk
@@ -80,24 +103,17 @@ WorkspaceDirectory=$workdir
 PackageCacheDirectory=$workdir/cache
 
 [Distribution]
-PackageManagerTrees=/etc/apt/preferences.d/:/etc/apt/preferences.d/
+PackageManagerTrees=${apt_dir}:/etc/apt/
 ${RELEASE:+"Release=${RELEASE}"}
 
 [Content]
 Environment=NO_BUILD=1 NO_SYNC=1 ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS" TEST_SAVE_JOURNAL=fail TEST_SHOW_JOURNAL=warning
+${local_binaries:+"PackageDirectories=${local_binaries}"}
 
 [Host]
 RuntimeBuildSources=no
 Incremental=no
 EOF
-
-# reprepro is unhappy about non-existing directories
-if [ -d "${AUTOPKGTEST_TMP}/../binaries" ]; then
-    tee -a mkosi.local.conf <<EOF
-[Content]
-PackageDirectories=${AUTOPKGTEST_TMP}/../binaries
-EOF
-fi
 
 # Everything is already built and installed, but these dependencies will cause rebuilds which we want to
 # avoid, so patch them out
