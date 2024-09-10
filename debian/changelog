@@ -1,3 +1,21 @@
+systemd (256.6-1) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * salsa-ci: test the stage1 build profile
+
+  [ Simon Chopin ]
+  * Filter out zdev rules in the initramfs hook (LP: #2044104). s390-tools
+    has its own initramfs customization logic that deals with those files.
+
+  [ Luca Boccassi ]
+  * Re-enable utmp support, tmux's autopkgtests require it. This will
+    break as logind writing into utmp will wrap around, so Trixie won't be
+    y2038 ready after all
+  * New upstream version 256.6
+  * Note systemd-cryptsetup package split in NEWS (Closes: #1079644)
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 10 Sep 2024 18:28:21 +0200
+
 systemd (256.5-2) unstable; urgency=medium
 
   [ Helmut Grohne ]
