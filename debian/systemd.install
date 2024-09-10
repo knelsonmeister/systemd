@@ -140,6 +140,7 @@ usr/lib/systemd/systemd-sysroot-fstab-check
 usr/lib/systemd/systemd-timedated
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/systemd-tpm2-setup
 usr/lib/systemd/systemd-update-done
+usr/lib/systemd/systemd-update-utmp
 usr/lib/systemd/systemd-user-runtime-dir
 usr/lib/systemd/systemd-user-sessions
 usr/lib/systemd/systemd-volatile-root
@@ -165,6 +166,7 @@ usr/lib/systemd/system/getty-pre.target
 usr/lib/systemd/system/getty@.service
 usr/lib/systemd/system/getty.target
 usr/lib/systemd/system/graphical.target
+usr/lib/systemd/system/graphical.target.wants/systemd-update-utmp-runlevel.service
 usr/lib/systemd/system/halt.target
 usr/lib/systemd/system/hibernate.target
 usr/lib/systemd/system/hybrid-sleep.target
@@ -193,6 +195,7 @@ usr/lib/systemd/system/multi-user.target
 usr/lib/systemd/system/multi-user.target.wants/getty.target
 usr/lib/systemd/system/multi-user.target.wants/systemd-ask-password-wall.path
 usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service
+usr/lib/systemd/system/multi-user.target.wants/systemd-update-utmp-runlevel.service
 usr/lib/systemd/system/multi-user.target.wants/systemd-user-sessions.service
 usr/lib/systemd/system/network-online.target
 usr/lib/systemd/system/network-pre.target
@@ -212,6 +215,7 @@ usr/lib/systemd/system/remote-fs-pre.target
 usr/lib/systemd/system/remote-fs.target
 usr/lib/systemd/system/rescue.service
 usr/lib/systemd/system/rescue.target
+usr/lib/systemd/system/rescue.target.wants/systemd-update-utmp-runlevel.service
 usr/lib/systemd/system/rpcbind.target
 usr/lib/systemd/system/runlevel0.target
 usr/lib/systemd/system/runlevel1.target
@@ -274,6 +278,7 @@ usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup-early.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-update-done.service
+usr/lib/systemd/system/sysinit.target.wants/systemd-update-utmp.service
 usr/lib/systemd/system/sys-kernel-config.mount
 usr/lib/systemd/system/sys-kernel-debug.mount
 usr/lib/systemd/system/sys-kernel-tracing.mount
@@ -366,6 +371,8 @@ usr/lib/systemd/system/systemd-tmpfiles-setup.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup-early.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup.service
 usr/lib/systemd/system/systemd-update-done.service
+usr/lib/systemd/system/systemd-update-utmp-runlevel.service
+usr/lib/systemd/system/systemd-update-utmp.service
 usr/lib/systemd/system/systemd-user-sessions.service
 usr/lib/systemd/system/systemd-volatile-root.service
 usr/lib/systemd/system/system-update-cleanup.service
