@@ -1,3 +1,14 @@
+systemd (256-2) unstable; urgency=medium
+
+  cryptsetup tools such as systemd-cryptsetup, systemd-cryptenroll,
+  systemd-veritysetup, and more, have been split into a new systemd-cryptsetup
+  package to reduce dependencies pulled in by the main systemd package. This
+  new package is only listed as a Recommends, so if this functionality is used
+  ensure that either Recommends are installed (default) or that it is
+  manually installed.
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 10 Sep 2024 18:19:16 +0200
+
 systemd (256~rc3-3) unstable; urgency=medium
 
   - /tmp/ is now by default a tmpfs, via the tmp.mount unit provided upstream.
