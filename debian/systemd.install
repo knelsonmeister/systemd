@@ -424,6 +424,7 @@ usr/lib/sysusers.d/systemd-journal.conf
 usr/lib/sysusers.d/systemd-network.conf
 <pkg.systemd.upstream> usr/lib/tmpfiles.d/20-systemd-shell-extra.conf
 usr/lib/tmpfiles.d/20-systemd-ssh-generator.conf
+<pkg.systemd.upstream> usr/lib/tmpfiles.d/20-systemd-stub.conf
 usr/lib/tmpfiles.d/credstore.conf
 usr/lib/tmpfiles.d/home.conf
 usr/lib/tmpfiles.d/journal-nocow.conf
