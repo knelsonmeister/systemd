@@ -1,3 +1,4 @@
 usr/share/man/man*/*timesyncd*
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man5/org.freedesktop.timesync1.5
 debian/tmp/usr/share/man/man8/systemd-time-wait-sync.8
 debian/tmp/usr/share/man/man8/systemd-time-wait-sync.service.8
