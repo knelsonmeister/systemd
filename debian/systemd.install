@@ -60,6 +60,7 @@ usr/lib/kernel/install.conf
 usr/lib/kernel/install.d/50-depmod.install
 usr/lib/kernel/install.d/90-loaderentry.install
 usr/lib/kernel/install.d/90-uki-copy.install
+<pkg.systemd.upstream> usr/lib/kernel/uki.conf
 usr/lib/modprobe.d/systemd.conf
 <!stage1> usr/lib/pcrlock.d/
 [alpha amd64 arm64 ia64 loong64 mips64el ppc64 ppc64el riscv64 s390x sparc64] usr/lib/sysctl.d/50-pid-max.conf
