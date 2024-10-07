@@ -304,3 +304,9 @@ endif
 
 %:
 	dh $@
+
+# TODO: ideally it should be possible to disable this via an env var or DEB_BUILD_OPTIONS
+override_dh_strip_nondeterminism:
+ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
+	dh_strip_nondeterminism
+endif
