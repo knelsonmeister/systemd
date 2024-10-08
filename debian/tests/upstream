@@ -132,11 +132,6 @@ if [ ! -e /dev/kvm ]; then
     export TEST_NO_KVM=1
 fi
 
-# This test causes qemu to crash too often
-if [ "${DEB_BUILD_PROFILES#*pkg.systemd.upstream*}" = "${DEB_BUILD_PROFILES:-}" ]; then
-    export TEST_SKIP=TEST-64-UDEV-STORAGE
-fi
-
 export ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS"
 export PATH="${mkosi_tree}/bin:$PATH"
 export TEST_SAVE_JOURNAL=fail
