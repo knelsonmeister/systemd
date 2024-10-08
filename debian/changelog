@@ -1,3 +1,14 @@
+systemd (256.7-1) unstable; urgency=medium
+
+  * autopkgtest: skip gdm3 on armel for smoke tests. Gnome is no longer
+    built for armel. (Closes: #1082516)
+  * New upstream version 256.7
+  * Mark dependencies on clang and bpftool as :native (Closes: #1083064)
+  * Revert "autopkgtest: skip TEST-64-UDEV-STORAGE due to qemu crash". The
+    qemu crash is now detected in the upstream integration test script.
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 08 Oct 2024 18:37:53 +0100
+
 systemd (256.6-1) unstable; urgency=medium
 
   [ Helmut Grohne ]
