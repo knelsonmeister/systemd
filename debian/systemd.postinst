@@ -13,7 +13,9 @@ _update_catalog() {
 }
 
 _update_binfmt() {
-    _systemctl restart systemd-binfmt.service || true
+    if [ "$(_systemctl show -P LoadState systemd-binfmt.service)" != "masked" ]; then
+        _systemctl restart systemd-binfmt.service || true
+    fi
 }
 
 _restart_managers() {
