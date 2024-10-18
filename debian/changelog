@@ -1,3 +1,22 @@
+systemd (256.7-2) unstable; urgency=medium
+
+  [ Nick Rosbrook ]
+  * d/systemd.postinst: do not restart systemd-binfmt.service if masked
+    (LP: #2077869)
+
+  [ Luca Boccassi ]
+  * systemd-boot: depend on systemd for kernel-install (Closes: #1085012)
+  * Disable utmp support, not y2038 safe. utmp support in tmux has been
+    disabled, so autopkgtest should no longer break
+  * Backport fixes for upstream autopkgtest suite
+
+  [ Benjamin Drung ]
+  * initramfs-tools: support missing /etc/udev/udev.conf. Installing
+    initramfs-tools fails in case `/etc/udev/udev.conf` is removed
+    (LP: #2084592)
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 18 Oct 2024 15:47:12 +0100
+
 systemd (256.7-1) unstable; urgency=medium
 
   * autopkgtest: skip gdm3 on armel for smoke tests. Gnome is no longer
