@@ -1,2 +1,3 @@
 test-drop-removed-SCSI-passthrough-feature.patch
 test-customize-etc-os-release-instead-of-usr-lib-os-relea.patch
+test-CET-EET-are-deprecated-use-Europe-Berlin-and-Kyiv.patch
