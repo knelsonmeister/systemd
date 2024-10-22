@@ -304,9 +304,11 @@ ifeq (, $(filter nocheck, $(DEB_BUILD_OPTIONS)))
 endif
 
 ifeq ($(DEB_VENDOR),Ubuntu)
+ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 execute_after_dh_link:
 	# Mask systemd-gpt-auto-generator by default on Ubuntu
 	dh_link -psystemd /dev/null /etc/systemd/system-generators/systemd-gpt-auto-generator
+endif
 endif
 
 %:
