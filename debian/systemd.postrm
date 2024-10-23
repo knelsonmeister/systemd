@@ -22,13 +22,17 @@ case "$1" in
         rm -f /var/lib/systemd/catalog/database
         rmdir --ignore-fail-on-non-empty /var/lib/systemd/catalog 2> /dev/null || true
 
+        rm -rf /var/lib/systemd/network/
         rm -rf /var/lib/systemd/backlight/
         rm -rf /var/lib/systemd/rfkill/
         rm -rf /var/lib/systemd/timesync/
+        rm -rf /var/lib/systemd/ephemeral-trees/
 
         rm -f /var/lib/systemd/random-seed
 
         rm -f /var/log/README
+        rmdir --ignore-fail-on-non-empty /var/lib/systemd/pstore/ 2> /dev/null || true
+        rmdir --ignore-fail-on-non-empty /var/lib/systemd/coredump/ 2> /dev/null || true
         rmdir --ignore-fail-on-non-empty /var/log/journal 2> /dev/null || true
     ;;
 esac
