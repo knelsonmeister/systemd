@@ -8,6 +8,7 @@ debian/tmp/usr/share/man/man5/org.freedesktop.import1.5
 <pkg.systemd.upstream> debian/tmp/usr/share/man/man5/org.freedesktop.sysupdate1.5
 debian/tmp/usr/share/man/man5/systemd.nspawn.5
 debian/tmp/usr/share/man/man5/sysupdate.d.5
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man5/sysupdate.features.5
 debian/tmp/usr/share/man/man1/machinectl.1
 debian/tmp/usr/share/man/man1/portablectl.1
 debian/tmp/usr/share/man/man1/systemd-dissect.1
