@@ -1,3 +1,16 @@
+systemd (256.7-3) unstable; urgency=medium
+
+  [ Luca Boccassi ]
+  * Backport patch to fix test failures with tzdata 2024b-1
+  * systemd-boot: provide provisional integration with shim. Not yet
+    used, will be active once the signed packages are available.
+    https://wiki.debian.org/SecureBoot#Secure_Boot_setup_with_systemd-boot
+
+  [ Kirill Rekhov ]
+  * d/systemd.postrm: delete more internal state directories on purge
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 01 Nov 2024 18:13:09 +0000
+
 systemd (256.7-2) unstable; urgency=medium
 
   [ Nick Rosbrook ]
