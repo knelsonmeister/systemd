@@ -24,10 +24,10 @@
 #include "parse-argument.h"
 #include "parse-util.h"
 #include "path-util.h"
+#include "polkit-agent.h"
 #include "pretty-print.h"
 #include "signal-util.h"
 #include "sort-util.h"
-#include "spawn-polkit-agent.h"
 #include "string-table.h"
 #include "verbs.h"
 #include "web-util.h"
@@ -42,10 +42,10 @@ static bool arg_quiet = false;
 static bool arg_ask_password = true;
 static ImportVerify arg_verify = IMPORT_VERIFY_SIGNATURE;
 static const char* arg_format = NULL;
-static JsonFormatFlags arg_json_format_flags = JSON_FORMAT_OFF;
+static sd_json_format_flags_t arg_json_format_flags = SD_JSON_FORMAT_OFF;
 static ImageClass arg_image_class = _IMAGE_CLASS_INVALID;
 
-#define PROGRESS_PREFIX "Total: "
+#define PROGRESS_PREFIX "Total:"
 
 static int settle_image_class(void) {
 
@@ -179,7 +179,7 @@ static int transfer_image_common(sd_bus *bus, sd_bus_message *m) {
         assert(bus);
         assert(m);
 
-        polkit_agent_open_if_enabled(arg_transport, arg_ask_password);
+        (void) polkit_agent_open_if_enabled(arg_transport, arg_ask_password);
 
         r = sd_event_default(&event);
         if (r < 0)
@@ -474,7 +474,6 @@ static int import_fs(int argc, char *argv[], void *userdata) {
         }
         if (r < 0)
                 return bus_log_create_error(r);
-
 
         return transfer_image_common(bus, m);
 }
@@ -867,7 +866,7 @@ static int cancel_transfer(int argc, char *argv[], void *userdata) {
         sd_bus *bus = ASSERT_PTR(userdata);
         int r;
 
-        polkit_agent_open_if_enabled(arg_transport, arg_ask_password);
+        (void) polkit_agent_open_if_enabled(arg_transport, arg_ask_password);
 
         for (int i = 1; i < argc; i++) {
                 uint32_t id;
@@ -912,6 +911,11 @@ static int list_images(int argc, char *argv[], void *userdata) {
         (void) table_hide_column_from_display(t, 8);
         (void) table_hide_column_from_display(t, 10);
 
+        /* Starting in v257, these fields would be automatically formatted with underscores. However, this
+         * command was introduced in v256, so changing the field name would be a breaking change. */
+        (void) table_set_json_field_name(t, 8, "usage-exclusive");
+        (void) table_set_json_field_name(t, 10, "limit-exclusive");
+
         for (;;) {
                 uint64_t crtime, mtime, usage, usage_exclusive, limit, limit_exclusive;
                 const char *class, *name, *type, *path;
@@ -932,7 +936,7 @@ static int list_images(int argc, char *argv[], void *userdata) {
                 if (r < 0)
                         return table_log_add_error(r);
 
-                if (FLAGS_SET(arg_json_format_flags, JSON_FORMAT_OFF))
+                if (!sd_json_format_enabled(arg_json_format_flags))
                         r = table_add_many(
                                         t,
                                         TABLE_STRING, read_only ? "ro" : "rw",
@@ -1151,7 +1155,7 @@ static int parse_argv(int argc, char *argv[]) {
                         break;
 
                 case 'j':
-                        arg_json_format_flags = JSON_FORMAT_PRETTY_AUTO|JSON_FORMAT_COLOR_AUTO;
+                        arg_json_format_flags = SD_JSON_FORMAT_PRETTY_AUTO|SD_JSON_FORMAT_COLOR_AUTO;
                         arg_legend = false;
                         break;
 
@@ -1235,7 +1239,7 @@ static int run(int argc, char *argv[]) {
 
         r = bus_connect_transport(arg_transport, arg_host, RUNTIME_SCOPE_SYSTEM, &bus);
         if (r < 0)
-                return bus_log_connect_error(r, arg_transport);
+                return bus_log_connect_error(r, arg_transport, RUNTIME_SCOPE_SYSTEM);
 
         (void) sd_bus_set_allow_interactive_authorization(bus, arg_ask_password);
 

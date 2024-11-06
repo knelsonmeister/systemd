@@ -5,6 +5,7 @@
 #include "alloc-util.h"
 #include "dirent-util.h"
 #include "efi-api.h"
+#include "efi-fundamental.h"
 #include "efivars.h"
 #include "fd-util.h"
 #include "fileio.h"
@@ -78,7 +79,7 @@ int efi_reboot_to_firmware_supported(void) {
         if (!is_efi_boot())
                 goto not_supported;
 
-        r = efi_get_variable(EFI_GLOBAL_VARIABLE(OsIndicationsSupported), NULL, &v, &s);
+        r = efi_get_variable(EFI_GLOBAL_VARIABLE_STR("OsIndicationsSupported"), NULL, &v, &s);
         if (r == -ENOENT)
                 goto not_supported; /* variable doesn't exist? it's not supported then */
         if (r < 0)
@@ -114,7 +115,7 @@ static int get_os_indications(uint64_t *ret) {
                 return r;
 
         /* stat() the EFI variable, to see if the mtime changed. If it did we need to cache again. */
-        if (stat(EFIVAR_PATH(EFI_GLOBAL_VARIABLE(OsIndications)), &new_stat) < 0) {
+        if (stat(EFIVAR_PATH(EFI_GLOBAL_VARIABLE_STR("OsIndications")), &new_stat) < 0) {
                 if (errno != ENOENT)
                         return -errno;
 
@@ -128,7 +129,7 @@ static int get_os_indications(uint64_t *ret) {
                 return 0;
         }
 
-        r = efi_get_variable(EFI_GLOBAL_VARIABLE(OsIndications), NULL, &v, &s);
+        r = efi_get_variable(EFI_GLOBAL_VARIABLE_STR("OsIndications"), NULL, &v, &s);
         if (r == -ENOENT) {
                 /* Some firmware implementations that do support OsIndications and report that with
                  * OsIndicationsSupported will remove the OsIndications variable when it is unset. Let's
@@ -171,7 +172,7 @@ int efi_set_reboot_to_firmware(bool value) {
 
         /* Avoid writing to efi vars store if we can due to firmware bugs. */
         if (b != b_new)
-                return efi_set_variable(EFI_GLOBAL_VARIABLE(OsIndications), &b_new, sizeof(uint64_t));
+                return efi_set_variable(EFI_GLOBAL_VARIABLE_STR("OsIndications"), &b_new, sizeof(uint64_t));
 
         return 0;
 }
@@ -398,7 +399,7 @@ int efi_get_boot_order(uint16_t **ret_order) {
         if (!is_efi_boot())
                 return -EOPNOTSUPP;
 
-        r = efi_get_variable(EFI_GLOBAL_VARIABLE(BootOrder), NULL, &buf, &l);
+        r = efi_get_variable(EFI_GLOBAL_VARIABLE_STR("BootOrder"), NULL, &buf, &l);
         if (r < 0)
                 return r;
 
@@ -418,7 +419,7 @@ int efi_set_boot_order(const uint16_t *order, size_t n) {
         if (!is_efi_boot())
                 return -EOPNOTSUPP;
 
-        return efi_set_variable(EFI_GLOBAL_VARIABLE(BootOrder), order, n * sizeof(uint16_t));
+        return efi_set_variable(EFI_GLOBAL_VARIABLE_STR("BootOrder"), order, n * sizeof(uint16_t));
 }
 
 static int boot_id_hex(const char s[static 4]) {
@@ -523,29 +524,22 @@ bool efi_has_tpm2(void) {
 
 #endif
 
-struct efi_guid {
-        uint32_t u1;
-        uint16_t u2;
-        uint16_t u3;
-        uint8_t u4[8];
-} _packed_;
-
 sd_id128_t efi_guid_to_id128(const void *guid) {
-        const struct efi_guid *uuid = ASSERT_PTR(guid); /* cast is safe, because struct efi_guid is packed */
+        const EFI_GUID *uuid = ASSERT_PTR(guid); /* cast is safe, because struct efi_guid is packed */
         sd_id128_t id128;
 
-        id128.bytes[0] = (uuid->u1 >> 24) & 0xff;
-        id128.bytes[1] = (uuid->u1 >> 16) & 0xff;
-        id128.bytes[2] = (uuid->u1 >> 8) & 0xff;
-        id128.bytes[3] = uuid->u1 & 0xff;
+        id128.bytes[0] = (uuid->Data1 >> 24) & 0xff;
+        id128.bytes[1] = (uuid->Data1 >> 16) & 0xff;
+        id128.bytes[2] = (uuid->Data1 >> 8) & 0xff;
+        id128.bytes[3] = uuid->Data1 & 0xff;
 
-        id128.bytes[4] = (uuid->u2 >> 8) & 0xff;
-        id128.bytes[5] = uuid->u2 & 0xff;
+        id128.bytes[4] = (uuid->Data2 >> 8) & 0xff;
+        id128.bytes[5] = uuid->Data2 & 0xff;
 
-        id128.bytes[6] = (uuid->u3 >> 8) & 0xff;
-        id128.bytes[7] = uuid->u3 & 0xff;
+        id128.bytes[6] = (uuid->Data3 >> 8) & 0xff;
+        id128.bytes[7] = uuid->Data3 & 0xff;
 
-        memcpy(&id128.bytes[8], uuid->u4, sizeof(uuid->u4));
+        memcpy(&id128.bytes[8], uuid->Data4, sizeof(uuid->Data4));
 
         return id128;
 }
@@ -553,11 +547,11 @@ sd_id128_t efi_guid_to_id128(const void *guid) {
 void efi_id128_to_guid(sd_id128_t id, void *ret_guid) {
         assert(ret_guid);
 
-        struct efi_guid uuid = {
-                .u1 = id.bytes[0] << 24 | id.bytes[1] << 16 | id.bytes[2] << 8 | id.bytes[3],
-                .u2 = id.bytes[4] << 8 | id.bytes[5],
-                .u3 = id.bytes[6] << 8 | id.bytes[7],
+        EFI_GUID uuid = {
+                .Data1 = id.bytes[0] << 24 | id.bytes[1] << 16 | id.bytes[2] << 8 | id.bytes[3],
+                .Data2 = id.bytes[4] << 8 | id.bytes[5],
+                .Data3 = id.bytes[6] << 8 | id.bytes[7],
         };
-        memcpy(uuid.u4, id.bytes+8, sizeof(uuid.u4));
+        memcpy(uuid.Data4, id.bytes+8, sizeof(uuid.Data4));
         memcpy(ret_guid, &uuid, sizeof(uuid));
 }

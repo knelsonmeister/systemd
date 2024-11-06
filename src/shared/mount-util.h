@@ -12,6 +12,15 @@
 #include "macro.h"
 #include "pidref.h"
 
+typedef struct SubMount {
+        char *path;
+        int mount_fd;
+} SubMount;
+
+void sub_mount_array_free(SubMount *s, size_t n);
+
+int get_sub_mounts(const char *prefix, SubMount **ret_mounts, size_t *ret_n_mounts);
+
 int repeat_unmount(const char *path, int flags);
 
 int umount_recursive_full(const char *target, int flags, char **keep);
@@ -70,8 +79,6 @@ int umount_verbose(
                 const char *where,
                 int flags);
 
-int mount_exchange_graceful(int fsmount_fd, const char *dest, bool mount_beneath);
-
 int mount_option_mangle(
                 const char *options,
                 unsigned long mount_flags,
@@ -83,25 +90,53 @@ int mount_flags_to_string(unsigned long flags, char **ret);
 
 /* Useful for usage with _cleanup_(), unmounts, removes a directory and frees the pointer */
 static inline char* umount_and_rmdir_and_free(char *p) {
+        if (!p)
+                return NULL;
+
         PROTECT_ERRNO;
-        if (p) {
-                (void) umount_recursive(p, 0);
-                (void) rmdir(p);
-        }
+        (void) umount_recursive(p, 0);
+        (void) rmdir(p);
         return mfree(p);
 }
 DEFINE_TRIVIAL_CLEANUP_FUNC(char*, umount_and_rmdir_and_free);
 
-static inline char *umount_and_free(char *p) {
+static inline char* umount_and_free(char *p) {
+        if (!p)
+                return NULL;
+
         PROTECT_ERRNO;
-        if (p)
-                (void) umount_recursive(p, 0);
+        (void) umount_recursive(p, 0);
         return mfree(p);
 }
 DEFINE_TRIVIAL_CLEANUP_FUNC(char*, umount_and_free);
 
-int bind_mount_in_namespace(PidRef *target, const char *propagate_path, const char *incoming_path, const char *src, const char *dest, bool read_only, bool make_file_or_directory);
-int mount_image_in_namespace(PidRef *target, const char *propagate_path, const char *incoming_path, const char *src, const char *dest, bool read_only, bool make_file_or_directory, const MountOptions *options, const ImagePolicy *image_policy);
+char* umount_and_unlink_and_free(char *p);
+DEFINE_TRIVIAL_CLEANUP_FUNC(char*, umount_and_unlink_and_free);
+
+int mount_exchange_graceful(int fsmount_fd, const char *dest, bool mount_beneath);
+
+typedef enum MountInNamespaceFlags {
+        MOUNT_IN_NAMESPACE_READ_ONLY              = 1 << 0,
+        MOUNT_IN_NAMESPACE_MAKE_FILE_OR_DIRECTORY = 1 << 1,
+        MOUNT_IN_NAMESPACE_IS_IMAGE               = 1 << 2,
+} MountInNamespaceFlags;
+
+int bind_mount_in_namespace(
+                const PidRef *target,
+                const char *propagate_path,
+                const char *incoming_path,
+                const char *src,
+                const char *dest,
+                MountInNamespaceFlags flags);
+int mount_image_in_namespace(
+                const PidRef *target,
+                const char *propagate_path,
+                const char *incoming_path,
+                const char *src,
+                const char *dest,
+                MountInNamespaceFlags flags,
+                const MountOptions *options,
+                const ImagePolicy *image_policy);
 
 int make_mount_point(const char *path);
 int fd_make_mount_point(int fd);
@@ -128,7 +163,7 @@ typedef enum RemountIdmapping {
 } RemountIdmapping;
 
 int make_userns(uid_t uid_shift, uid_t uid_range, uid_t host_owner, uid_t dest_owner, RemountIdmapping idmapping);
-int remount_idmap_fd(char **p, int userns_fd);
+int remount_idmap_fd(char **p, int userns_fd, uint64_t extra_mount_attr_set);
 int remount_idmap(char **p, uid_t uid_shift, uid_t uid_range, uid_t host_owner, uid_t dest_owner, RemountIdmapping idmapping);
 
 int bind_mount_submounts(
@@ -145,3 +180,5 @@ unsigned long credentials_fs_mount_flags(bool ro);
 int mount_credentials_fs(const char *path, size_t size, bool ro);
 
 int make_fsmount(int error_log_level, const char *what, const char *type, unsigned long flags, const char *options, int userns_fd);
+
+int path_is_network_fs_harder(const char *path);

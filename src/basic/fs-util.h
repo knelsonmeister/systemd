@@ -28,9 +28,11 @@ int rmdir_parents(const char *path, const char *stop);
 int rename_noreplace(int olddirfd, const char *oldpath, int newdirfd, const char *newpath);
 
 int readlinkat_malloc(int fd, const char *p, char **ret);
-int readlink_malloc(const char *p, char **r);
+static inline int readlink_malloc(const char *p, char **ret) {
+        return readlinkat_malloc(AT_FDCWD, p, ret);
+}
 int readlink_value(const char *p, char **ret);
-int readlink_and_make_absolute(const char *p, char **r);
+int readlink_and_make_absolute(const char *p, char **ret);
 
 int chmod_and_chown_at(int dir_fd, const char *path, mode_t mode, uid_t uid, gid_t gid);
 static inline int chmod_and_chown(const char *path, mode_t mode, uid_t uid, gid_t gid) {
@@ -49,8 +51,10 @@ int futimens_opath(int fd, const struct timespec ts[2]);
 int fd_warn_permissions(const char *path, int fd);
 int stat_warn_permissions(const char *path, const struct stat *st);
 
-#define laccess(path, mode)                                             \
+#define access_nofollow(path, mode)                                             \
         RET_NERRNO(faccessat(AT_FDCWD, (path), (mode), AT_SYMLINK_NOFOLLOW))
+
+int touch_fd(int fd, usec_t stamp);
 
 int touch_file(const char *path, bool parents, usec_t stamp, uid_t uid, gid_t gid, mode_t mode);
 
@@ -58,7 +62,10 @@ static inline int touch(const char *path) {
         return touch_file(path, false, USEC_INFINITY, UID_INVALID, GID_INVALID, MODE_INVALID);
 }
 
-int symlink_idempotent(const char *from, const char *to, bool make_relative);
+int symlinkat_idempotent(const char *from, int atfd, const char *to, bool make_relative);
+static inline int symlink_idempotent(const char *from, const char *to, bool make_relative) {
+        return symlinkat_idempotent(from, AT_FDCWD, to, make_relative);
+}
 
 int symlinkat_atomic_full(const char *from, int atfd, const char *to, bool make_relative);
 static inline int symlink_atomic(const char *from, const char *to) {
@@ -105,8 +112,6 @@ DEFINE_TRIVIAL_CLEANUP_FUNC(char*, unlink_and_free);
 
 int access_fd(int fd, int mode);
 
-void unlink_tempfilep(char (*p)[]);
-
 typedef enum UnlinkDeallocateFlags {
         UNLINK_REMOVEDIR = 1 << 0,
         UNLINK_ERASE     = 1 << 1,
@@ -131,11 +136,15 @@ int parse_cifs_service(const char *s, char **ret_host, char **ret_service, char 
 typedef enum XOpenFlags {
         XO_LABEL     = 1 << 0,
         XO_SUBVOLUME = 1 << 1,
+        XO_NOCOW     = 1 << 2,
 } XOpenFlags;
 
 int open_mkdir_at_full(int dirfd, const char *path, int flags, XOpenFlags xopen_flags, mode_t mode);
 static inline int open_mkdir_at(int dirfd, const char *path, int flags, mode_t mode) {
         return open_mkdir_at_full(dirfd, path, flags, 0, mode);
+}
+static inline int open_mkdir(const char *path, int flags, mode_t mode) {
+        return open_mkdir_at_full(AT_FDCWD, path, flags, 0, mode);
 }
 
 int openat_report_new(int dirfd, const char *pathname, int flags, mode_t mode, bool *ret_newly_created);

@@ -7,6 +7,7 @@
 #include "sd-bus.h"
 #include "sd-device.h"
 #include "sd-event.h"
+#include "sd-varlink.h"
 
 #include "common-signal.h"
 #include "cgroup-util.h"
@@ -16,7 +17,6 @@
 #include "list.h"
 #include "prioq.h"
 #include "ratelimit.h"
-#include "varlink.h"
 
 struct libmnt_monitor;
 typedef struct Unit Unit;
@@ -139,6 +139,7 @@ typedef enum WatchdogType {
 #include "job.h"
 #include "path-lookup.h"
 #include "show-status.h"
+#include "transaction.h"
 #include "unit-name.h"
 #include "unit.h"
 
@@ -162,8 +163,7 @@ typedef struct UnitDefaults {
         usec_t restart_usec, timeout_start_usec, timeout_stop_usec, timeout_abort_usec, device_timeout_usec;
         bool timeout_abort_set;
 
-        usec_t start_limit_interval;
-        unsigned start_limit_burst;
+        RateLimit start_limit;
 
         bool cpu_accounting;
         bool memory_accounting;
@@ -288,6 +288,9 @@ struct Manager {
 
         int handoff_timestamp_fds[2];
         sd_event_source *handoff_timestamp_event_source;
+
+        int pidref_transport_fds[2];
+        sd_event_source *pidref_event_source;
 
         RuntimeScope runtime_scope;
 
@@ -434,7 +437,6 @@ struct Manager {
 
         /* Do we have any outstanding password prompts? */
         int have_ask_password;
-        int ask_password_inotify_fd;
         sd_event_source *ask_password_event_source;
 
         /* Type=idle pipes */
@@ -486,12 +488,12 @@ struct Manager {
         unsigned sigchldgen;
         unsigned notifygen;
 
-        VarlinkServer *varlink_server;
+        sd_varlink_server *varlink_server;
         /* When we're a system manager, this object manages the subscription from systemd-oomd to PID1 that's
          * used to report changes in ManagedOOM settings (systemd server - oomd client). When
          * we're a user manager, this object manages the client connection from the user manager to
          * systemd-oomd to report changes in ManagedOOM settings (systemd client - oomd server). */
-        Varlink *managed_oom_varlink;
+        sd_varlink *managed_oom_varlink;
 
         /* Reference to RestrictFileSystems= BPF program */
         struct restrict_fs_bpf *restrict_fs;
@@ -511,6 +513,9 @@ struct Manager {
         int executor_fd;
 
         unsigned soft_reboots_count;
+
+        /* Original ambient capabilities when we were initialized */
+        uint64_t saved_ambient_set;
 };
 
 static inline usec_t manager_default_timeout_abort_usec(Manager *m) {
@@ -553,9 +558,26 @@ int manager_load_unit(Manager *m, const char *name, const char *path, sd_bus_err
 int manager_load_startable_unit_or_warn(Manager *m, const char *name, const char *path, Unit **ret);
 int manager_load_unit_from_dbus_path(Manager *m, const char *s, sd_bus_error *e, Unit **_u);
 
-int manager_add_job(Manager *m, JobType type, Unit *unit, JobMode mode, Set *affected_jobs, sd_bus_error *e, Job **_ret);
-int manager_add_job_by_name(Manager *m, JobType type, const char *name, JobMode mode, Set *affected_jobs, sd_bus_error *e, Job **_ret);
-int manager_add_job_by_name_and_warn(Manager *m, JobType type, const char *name, JobMode mode, Set *affected_jobs,  Job **ret);
+int manager_add_job_full(
+                Manager *m,
+                JobType type,
+                Unit *unit,
+                JobMode mode,
+                TransactionAddFlags extra_flags,
+                Set *affected_jobs,
+                sd_bus_error *error,
+                Job **ret);
+static inline int manager_add_job(
+                Manager *m,
+                JobType type,
+                Unit *unit,
+                JobMode mode,
+                sd_bus_error *error,
+                Job **ret) {
+        return manager_add_job_full(m, type, unit, mode, 0, NULL, error, ret);
+}
+int manager_add_job_by_name(Manager *m, JobType type, const char *name, JobMode mode, Set *affected_jobs, sd_bus_error *e, Job **ret);
+int manager_add_job_by_name_and_warn(Manager *m, JobType type, const char *name, JobMode mode, Set *affected_jobs, Job **ret);
 int manager_propagate_reload(Manager *m, Unit *unit, JobMode mode, sd_bus_error *e);
 
 void manager_clear_jobs(Manager *m);
@@ -659,12 +681,13 @@ void unit_defaults_done(UnitDefaults *defaults);
 
 enum {
         /* most important … */
-        EVENT_PRIORITY_USER_LOOKUP       = SD_EVENT_PRIORITY_NORMAL-11,
-        EVENT_PRIORITY_MOUNT_TABLE       = SD_EVENT_PRIORITY_NORMAL-10,
-        EVENT_PRIORITY_SWAP_TABLE        = SD_EVENT_PRIORITY_NORMAL-10,
-        EVENT_PRIORITY_CGROUP_AGENT      = SD_EVENT_PRIORITY_NORMAL-9, /* cgroupv1 */
-        EVENT_PRIORITY_CGROUP_INOTIFY    = SD_EVENT_PRIORITY_NORMAL-9, /* cgroupv2 */
-        EVENT_PRIORITY_CGROUP_OOM        = SD_EVENT_PRIORITY_NORMAL-8,
+        EVENT_PRIORITY_USER_LOOKUP       = SD_EVENT_PRIORITY_NORMAL-12,
+        EVENT_PRIORITY_MOUNT_TABLE       = SD_EVENT_PRIORITY_NORMAL-11,
+        EVENT_PRIORITY_SWAP_TABLE        = SD_EVENT_PRIORITY_NORMAL-11,
+        EVENT_PRIORITY_CGROUP_AGENT      = SD_EVENT_PRIORITY_NORMAL-10, /* cgroupv1 */
+        EVENT_PRIORITY_CGROUP_INOTIFY    = SD_EVENT_PRIORITY_NORMAL-10, /* cgroupv2 */
+        EVENT_PRIORITY_CGROUP_OOM        = SD_EVENT_PRIORITY_NORMAL-9,
+        EVENT_PRIORITY_PIDREF            = SD_EVENT_PRIORITY_NORMAL-8,
         EVENT_PRIORITY_HANDOFF_TIMESTAMP = SD_EVENT_PRIORITY_NORMAL-7,
         EVENT_PRIORITY_EXEC_FD           = SD_EVENT_PRIORITY_NORMAL-6,
         EVENT_PRIORITY_NOTIFY            = SD_EVENT_PRIORITY_NORMAL-5,

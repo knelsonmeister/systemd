@@ -784,12 +784,10 @@ static void server_sync(Server *s, bool wait) {
                                                     "Failed to sync user journal, ignoring: %m");
         }
 
-        if (s->sync_event_source) {
-                r = sd_event_source_set_enabled(s->sync_event_source, SD_EVENT_OFF);
-                if (r < 0)
-                        log_ratelimit_error_errno(r, JOURNAL_LOG_RATELIMIT,
-                                                  "Failed to disable sync timer source: %m");
-        }
+        r = sd_event_source_set_enabled(s->sync_event_source, SD_EVENT_OFF);
+        if (r < 0)
+                log_ratelimit_warning_errno(r, JOURNAL_LOG_RATELIMIT,
+                                            "Failed to disable sync timer source, ignoring: %m");
 
         s->sync_scheduled = false;
 }
@@ -1068,13 +1066,13 @@ static void server_write_to_journal(
                 iovec[n++] = IOVEC_MAKE_STRING(k);                      \
         }
 
-#define IOVEC_ADD_SIZED_FIELD(iovec, n, value, value_size, field)       \
-        if (value_size > 0) {                                           \
-                char *k;                                                \
-                k = newa(char, STRLEN(field "=") + value_size + 1);     \
-                *((char*) mempcpy(stpcpy(k, field "="), value, value_size)) = 0; \
-                iovec[n++] = IOVEC_MAKE_STRING(k);                      \
-        }                                                               \
+#define IOVEC_ADD_SIZED_FIELD(iovec, n, value, value_size, field)               \
+        if (value_size > 0) {                                                   \
+                char *k;                                                        \
+                k = newa(char, STRLEN(field "=") + value_size + 1);             \
+                *mempcpy_typesafe(stpcpy(k, field "="), value, value_size) = 0; \
+                iovec[n++] = IOVEC_MAKE_STRING(k);                              \
+        }
 
 static void server_dispatch_message_real(
                 Server *s,
@@ -1551,39 +1549,42 @@ int server_process_datagram(
         iovec = IOVEC_MAKE(s->buffer, MALLOC_ELEMENTSOF(s->buffer) - 1); /* Leave room for trailing NUL we add later */
 
         n = recvmsg_safe(fd, &msghdr, MSG_DONTWAIT|MSG_CMSG_CLOEXEC);
-        if (n < 0) {
-                if (ERRNO_IS_TRANSIENT(n))
-                        return 0;
-                if (n == -EXFULL) {
-                        log_ratelimit_warning(JOURNAL_LOG_RATELIMIT,
-                                              "Got message with truncated control data (too many fds sent?), ignoring.");
-                        return 0;
-                }
-                return log_ratelimit_error_errno(n, JOURNAL_LOG_RATELIMIT, "recvmsg() failed: %m");
+        if (ERRNO_IS_NEG_TRANSIENT(n))
+                return 0;
+        if (n == -ECHRNG) {
+                log_ratelimit_warning_errno(n, JOURNAL_LOG_RATELIMIT,
+                                            "Got message with truncated control data (too many fds sent?), ignoring.");
+                return 0;
         }
+        if (n == -EXFULL) {
+                log_ratelimit_warning_errno(n, JOURNAL_LOG_RATELIMIT, "Got message with truncated payload data, ignoring.");
+                return 0;
+        }
+        if (n < 0)
+                return log_ratelimit_error_errno(n, JOURNAL_LOG_RATELIMIT, "Failed to receive message: %m");
 
-        CMSG_FOREACH(cmsg, &msghdr)
-                if (cmsg->cmsg_level == SOL_SOCKET &&
-                    cmsg->cmsg_type == SCM_CREDENTIALS &&
+        CMSG_FOREACH(cmsg, &msghdr) {
+                if (cmsg->cmsg_level != SOL_SOCKET)
+                        continue;
+
+                if (cmsg->cmsg_type == SCM_CREDENTIALS &&
                     cmsg->cmsg_len == CMSG_LEN(sizeof(struct ucred))) {
                         assert(!ucred);
                         ucred = CMSG_TYPED_DATA(cmsg, struct ucred);
-                } else if (cmsg->cmsg_level == SOL_SOCKET &&
-                         cmsg->cmsg_type == SCM_SECURITY) {
+                } else if (cmsg->cmsg_type == SCM_SECURITY) {
                         assert(!label);
                         label = CMSG_TYPED_DATA(cmsg, char);
                         label_len = cmsg->cmsg_len - CMSG_LEN(0);
-                } else if (cmsg->cmsg_level == SOL_SOCKET &&
-                           cmsg->cmsg_type == SCM_TIMESTAMP &&
+                } else if (cmsg->cmsg_type == SCM_TIMESTAMP &&
                            cmsg->cmsg_len == CMSG_LEN(sizeof(struct timeval))) {
                         assert(!tv);
                         tv = memcpy(&tv_buf, CMSG_DATA(cmsg), sizeof(struct timeval));
-                } else if (cmsg->cmsg_level == SOL_SOCKET &&
-                         cmsg->cmsg_type == SCM_RIGHTS) {
+                } else if (cmsg->cmsg_type == SCM_RIGHTS) {
                         assert(!fds);
                         fds = CMSG_TYPED_DATA(cmsg, int);
                         n_fds = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
                 }
+        }
 
         /* And a trailing NUL, just in case */
         s->buffer[n] = 0;
@@ -1786,17 +1787,15 @@ static int server_setup_signals(Server *s) {
 
         assert(s);
 
-        assert_se(sigprocmask_many(SIG_SETMASK, NULL, SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGRTMIN+1, SIGRTMIN+18) >= 0);
-
-        r = sd_event_add_signal(s->event, &s->sigusr1_event_source, SIGUSR1, dispatch_sigusr1, s);
+        r = sd_event_add_signal(s->event, &s->sigusr1_event_source, SIGUSR1|SD_EVENT_SIGNAL_PROCMASK, dispatch_sigusr1, s);
         if (r < 0)
                 return r;
 
-        r = sd_event_add_signal(s->event, &s->sigusr2_event_source, SIGUSR2, dispatch_sigusr2, s);
+        r = sd_event_add_signal(s->event, &s->sigusr2_event_source, SIGUSR2|SD_EVENT_SIGNAL_PROCMASK, dispatch_sigusr2, s);
         if (r < 0)
                 return r;
 
-        r = sd_event_add_signal(s->event, &s->sigterm_event_source, SIGTERM, dispatch_sigterm, s);
+        r = sd_event_add_signal(s->event, &s->sigterm_event_source, SIGTERM|SD_EVENT_SIGNAL_PROCMASK, dispatch_sigterm, s);
         if (r < 0)
                 return r;
 
@@ -1807,7 +1806,7 @@ static int server_setup_signals(Server *s) {
 
         /* When journald is invoked on the terminal (when debugging), it's useful if C-c is handled
          * equivalent to SIGTERM. */
-        r = sd_event_add_signal(s->event, &s->sigint_event_source, SIGINT, dispatch_sigterm, s);
+        r = sd_event_add_signal(s->event, &s->sigint_event_source, SIGINT|SD_EVENT_SIGNAL_PROCMASK, dispatch_sigterm, s);
         if (r < 0)
                 return r;
 
@@ -1818,7 +1817,7 @@ static int server_setup_signals(Server *s) {
         /* SIGRTMIN+1 causes an immediate sync. We process this very late, so that everything else queued at
          * this point is really written to disk. Clients can watch /run/systemd/journal/synced with inotify
          * until its mtime changes to see when a sync happened. */
-        r = sd_event_add_signal(s->event, &s->sigrtmin1_event_source, SIGRTMIN+1, dispatch_sigrtmin1, s);
+        r = sd_event_add_signal(s->event, &s->sigrtmin1_event_source, (SIGRTMIN+1)|SD_EVENT_SIGNAL_PROCMASK, dispatch_sigrtmin1, s);
         if (r < 0)
                 return r;
 
@@ -1826,7 +1825,7 @@ static int server_setup_signals(Server *s) {
         if (r < 0)
                 return r;
 
-        r = sd_event_add_signal(s->event, NULL, SIGRTMIN+18, sigrtmin18_handler, &s->sigrtmin18_info);
+        r = sd_event_add_signal(s->event, /* ret_event_source= */ NULL, (SIGRTMIN+18)|SD_EVENT_SIGNAL_PROCMASK, sigrtmin18_handler, &s->sigrtmin18_info);
         if (r < 0)
                 return r;
 
@@ -2190,11 +2189,11 @@ static int server_connect_notify(Server *s) {
 }
 
 static int synchronize_second_half(sd_event_source *event_source, void *userdata) {
-        Varlink *link = ASSERT_PTR(userdata);
+        sd_varlink *link = ASSERT_PTR(userdata);
         Server *s;
         int r;
 
-        assert_se(s = varlink_get_userdata(link));
+        assert_se(s = sd_varlink_get_userdata(link));
 
         /* This is the "second half" of the Synchronize() varlink method. This function is called as deferred
          * event source at a low priority to ensure the synchronization completes after all queued log
@@ -2208,22 +2207,22 @@ static int synchronize_second_half(sd_event_source *event_source, void *userdata
         if (r < 0)
                 return log_error_errno(r, "Failed to mark event source as non-floating: %m");
 
-        return varlink_reply(link, NULL);
+        return sd_varlink_reply(link, NULL);
 }
 
 static void synchronize_destroy(void *userdata) {
-        varlink_unref(userdata);
+        sd_varlink_unref(userdata);
 }
 
-static int vl_method_synchronize(Varlink *link, JsonVariant *parameters, VarlinkMethodFlags flags, void *userdata) {
+static int vl_method_synchronize(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
         _cleanup_(sd_event_source_unrefp) sd_event_source *event_source = NULL;
         Server *s = ASSERT_PTR(userdata);
         int r;
 
         assert(link);
 
-        if (json_variant_elements(parameters) > 0)
-                return varlink_error_invalid_parameter(link, parameters);
+        if (sd_json_variant_elements(parameters) > 0)
+                return sd_varlink_error_invalid_parameter(link, parameters);
 
         log_info("Received client request to sync journal.");
 
@@ -2239,7 +2238,7 @@ static int vl_method_synchronize(Varlink *link, JsonVariant *parameters, Varlink
         if (r < 0)
                 return log_error_errno(r, "Failed to set event source destroy callback: %m");
 
-        varlink_ref(link); /* The varlink object is now left to the destroy callback to unref */
+        sd_varlink_ref(link); /* The varlink object is now left to the destroy callback to unref */
 
         r = sd_event_source_set_priority(event_source, SD_EVENT_PRIORITY_NORMAL+15);
         if (r < 0)
@@ -2256,53 +2255,53 @@ static int vl_method_synchronize(Varlink *link, JsonVariant *parameters, Varlink
         return 0;
 }
 
-static int vl_method_rotate(Varlink *link, JsonVariant *parameters, VarlinkMethodFlags flags, void *userdata) {
+static int vl_method_rotate(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
         Server *s = ASSERT_PTR(userdata);
 
         assert(link);
 
-        if (json_variant_elements(parameters) > 0)
-                return varlink_error_invalid_parameter(link, parameters);
+        if (sd_json_variant_elements(parameters) > 0)
+                return sd_varlink_error_invalid_parameter(link, parameters);
 
         log_info("Received client request to rotate journal, rotating.");
         server_full_rotate(s);
 
-        return varlink_reply(link, NULL);
+        return sd_varlink_reply(link, NULL);
 }
 
-static int vl_method_flush_to_var(Varlink *link, JsonVariant *parameters, VarlinkMethodFlags flags, void *userdata) {
+static int vl_method_flush_to_var(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
         Server *s = ASSERT_PTR(userdata);
 
         assert(link);
 
-        if (json_variant_elements(parameters) > 0)
-                return varlink_error_invalid_parameter(link, parameters);
+        if (sd_json_variant_elements(parameters) > 0)
+                return sd_varlink_error_invalid_parameter(link, parameters);
         if (s->namespace)
-                return varlink_error(link, "io.systemd.Journal.NotSupportedByNamespaces", NULL);
+                return sd_varlink_error(link, "io.systemd.Journal.NotSupportedByNamespaces", NULL);
 
         log_info("Received client request to flush runtime journal.");
         server_full_flush(s);
 
-        return varlink_reply(link, NULL);
+        return sd_varlink_reply(link, NULL);
 }
 
-static int vl_method_relinquish_var(Varlink *link, JsonVariant *parameters, VarlinkMethodFlags flags, void *userdata) {
+static int vl_method_relinquish_var(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
         Server *s = ASSERT_PTR(userdata);
 
         assert(link);
 
-        if (json_variant_elements(parameters) > 0)
-                return varlink_error_invalid_parameter(link, parameters);
+        if (sd_json_variant_elements(parameters) > 0)
+                return sd_varlink_error_invalid_parameter(link, parameters);
         if (s->namespace)
-                return varlink_error(link, "io.systemd.Journal.NotSupportedByNamespaces", NULL);
+                return sd_varlink_error(link, "io.systemd.Journal.NotSupportedByNamespaces", NULL);
 
         log_info("Received client request to relinquish %s access.", s->system_storage.path);
         server_relinquish_var(s);
 
-        return varlink_reply(link, NULL);
+        return sd_varlink_reply(link, NULL);
 }
 
-static int vl_connect(VarlinkServer *server, Varlink *link, void *userdata) {
+static int vl_connect(sd_varlink_server *server, sd_varlink *link, void *userdata) {
         Server *s = ASSERT_PTR(userdata);
 
         assert(server);
@@ -2313,7 +2312,7 @@ static int vl_connect(VarlinkServer *server, Varlink *link, void *userdata) {
         return 0;
 }
 
-static void vl_disconnect(VarlinkServer *server, Varlink *link, void *userdata) {
+static void vl_disconnect(sd_varlink_server *server, sd_varlink *link, void *userdata) {
         Server *s = ASSERT_PTR(userdata);
 
         assert(server);
@@ -2327,17 +2326,17 @@ static int server_open_varlink(Server *s, const char *socket, int fd) {
 
         assert(s);
 
-        r = varlink_server_new(&s->varlink_server, VARLINK_SERVER_ROOT_ONLY|VARLINK_SERVER_INHERIT_USERDATA);
+        r = sd_varlink_server_new(&s->varlink_server, SD_VARLINK_SERVER_ROOT_ONLY|SD_VARLINK_SERVER_INHERIT_USERDATA);
         if (r < 0)
                 return r;
 
-        varlink_server_set_userdata(s->varlink_server, s);
+        sd_varlink_server_set_userdata(s->varlink_server, s);
 
-        r = varlink_server_add_interface(s->varlink_server, &vl_interface_io_systemd_Journal);
+        r = sd_varlink_server_add_interface(s->varlink_server, &vl_interface_io_systemd_Journal);
         if (r < 0)
                 return log_error_errno(r, "Failed to add Journal interface to varlink server: %m");
 
-        r = varlink_server_bind_method_many(
+        r = sd_varlink_server_bind_method_many(
                         s->varlink_server,
                         "io.systemd.Journal.Synchronize",   vl_method_synchronize,
                         "io.systemd.Journal.Rotate",        vl_method_rotate,
@@ -2346,22 +2345,22 @@ static int server_open_varlink(Server *s, const char *socket, int fd) {
         if (r < 0)
                 return r;
 
-        r = varlink_server_bind_connect(s->varlink_server, vl_connect);
+        r = sd_varlink_server_bind_connect(s->varlink_server, vl_connect);
         if (r < 0)
                 return r;
 
-        r = varlink_server_bind_disconnect(s->varlink_server, vl_disconnect);
+        r = sd_varlink_server_bind_disconnect(s->varlink_server, vl_disconnect);
         if (r < 0)
                 return r;
 
         if (fd < 0)
-                r = varlink_server_listen_address(s->varlink_server, socket, 0600);
+                r = sd_varlink_server_listen_address(s->varlink_server, socket, 0600);
         else
-                r = varlink_server_listen_fd(s->varlink_server, fd);
+                r = sd_varlink_server_listen_fd(s->varlink_server, fd);
         if (r < 0)
                 return r;
 
-        r = varlink_server_attach_event(s->varlink_server, s->event, SD_EVENT_PRIORITY_NORMAL);
+        r = sd_varlink_server_attach_event(s->varlink_server, s->event, SD_EVENT_PRIORITY_NORMAL);
         if (r < 0)
                 return r;
 
@@ -2426,7 +2425,7 @@ static bool server_is_idle(Server *s) {
                 return false;
 
         /* We aren't idle if we have a varlink client */
-        if (varlink_server_current_connections(s->varlink_server) > 0)
+        if (sd_varlink_server_current_connections(s->varlink_server) > 0)
                 return false;
 
         /* If we have stdout streams we aren't idle */
@@ -2901,7 +2900,7 @@ Server* server_free(Server *s) {
 
         ordered_hashmap_free_with_destructor(s->user_journals, journal_file_offline_close);
 
-        varlink_server_unref(s->varlink_server);
+        sd_varlink_server_unref(s->varlink_server);
 
         sd_event_source_unref(s->syslog_event_source);
         sd_event_source_unref(s->native_event_source);
@@ -2955,7 +2954,7 @@ static const char* const storage_table[_STORAGE_MAX] = {
 };
 
 DEFINE_STRING_TABLE_LOOKUP(storage, Storage);
-DEFINE_CONFIG_PARSE_ENUM(config_parse_storage, storage, Storage, "Failed to parse storage setting");
+DEFINE_CONFIG_PARSE_ENUM(config_parse_storage, storage, Storage);
 
 static const char* const split_mode_table[_SPLIT_MAX] = {
         [SPLIT_LOGIN] = "login",
@@ -2964,7 +2963,7 @@ static const char* const split_mode_table[_SPLIT_MAX] = {
 };
 
 DEFINE_STRING_TABLE_LOOKUP(split_mode, SplitMode);
-DEFINE_CONFIG_PARSE_ENUM(config_parse_split_mode, split_mode, SplitMode, "Failed to parse split mode setting");
+DEFINE_CONFIG_PARSE_ENUM(config_parse_split_mode, split_mode, SplitMode);
 
 int config_parse_line_max(
                 const char* unit,

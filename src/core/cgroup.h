@@ -60,7 +60,6 @@ typedef enum FreezerAction {
         FREEZER_PARENT_FREEZE,
         FREEZER_THAW,
         FREEZER_PARENT_THAW,
-
         _FREEZER_ACTION_MAX,
         _FREEZER_ACTION_INVALID = -EINVAL,
 } FreezerAction;
@@ -127,9 +126,9 @@ struct CGroupSocketBindItem {
 };
 
 typedef enum CGroupPressureWatch {
-        CGROUP_PRESSURE_WATCH_OFF,      /* → tells the service payload explicitly not to watch for memory pressure */
+        CGROUP_PRESSURE_WATCH_NO,       /* → tells the service payload explicitly not to watch for memory pressure */
+        CGROUP_PRESSURE_WATCH_YES,
         CGROUP_PRESSURE_WATCH_AUTO,     /* → on if memory account is on anyway for the unit, otherwise off */
-        CGROUP_PRESSURE_WATCH_ON,
         CGROUP_PRESSURE_WATCH_SKIP,     /* → doesn't set up memory pressure watch, but also doesn't explicitly tell payload to avoid it */
         _CGROUP_PRESSURE_WATCH_MAX,
         _CGROUP_PRESSURE_WATCH_INVALID = -EINVAL,
@@ -237,6 +236,7 @@ struct CGroupContext {
         ManagedOOMMode moom_swap;
         ManagedOOMMode moom_mem_pressure;
         uint32_t moom_mem_pressure_limit; /* Normalized to 2^32-1 == 100% */
+        usec_t moom_mem_pressure_duration_usec;
         ManagedOOMPreference moom_preference;
 
         /* Memory pressure logic */
@@ -403,7 +403,7 @@ void cgroup_context_remove_socket_bind(CGroupSocketBindItem **head);
 static inline bool cgroup_context_want_memory_pressure(const CGroupContext *c) {
         assert(c);
 
-        return c->memory_pressure_watch == CGROUP_PRESSURE_WATCH_ON ||
+        return c->memory_pressure_watch == CGROUP_PRESSURE_WATCH_YES ||
                 (c->memory_pressure_watch == CGROUP_PRESSURE_WATCH_AUTO && c->memory_accounting);
 }
 
@@ -437,7 +437,7 @@ void unit_invalidate_cgroup_members_masks(Unit *u);
 
 void unit_add_family_to_cgroup_realize_queue(Unit *u);
 
-const char *unit_get_realized_cgroup_path(Unit *u, CGroupMask mask);
+const char* unit_get_realized_cgroup_path(Unit *u, CGroupMask mask);
 int unit_default_cgroup_path(const Unit *u, char **ret);
 int unit_set_cgroup_path(Unit *u, const char *path);
 int unit_pick_cgroup_path(Unit *u);
@@ -488,10 +488,10 @@ int unit_get_effective_limit(Unit *u, CGroupLimitType type, uint64_t *ret);
 
 int unit_reset_accounting(Unit *u);
 
-#define UNIT_CGROUP_BOOL(u, name)                       \
-        ({                                              \
-        CGroupContext *cc = unit_get_cgroup_context(u); \
-        cc ? cc->name : false;                          \
+#define UNIT_CGROUP_BOOL(u, name)                               \
+        ({                                                      \
+                CGroupContext *cc = unit_get_cgroup_context(u); \
+                cc ? cc->name : false;                          \
         })
 
 bool manager_owns_host_root_cgroup(Manager *m);
@@ -514,6 +514,7 @@ void unit_cgroup_catchup(Unit *u);
 bool unit_cgroup_delegate(Unit *u);
 
 int unit_get_cpuset(Unit *u, CPUSet *cpus, const char *name);
+
 int unit_cgroup_freezer_action(Unit *u, FreezerAction action);
 
 const char* freezer_action_to_string(FreezerAction a) _const_;
@@ -529,7 +530,7 @@ int cgroup_runtime_deserialize_one(Unit *u, const char *key, const char *value, 
 const char* cgroup_pressure_watch_to_string(CGroupPressureWatch a) _const_;
 CGroupPressureWatch cgroup_pressure_watch_from_string(const char *s) _pure_;
 
-const char *cgroup_device_permissions_to_string(CGroupDevicePermissions p) _const_;
+const char* cgroup_device_permissions_to_string(CGroupDevicePermissions p) _const_;
 CGroupDevicePermissions cgroup_device_permissions_from_string(const char *s) _pure_;
 
 const char* cgroup_ip_accounting_metric_to_string(CGroupIPAccountingMetric m) _const_;

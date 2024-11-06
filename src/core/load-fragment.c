@@ -81,7 +81,7 @@ static int parse_socket_protocol(const char *s) {
         r = parse_ip_protocol(s);
         if (r < 0)
                 return r;
-        if (!IN_SET(r, IPPROTO_UDPLITE, IPPROTO_SCTP))
+        if (!IN_SET(r, IPPROTO_UDPLITE, IPPROTO_SCTP, IPPROTO_MPTCP))
                 return -EPROTONOSUPPORT;
 
         return r;
@@ -126,37 +126,41 @@ int parse_confirm_spawn(const char *value, char **console) {
         return 0;
 }
 
-DEFINE_CONFIG_PARSE(config_parse_socket_protocol, parse_socket_protocol, "Failed to parse socket protocol");
-DEFINE_CONFIG_PARSE(config_parse_exec_secure_bits, secure_bits_from_string, "Failed to parse secure bits");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_collect_mode, collect_mode, CollectMode, "Failed to parse garbage collection mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_device_policy, cgroup_device_policy, CGroupDevicePolicy, "Failed to parse device policy");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_exec_keyring_mode, exec_keyring_mode, ExecKeyringMode, "Failed to parse keyring mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_protect_proc, protect_proc, ProtectProc, "Failed to parse /proc/ protection mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_proc_subset, proc_subset, ProcSubset, "Failed to parse /proc/ subset mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_exec_utmp_mode, exec_utmp_mode, ExecUtmpMode, "Failed to parse utmp mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_job_mode, job_mode, JobMode, "Failed to parse job mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_notify_access, notify_access, NotifyAccess, "Failed to parse notify access specifier");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_protect_home, protect_home, ProtectHome, "Failed to parse protect home value");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_protect_system, protect_system, ProtectSystem, "Failed to parse protect system value");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_exec_preserve_mode, exec_preserve_mode, ExecPreserveMode, "Failed to parse resource preserve mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_service_type, service_type, ServiceType, "Failed to parse service type");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_service_exit_type, service_exit_type, ServiceExitType, "Failed to parse service exit type");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_service_restart, service_restart, ServiceRestart, "Failed to parse service restart specifier");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_service_restart_mode, service_restart_mode, ServiceRestartMode, "Failed to parse service restart mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_service_timeout_failure_mode, service_timeout_failure_mode, ServiceTimeoutFailureMode, "Failed to parse timeout failure mode");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_socket_bind, socket_address_bind_ipv6_only_or_bool, SocketAddressBindIPv6Only, "Failed to parse bind IPv6 only value");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_oom_policy, oom_policy, OOMPolicy, "Failed to parse OOM policy");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_managed_oom_preference, managed_oom_preference, ManagedOOMPreference, "Failed to parse ManagedOOMPreference=");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_memory_pressure_watch, cgroup_pressure_watch, CGroupPressureWatch, "Failed to parse memory pressure watch setting");
-DEFINE_CONFIG_PARSE_ENUM_WITH_DEFAULT(config_parse_ip_tos, ip_tos, int, -1, "Failed to parse IP TOS value");
-DEFINE_CONFIG_PARSE_PTR(config_parse_blockio_weight, cg_blkio_weight_parse, uint64_t, "Invalid block IO weight");
-DEFINE_CONFIG_PARSE_PTR(config_parse_cg_weight, cg_weight_parse, uint64_t, "Invalid weight");
-DEFINE_CONFIG_PARSE_PTR(config_parse_cg_cpu_weight, cg_cpu_weight_parse, uint64_t, "Invalid CPU weight");
-static DEFINE_CONFIG_PARSE_PTR(config_parse_cpu_shares_internal, cg_cpu_shares_parse, uint64_t, "Invalid CPU shares");
-DEFINE_CONFIG_PARSE_PTR(config_parse_exec_mount_propagation_flag, mount_propagation_flag_from_string, unsigned long, "Failed to parse mount propagation flag");
-DEFINE_CONFIG_PARSE_ENUM_WITH_DEFAULT(config_parse_numa_policy, mpol, int, -1, "Invalid NUMA policy type");
-DEFINE_CONFIG_PARSE_ENUM(config_parse_status_unit_format, status_unit_format, StatusUnitFormat, "Failed to parse status unit format");
-DEFINE_CONFIG_PARSE_ENUM_FULL(config_parse_socket_timestamping, socket_timestamping_from_string_harder, SocketTimestamping, "Failed to parse timestamping precision");
+DEFINE_CONFIG_PARSE(config_parse_socket_protocol, parse_socket_protocol);
+DEFINE_CONFIG_PARSE(config_parse_exec_secure_bits, secure_bits_from_string);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_collect_mode, collect_mode, CollectMode);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_device_policy, cgroup_device_policy, CGroupDevicePolicy);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_exec_keyring_mode, exec_keyring_mode, ExecKeyringMode);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_protect_proc, protect_proc, ProtectProc);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_proc_subset, proc_subset, ProcSubset);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_private_tmp, private_tmp, PrivateTmp);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_private_users, private_users, PrivateUsers);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_private_pids, private_pids, PrivatePIDs);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_protect_control_groups, protect_control_groups, ProtectControlGroups);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_exec_utmp_mode, exec_utmp_mode, ExecUtmpMode);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_job_mode, job_mode, JobMode);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_notify_access, notify_access, NotifyAccess);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_protect_home, protect_home, ProtectHome);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_protect_system, protect_system, ProtectSystem);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_exec_preserve_mode, exec_preserve_mode, ExecPreserveMode);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_service_type, service_type, ServiceType);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_service_exit_type, service_exit_type, ServiceExitType);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_service_restart, service_restart, ServiceRestart);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_service_restart_mode, service_restart_mode, ServiceRestartMode);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_service_timeout_failure_mode, service_timeout_failure_mode, ServiceTimeoutFailureMode);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_socket_bind, socket_address_bind_ipv6_only_or_bool, SocketAddressBindIPv6Only);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_oom_policy, oom_policy, OOMPolicy);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_managed_oom_preference, managed_oom_preference, ManagedOOMPreference);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_memory_pressure_watch, cgroup_pressure_watch, CGroupPressureWatch);
+DEFINE_CONFIG_PARSE_ENUM_WITH_DEFAULT(config_parse_ip_tos, ip_tos, int, -1);
+DEFINE_CONFIG_PARSE_PTR(config_parse_blockio_weight, cg_blkio_weight_parse, uint64_t);
+DEFINE_CONFIG_PARSE_PTR(config_parse_cg_weight, cg_weight_parse, uint64_t);
+DEFINE_CONFIG_PARSE_PTR(config_parse_cg_cpu_weight, cg_cpu_weight_parse, uint64_t);
+static DEFINE_CONFIG_PARSE_PTR(config_parse_cpu_shares_internal, cg_cpu_shares_parse, uint64_t);
+DEFINE_CONFIG_PARSE_PTR(config_parse_exec_mount_propagation_flag, mount_propagation_flag_from_string, unsigned long);
+DEFINE_CONFIG_PARSE_ENUM_WITH_DEFAULT(config_parse_numa_policy, mpol, int, -1);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_status_unit_format, status_unit_format, StatusUnitFormat);
+DEFINE_CONFIG_PARSE_ENUM_FULL(config_parse_socket_timestamping, socket_timestamping_from_string_harder, SocketTimestamping);
 
 int config_parse_cpu_shares(
                 const char *unit,
@@ -173,7 +177,6 @@ int config_parse_cpu_shares(
         assert(filename);
         assert(lvalue);
         assert(rvalue);
-
 
         log_syntax(unit, LOG_WARNING, filename, line, 0,
                    "Unit uses %s=; please use CPUWeight= instead. Support for %s= will be removed soon.",
@@ -2781,10 +2784,8 @@ int config_parse_pass_environ(
                 void *data,
                 void *userdata) {
 
-        _cleanup_strv_free_ char **n = NULL;
+        char ***passenv = ASSERT_PTR(data);
         const Unit *u = userdata;
-        char*** passenv = ASSERT_PTR(data);
-        size_t nlen = 0;
         int r;
 
         assert(filename);
@@ -2796,6 +2797,8 @@ int config_parse_pass_environ(
                 *passenv = strv_free(*passenv);
                 return 0;
         }
+
+        _cleanup_strv_free_ char **n = NULL;
 
         for (const char *p = rvalue;;) {
                 _cleanup_free_ char *word = NULL, *k = NULL;
@@ -2827,18 +2830,13 @@ int config_parse_pass_environ(
                         continue;
                 }
 
-                if (!GREEDY_REALLOC(n, nlen + 2))
-                        return log_oom();
-
-                n[nlen++] = TAKE_PTR(k);
-                n[nlen] = NULL;
-        }
-
-        if (n) {
-                r = strv_extend_strv(passenv, n, true);
-                if (r < 0)
+                if (strv_consume(&n, TAKE_PTR(k)) < 0)
                         return log_oom();
         }
+
+        r = strv_extend_strv_consume(passenv, TAKE_PTR(n), /* filter_duplicates = */ true);
+        if (r < 0)
+                return log_oom();
 
         return 0;
 }
@@ -2855,10 +2853,8 @@ int config_parse_unset_environ(
                 void *data,
                 void *userdata) {
 
-        _cleanup_strv_free_ char **n = NULL;
-        char*** unsetenv = ASSERT_PTR(data);
+        char ***unsetenv = ASSERT_PTR(data);
         const Unit *u = userdata;
-        size_t nlen = 0;
         int r;
 
         assert(filename);
@@ -2870,6 +2866,8 @@ int config_parse_unset_environ(
                 *unsetenv = strv_free(*unsetenv);
                 return 0;
         }
+
+        _cleanup_strv_free_ char **n = NULL;
 
         for (const char *p = rvalue;;) {
                 _cleanup_free_ char *word = NULL, *k = NULL;
@@ -2901,18 +2899,13 @@ int config_parse_unset_environ(
                         continue;
                 }
 
-                if (!GREEDY_REALLOC(n, nlen + 2))
-                        return log_oom();
-
-                n[nlen++] = TAKE_PTR(k);
-                n[nlen] = NULL;
-        }
-
-        if (n) {
-                r = strv_extend_strv(unsetenv, n, true);
-                if (r < 0)
+                if (strv_consume(&n, TAKE_PTR(k)) < 0)
                         return log_oom();
         }
+
+        r = strv_extend_strv_consume(unsetenv, TAKE_PTR(n), /* filter_duplicates = */ true);
+        if (r < 0)
+                return log_oom();
 
         return 0;
 }
@@ -2944,7 +2937,6 @@ int config_parse_log_extra_fields(
 
         for (const char *p = rvalue;;) {
                 _cleanup_free_ char *word = NULL, *k = NULL;
-                struct iovec *t;
                 const char *eq;
 
                 r = extract_first_word(&p, &word, NULL, EXTRACT_CUNESCAPE|EXTRACT_UNQUOTE);
@@ -2974,14 +2966,11 @@ int config_parse_log_extra_fields(
                         continue;
                 }
 
-                t = reallocarray(c->log_extra_fields, c->n_log_extra_fields+1, sizeof(struct iovec));
-                if (!t)
+                if (!GREEDY_REALLOC(c->log_extra_fields, c->n_log_extra_fields + 1))
                         return log_oom();
 
-                c->log_extra_fields = t;
                 c->log_extra_fields[c->n_log_extra_fields++] = IOVEC_MAKE_STRING(k);
-
-                k = NULL;
+                TAKE_PTR(k);
         }
 }
 
@@ -3704,15 +3693,14 @@ int config_parse_unit_slice(
                 void *data,
                 void *userdata) {
 
+        Unit *u = ASSERT_PTR(userdata), *slice;
         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
         _cleanup_free_ char *k = NULL;
-        Unit *u = userdata, *slice;
         int r;
 
         assert(filename);
         assert(lvalue);
         assert(rvalue);
-        assert(u);
 
         r = unit_name_printf(u, rvalue, &k);
         if (r < 0) {
@@ -3913,8 +3901,8 @@ int config_parse_tasks_max(
                 void *data,
                 void *userdata) {
 
+        CGroupTasksMax *tasks_max = ASSERT_PTR(data);
         const Unit *u = userdata;
-        CGroupTasksMax *tasks_max = data;
         uint64_t v;
         int r;
 
@@ -4132,6 +4120,44 @@ int config_parse_managed_oom_mem_pressure_limit(
 
         /* Normalize to 2^32-1 == 100% */
         *limit = UINT32_SCALE_FROM_PERMYRIAD(r);
+        return 0;
+}
+
+int config_parse_managed_oom_mem_pressure_duration_sec(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        usec_t usec, *duration = ASSERT_PTR(data);
+        UnitType t;
+        int r;
+
+        t = unit_name_to_type(unit);
+        assert(t != _UNIT_TYPE_INVALID);
+
+        if (!unit_vtable[t]->can_set_managed_oom)
+                return log_syntax(unit, LOG_WARNING, filename, line, 0, "%s= is not supported for this unit type, ignoring.", lvalue);
+
+        if (isempty(rvalue)) {
+                *duration = USEC_INFINITY;
+                return 0;
+        }
+
+        r = parse_sec(rvalue, &usec);
+        if (r < 0)
+                return log_syntax_parse_error(unit, filename, line, r, lvalue, rvalue);
+
+        if (usec < 1 * USEC_PER_SEC || usec == USEC_INFINITY)
+                return log_syntax(unit, LOG_WARNING, filename, line, 0, "%s= must be at least 1s and less than infinity, ignoring: %s", lvalue, rvalue);
+
+        *duration = usec;
         return 0;
 }
 
@@ -4673,9 +4699,9 @@ int config_parse_exec_directories(
                 if (r == 0)
                         return 0;
 
-                _cleanup_free_ char *src = NULL, *dest = NULL;
+                _cleanup_free_ char *src = NULL, *dest = NULL, *flags = NULL;
                 const char *q = tuple;
-                r = extract_many_words(&q, ":", EXTRACT_CUNESCAPE|EXTRACT_UNESCAPE_SEPARATORS, &src, &dest);
+                r = extract_many_words(&q, ":", EXTRACT_CUNESCAPE|EXTRACT_UNESCAPE_SEPARATORS|EXTRACT_DONT_COALESCE_SEPARATORS, &src, &dest, &flags);
                 if (r == -ENOMEM)
                         return log_oom();
                 if (r <= 0) {
@@ -4702,20 +4728,20 @@ int config_parse_exec_directories(
                         continue;
                 }
 
+                if (!isempty(dest) && streq(lvalue, "ConfigurationDirectory")) {
+                        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                                   "Additional parameter is not supported for ConfigurationDirectory, ignoring: %s", tuple);
+                        continue;
+                }
+
                 /* For State and Runtime directories we support an optional destination parameter, which
                  * will be used to create a symlink to the source. */
                 _cleanup_free_ char *dresolved = NULL;
                 if (!isempty(dest)) {
-                        if (streq(lvalue, "ConfigurationDirectory")) {
-                                log_syntax(unit, LOG_WARNING, filename, line, 0,
-                                           "Destination parameter is not supported for ConfigurationDirectory, ignoring: %s", tuple);
-                                continue;
-                        }
-
                         r = unit_path_printf(u, dest, &dresolved);
                         if (r < 0) {
                                 log_syntax(unit, LOG_WARNING, filename, line, r,
-                                        "Failed to resolve unit specifiers in \"%s\", ignoring: %m", dest);
+                                           "Failed to resolve unit specifiers in \"%s\", ignoring: %m", dest);
                                 continue;
                         }
 
@@ -4724,7 +4750,14 @@ int config_parse_exec_directories(
                                 continue;
                 }
 
-                r = exec_directory_add(ed, sresolved, dresolved);
+                ExecDirectoryFlags exec_directory_flags = exec_directory_flags_from_string(flags);
+                if (exec_directory_flags < 0 || (exec_directory_flags & ~_EXEC_DIRECTORY_FLAGS_PUBLIC) != 0) {
+                        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                                   "Invalid flags for %s=, ignoring: %s", lvalue, flags);
+                        continue;
+                }
+
+                r = exec_directory_add(ed, sresolved, dresolved, exec_directory_flags);
                 if (r < 0)
                         return log_oom();
         }
@@ -4742,24 +4775,23 @@ int config_parse_set_credential(
                 void *data,
                 void *userdata) {
 
-        _cleanup_free_ char *word = NULL, *k = NULL;
-        _cleanup_free_ void *d = NULL;
         ExecContext *context = ASSERT_PTR(data);
-        ExecSetCredential *old;
-        Unit *u = userdata;
-        bool encrypted = ltype;
-        const char *p = ASSERT_PTR(rvalue);
-        size_t size;
+        const Unit *u = ASSERT_PTR(userdata);
         int r;
 
         assert(filename);
         assert(lvalue);
+        assert(rvalue);
 
         if (isempty(rvalue)) {
                 /* Empty assignment resets the list */
                 context->set_credentials = hashmap_free(context->set_credentials);
                 return 0;
         }
+
+        _cleanup_free_ char *word = NULL, *id = NULL;
+        const char *p = rvalue;
+        bool encrypted = ltype;
 
         r = extract_first_word(&p, &word, ":", EXTRACT_DONT_COALESCE_SEPARATORS);
         if (r == -ENOMEM)
@@ -4773,107 +4805,45 @@ int config_parse_set_credential(
                 return 0;
         }
 
-        r = unit_cred_printf(u, word, &k);
+        r = unit_cred_printf(u, word, &id);
         if (r < 0) {
                 log_syntax(unit, LOG_WARNING, filename, line, r, "Failed to resolve unit specifiers in \"%s\", ignoring: %m", word);
                 return 0;
         }
-        if (!credential_name_valid(k)) {
-                log_syntax(unit, LOG_WARNING, filename, line, 0, "Credential name \"%s\" not valid, ignoring.", k);
+        if (!credential_name_valid(id)) {
+                log_syntax(unit, LOG_WARNING, filename, line, 0, "Credential name \"%s\" not valid, ignoring.", id);
                 return 0;
         }
 
+        _cleanup_free_ void *d = NULL;
+        size_t size;
+
         if (encrypted) {
-                r = unbase64mem_full(p, SIZE_MAX, true, &d, &size);
+                r = unbase64mem_full(p, SIZE_MAX, /* secure = */ true, &d, &size);
+                if (r == -ENOMEM)
+                        return log_oom();
                 if (r < 0) {
-                        log_syntax(unit, LOG_WARNING, filename, line, r, "Encrypted credential data not valid Base64 data, ignoring.");
+                        log_syntax(unit, LOG_WARNING, filename, line, r, "Encrypted credential data not valid Base64 data, ignoring: %m");
                         return 0;
                 }
         } else {
-                char *unescaped;
                 ssize_t l;
 
                 /* We support escape codes here, so that users can insert trailing \n if they like */
-                l = cunescape(p, UNESCAPE_ACCEPT_NUL, &unescaped);
+                l = cunescape(p, UNESCAPE_ACCEPT_NUL, (char**) &d);
+                if (l == -ENOMEM)
+                        return log_oom();
                 if (l < 0) {
                         log_syntax(unit, LOG_WARNING, filename, line, l, "Can't unescape \"%s\", ignoring: %m", p);
                         return 0;
                 }
 
-                d = unescaped;
                 size = l;
         }
 
-        old = hashmap_get(context->set_credentials, k);
-        if (old) {
-                free_and_replace(old->data, d);
-                old->size = size;
-                old->encrypted = encrypted;
-        } else {
-                _cleanup_(exec_set_credential_freep) ExecSetCredential *sc = NULL;
-
-                sc = new(ExecSetCredential, 1);
-                if (!sc)
-                        return log_oom();
-
-                *sc = (ExecSetCredential) {
-                        .id = TAKE_PTR(k),
-                        .data = TAKE_PTR(d),
-                        .size = size,
-                        .encrypted = encrypted,
-                };
-
-                r = hashmap_ensure_put(&context->set_credentials, &exec_set_credential_hash_ops, sc->id, sc);
-                if (r == -ENOMEM)
-                        return log_oom();
-                if (r < 0) {
-                        log_syntax(unit, LOG_WARNING, filename, line, r,
-                                   "Duplicated credential value '%s', ignoring assignment: %s", sc->id, rvalue);
-                        return 0;
-                }
-
-                TAKE_PTR(sc);
-        }
-
-        return 0;
-}
-
-int hashmap_put_credential(Hashmap **h, const char *id, const char *path, bool encrypted) {
-        ExecLoadCredential *old;
-        int r;
-
-        assert(h);
-        assert(id);
-        assert(path);
-
-        old = hashmap_get(*h, id);
-        if (old) {
-                r = free_and_strdup(&old->path, path);
-                if (r < 0)
-                        return r;
-
-                old->encrypted = encrypted;
-        } else {
-                _cleanup_(exec_load_credential_freep) ExecLoadCredential *lc = NULL;
-
-                lc = new(ExecLoadCredential, 1);
-                if (!lc)
-                        return log_oom();
-
-                *lc = (ExecLoadCredential) {
-                        .id = strdup(id),
-                        .path = strdup(path),
-                        .encrypted = encrypted,
-                };
-                if (!lc->id || !lc->path)
-                        return -ENOMEM;
-
-                r = hashmap_ensure_put(h, &exec_load_credential_hash_ops, lc->id, lc);
-                if (r < 0)
-                        return r;
-
-                TAKE_PTR(lc);
-        }
+        r = exec_context_put_set_credential(context, id, TAKE_PTR(d), size, encrypted);
+        if (r < 0)
+                return log_error_errno(r, "Failed to store set credential '%s': %m", rvalue);
 
         return 0;
 }
@@ -4944,7 +4914,7 @@ int config_parse_load_credential(
                 }
         }
 
-        r = hashmap_put_credential(&context->load_credentials, id, path, encrypted);
+        r = exec_context_put_load_credential(context, id, path, encrypted);
         if (r < 0)
                 return log_error_errno(r, "Failed to store load credential '%s': %m", rvalue);
 
@@ -4963,8 +4933,7 @@ int config_parse_import_credential(
                 void *data,
                 void *userdata) {
 
-        _cleanup_free_ char *s = NULL;
-        Set** import_credentials = ASSERT_PTR(data);
+        ExecContext *context = ASSERT_PTR(data);
         Unit *u = userdata;
         int r;
 
@@ -4974,23 +4943,40 @@ int config_parse_import_credential(
 
         if (isempty(rvalue)) {
                 /* Empty assignment resets the list */
-                *import_credentials = set_free_free(*import_credentials);
+                context->import_credentials = ordered_set_free(context->import_credentials);
                 return 0;
         }
 
-        r = unit_cred_printf(u, rvalue, &s);
+        const char *p = rvalue;
+        _cleanup_free_ char *word = NULL, *glob = NULL;
+
+        r = extract_first_word(&p, &word, ":", EXTRACT_DONT_COALESCE_SEPARATORS);
+        if (r == -ENOMEM)
+                return log_oom();
+        if (r <= 0) {
+                log_syntax(unit, LOG_WARNING, filename, line, r, "Invalid syntax, ignoring: %s", rvalue);
+                return 0;
+        }
+
+        r = unit_cred_printf(u, word, &glob);
         if (r < 0) {
-                log_syntax(unit, LOG_WARNING, filename, line, r, "Failed to resolve unit specifiers in \"%s\", ignoring: %m", s);
-                return 0;
-        }
-        if (!credential_glob_valid(s)) {
-                log_syntax(unit, LOG_WARNING, filename, line, 0, "Credential name or glob \"%s\" not valid, ignoring.", s);
+                log_syntax(unit, LOG_WARNING, filename, line, r, "Failed to resolve unit specifiers in \"%s\", ignoring: %m", word);
                 return 0;
         }
 
-        r = set_put_strdup(import_credentials, s);
+        if (!credential_glob_valid(glob)) {
+                log_syntax(unit, LOG_WARNING, filename, line, 0, "Credential name or glob \"%s\" not valid, ignoring.", glob);
+                return 0;
+        }
+
+        if (!isempty(p) && !credential_name_valid(p)) {
+                log_syntax(unit, LOG_WARNING, filename, line, 0, "Credential name \"%s\" not valid, ignoring.", p);
+                return 0;
+        }
+
+        r = exec_context_put_import_credential(context, glob, p);
         if (r < 0)
-                return log_error_errno(r, "Failed to store credential name '%s': %m", rvalue);
+                return log_error_errno(r, "Failed to store import credential '%s': %m", rvalue);
 
         return 0;
 }
@@ -6406,9 +6392,9 @@ void unit_dump_config_items(FILE *f) {
                     p->ltype == DISABLED_LEGACY)
                         continue;
 
-                for (size_t j = 0; j < ELEMENTSOF(table); j++)
-                        if (p->parse == table[j].callback) {
-                                rvalue = table[j].rvalue;
+                FOREACH_ELEMENT(j, table)
+                        if (p->parse == j->callback) {
+                                rvalue = j->rvalue;
                                 break;
                         }
 

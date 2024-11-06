@@ -222,20 +222,16 @@ int manager_new(Manager **ret) {
         if (r < 0)
                 return r;
 
-        r = sd_event_add_signal(m->event, NULL, SIGINT, NULL, NULL);
+        r = sd_event_set_signal_exit(m->event, true);
         if (r < 0)
                 return r;
 
-        r = sd_event_add_signal(m->event, NULL, SIGTERM, NULL, NULL);
-        if (r < 0)
-                return r;
-
-        r = sd_event_add_memory_pressure(m->event, NULL, NULL, NULL);
+        r = sd_event_add_memory_pressure(m->event, /* ret_event_source= */ NULL, /* callback= */ NULL, /* userdata= */ NULL);
         if (r < 0)
                 log_full_errno(ERRNO_IS_NOT_SUPPORTED(r) || ERRNO_IS_PRIVILEGE(r) || (r == -EHOSTDOWN) ? LOG_DEBUG : LOG_WARNING, r,
                                "Failed to allocate memory pressure watch, ignoring: %m");
 
-        r = sd_event_add_signal(m->event, NULL, SIGRTMIN+18, sigrtmin18_handler, NULL);
+        r = sd_event_add_signal(m->event, /* ret_event_source= */ NULL, (SIGRTMIN+18)|SD_EVENT_SIGNAL_PROCMASK, sigrtmin18_handler, /* userdata = */ NULL);
         if (r < 0)
                 return r;
 
@@ -293,7 +289,7 @@ Manager* manager_free(Manager *m) {
 
         hashmap_free(m->public_keys);
 
-        varlink_server_unref(m->varlink_server);
+        sd_varlink_server_unref(m->varlink_server);
         free(m->userdb_service);
 
         free(m->default_file_system_type);
@@ -360,7 +356,7 @@ static int manager_add_home_by_record(
                 int dir_fd,
                 const char *fname) {
 
-        _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
         _cleanup_(user_record_unrefp) UserRecord *hr = NULL;
         unsigned line, column;
         int r, is_signed;
@@ -382,11 +378,11 @@ static int manager_add_home_by_record(
         if (st.st_size == 0)
                 goto unlink_this_file;
 
-        r = json_parse_file_at(NULL, dir_fd, fname, JSON_PARSE_SENSITIVE, &v, &line, &column);
+        r = sd_json_parse_file_at(NULL, dir_fd, fname, SD_JSON_PARSE_SENSITIVE, &v, &line, &column);
         if (r < 0)
                 return log_error_errno(r, "Failed to parse identity record at %s:%u%u: %m", fname, line, column);
 
-        if (json_variant_is_blank_object(v))
+        if (sd_json_variant_is_blank_object(v))
                 goto unlink_this_file;
 
         hr = user_record_new();
@@ -1008,17 +1004,17 @@ static int manager_bind_varlink(Manager *m) {
         assert(m);
         assert(!m->varlink_server);
 
-        r = varlink_server_new(&m->varlink_server, VARLINK_SERVER_ACCOUNT_UID|VARLINK_SERVER_INHERIT_USERDATA|VARLINK_SERVER_INPUT_SENSITIVE);
+        r = sd_varlink_server_new(&m->varlink_server, SD_VARLINK_SERVER_ACCOUNT_UID|SD_VARLINK_SERVER_INHERIT_USERDATA|SD_VARLINK_SERVER_INPUT_SENSITIVE);
         if (r < 0)
                 return log_error_errno(r, "Failed to allocate varlink server object: %m");
 
-        varlink_server_set_userdata(m->varlink_server, m);
+        sd_varlink_server_set_userdata(m->varlink_server, m);
 
-        r = varlink_server_add_interface(m->varlink_server, &vl_interface_io_systemd_UserDatabase);
+        r = sd_varlink_server_add_interface(m->varlink_server, &vl_interface_io_systemd_UserDatabase);
         if (r < 0)
                 return log_error_errno(r, "Failed to add UserDatabase interface to varlink server: %m");
 
-        r = varlink_server_bind_method_many(
+        r = sd_varlink_server_bind_method_many(
                         m->varlink_server,
                         "io.systemd.UserDatabase.GetUserRecord",  vl_method_get_user_record,
                         "io.systemd.UserDatabase.GetGroupRecord", vl_method_get_group_record,
@@ -1039,11 +1035,11 @@ static int manager_bind_varlink(Manager *m) {
         } else
                 socket_path = "/run/systemd/userdb/io.systemd.Home";
 
-        r = varlink_server_listen_address(m->varlink_server, socket_path, 0666);
+        r = sd_varlink_server_listen_address(m->varlink_server, socket_path, 0666);
         if (r < 0)
                 return log_error_errno(r, "Failed to bind to varlink socket: %m");
 
-        r = varlink_server_attach_event(m->varlink_server, m->event, SD_EVENT_PRIORITY_NORMAL);
+        r = sd_varlink_server_attach_event(m->varlink_server, m->event, SD_EVENT_PRIORITY_NORMAL);
         if (r < 0)
                 return log_error_errno(r, "Failed to attach varlink connection to event loop: %m");
 
@@ -2001,7 +1997,6 @@ static int manager_rebalance_calculate(Manager *m) {
         m->rebalance_interval_usec = (usec_t) CLAMP((LESS_BY(log2(min_free), 22)*15*USEC_PER_MINUTE)/26,
                                                     1 * USEC_PER_MINUTE,
                                                     15 * USEC_PER_MINUTE);
-
 
         log_debug("Rebalancing interval set to %s.", FORMAT_TIMESPAN(m->rebalance_interval_usec, USEC_PER_MSEC));
 

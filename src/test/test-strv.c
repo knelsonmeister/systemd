@@ -527,6 +527,81 @@ TEST(strv_sort) {
         ASSERT_STREQ(input_table[4], "durian");
 }
 
+TEST(strv_sort_uniq) {
+        static const char* input_table[] = {
+                "durian",
+                "apple",
+                "citrus",
+                 "CAPITAL LETTERS FIRST",
+                "banana",
+                "durian",
+                "apple",
+                "citrus",
+                 "CAPITAL LETTERS FIRST",
+                "banana",
+                "durian",
+                "apple",
+                "citrus",
+                 "CAPITAL LETTERS FIRST",
+                "banana",
+                NULL
+        };
+
+        _cleanup_strv_free_ char **a = NULL, **b = NULL, **c = NULL;
+
+        ASSERT_NULL(strv_sort_uniq(a));
+
+        ASSERT_NOT_NULL(a = strv_new(NULL));
+        assert_se(strv_sort_uniq(a) == a);
+        ASSERT_NULL(a[0]);
+        a = strv_free(a);
+
+        ASSERT_NOT_NULL(a = strv_new("a", "a", "a", "a", "a"));
+        assert_se(strv_sort_uniq(a) == a);
+        ASSERT_STREQ(a[0], "a");
+        ASSERT_NULL(a[1]);
+        a = strv_free(a);
+
+        ASSERT_NOT_NULL(a = strv_new("a", "a", "a", "a", "b"));
+        assert_se(strv_sort_uniq(a) == a);
+        ASSERT_STREQ(a[0], "a");
+        ASSERT_STREQ(a[1], "b");
+        ASSERT_NULL(a[2]);
+        a = strv_free(a);
+
+        ASSERT_NOT_NULL(a = strv_new("b", "a", "a", "a", "a"));
+        assert_se(strv_sort_uniq(a) == a);
+        ASSERT_STREQ(a[0], "a");
+        ASSERT_STREQ(a[1], "b");
+        ASSERT_NULL(a[2]);
+        a = strv_free(a);
+
+        ASSERT_NOT_NULL(a = strv_new("a", "a", "b", "a", "b"));
+        assert_se(strv_sort_uniq(a) == a);
+        ASSERT_STREQ(a[0], "a");
+        ASSERT_STREQ(a[1], "b");
+        ASSERT_NULL(a[2]);
+        a = strv_free(a);
+
+        ASSERT_NOT_NULL(a = strv_copy((char**) input_table));
+        ASSERT_NOT_NULL(b = strv_copy((char**) input_table));
+        ASSERT_NOT_NULL(c = strv_copy((char**) input_table));
+
+        assert_se(strv_sort_uniq(a) == a);
+        assert_se(strv_sort(strv_uniq(b)) == b);
+        assert_se(strv_uniq(strv_sort(c)) == c);
+
+        assert_se(strv_equal(a, b));
+        assert_se(strv_equal(a, c));
+
+        ASSERT_STREQ(a[0], "CAPITAL LETTERS FIRST");
+        ASSERT_STREQ(a[1], "apple");
+        ASSERT_STREQ(a[2], "banana");
+        ASSERT_STREQ(a[3], "citrus");
+        ASSERT_STREQ(a[4], "durian");
+        ASSERT_NULL(a[5]);
+}
+
 TEST(strv_extend_strv_biconcat) {
         _cleanup_strv_free_ char **a = NULL, **b = NULL;
 
@@ -583,6 +658,46 @@ TEST(strv_extend_strv) {
         ASSERT_STREQ(n[2], "abc");
         ASSERT_STREQ(n[3], "pqr");
         assert_se(strv_length(n) == 4);
+}
+
+TEST(strv_extend_strv_consume) {
+        _cleanup_strv_free_ char **a = NULL, **b = NULL, **c = NULL, **n = NULL;
+        const char *s1, *s2, *s3;
+
+        ASSERT_NOT_NULL(a = strv_new("abc", "def", "ghi"));
+        ASSERT_NOT_NULL(b = strv_new("jkl", "mno", "abc", "pqr"));
+
+        s1 = b[0];
+        s2 = b[1];
+        s3 = b[3];
+
+        ASSERT_EQ(strv_extend_strv_consume(&a, TAKE_PTR(b), true), 3);
+
+        assert_se(s1 == a[3]);
+        assert_se(s2 == a[4]);
+        assert_se(s3 == a[5]);
+
+        ASSERT_STREQ(a[0], "abc");
+        ASSERT_STREQ(a[1], "def");
+        ASSERT_STREQ(a[2], "ghi");
+        ASSERT_STREQ(a[3], "jkl");
+        ASSERT_STREQ(a[4], "mno");
+        ASSERT_STREQ(a[5], "pqr");
+        ASSERT_EQ(strv_length(a), (size_t) 6);
+
+        ASSERT_NOT_NULL(c = strv_new("jkl", "mno"));
+
+        s1 = c[0];
+        s2 = c[1];
+
+        ASSERT_EQ(strv_extend_strv_consume(&n, TAKE_PTR(c), false), 2);
+
+        assert_se(s1 == n[0]);
+        assert_se(s2 == n[1]);
+
+        ASSERT_STREQ(n[0], "jkl");
+        ASSERT_STREQ(n[1], "mno");
+        ASSERT_EQ(strv_length(n), (size_t) 2);
 }
 
 TEST(strv_extend_with_size) {
@@ -1053,6 +1168,91 @@ TEST(strv_extend_many) {
 
         assert_se(strv_extend_many(&l, "yes", NULL, "no") >= 0);
         assert_se(strv_equal(l, STRV_MAKE("foo", "bar", "waldo", "quux", "1", "2", "3", "4", "yes", "no")));
+}
+
+TEST(strv_rebreak_lines) {
+        _cleanup_strv_free_ char **l = NULL;
+
+        assert_se(strv_rebreak_lines(NULL, SIZE_MAX, &l) >= 0);
+        assert_se(strv_equal(l, NULL));
+        l = strv_free(l);
+
+        assert_se(strv_rebreak_lines(STRV_MAKE(""), SIZE_MAX, &l) >= 0);
+        assert_se(strv_equal(l, STRV_MAKE("")));
+        l = strv_free(l);
+
+        assert_se(strv_rebreak_lines(STRV_MAKE("", ""), SIZE_MAX, &l) >= 0);
+        assert_se(strv_equal(l, STRV_MAKE("", "")));
+        l = strv_free(l);
+
+        assert_se(strv_rebreak_lines(STRV_MAKE("foo"), SIZE_MAX, &l) >= 0);
+        assert_se(strv_equal(l, STRV_MAKE("foo")));
+        l = strv_free(l);
+
+        assert_se(strv_rebreak_lines(STRV_MAKE("foo", "bar"), SIZE_MAX, &l) >= 0);
+        assert_se(strv_equal(l, STRV_MAKE("foo", "bar")));
+        l = strv_free(l);
+
+        assert_se(strv_rebreak_lines(STRV_MAKE("Foo fOo foO FOo", "bar Bar bAr baR BAr"), 10, &l) >= 0);
+        assert_se(strv_equal(l, STRV_MAKE("Foo fOo", "foO FOo", "bar Bar", "bAr baR", "BAr")));
+        l = strv_free(l);
+
+        assert_se(strv_rebreak_lines(STRV_MAKE("           foo               ",
+                                               "             foo bar               waldo quux         "),
+                                     10, &l) >= 0);
+        assert_se(strv_equal(l, STRV_MAKE("           foo",
+                                          "             foo",
+                                          "bar",
+                                          "waldo quux")));
+        l = strv_free(l);
+
+        assert_se(strv_rebreak_lines(STRV_MAKE("            ",
+                                               "\tfoo bar\t",
+                                               "FOO\tBAR"),
+                                     10, &l) >= 0);
+        assert_se(strv_equal(l, STRV_MAKE("",
+                                          "\tfoo",
+                                          "bar",
+                                          "FOO",
+                                          "BAR")));
+        l = strv_free(l);
+
+        /* Now make sure that breaking the lines a 2nd time does not modify the output anymore */
+        for (size_t i = 1; i < 100; i++) {
+                _cleanup_strv_free_ char **a = NULL, **b = NULL;
+
+                assert_se(strv_rebreak_lines(STRV_MAKE("foobar waldo waldo quux piep\tschnurz    pimm"), i, &a) >= 0);
+                assert_se(strv_rebreak_lines(a, i, &b) >= 0);
+
+                assert_se(strv_equal(a, b));
+        }
+}
+
+TEST(strv_find_closest) {
+        char **l = STRV_MAKE("aaa", "aaaa", "bbb", "ccc");
+
+        /* prefix match */
+        ASSERT_STREQ(strv_find_closest(l, "a"),    "aaa");
+        ASSERT_STREQ(strv_find_closest(l, "aa"),   "aaa");
+        ASSERT_STREQ(strv_find_closest(l, "aaa"),  "aaa");
+        ASSERT_STREQ(strv_find_closest(l, "aaaa"), "aaaa");
+        ASSERT_STREQ(strv_find_closest(l, "b"),    "bbb");
+        ASSERT_STREQ(strv_find_closest(l, "bb"),   "bbb");
+        ASSERT_STREQ(strv_find_closest(l, "bbb"),  "bbb");
+        ASSERT_STREQ(strv_find_closest(l, "c"),    "ccc");
+        ASSERT_STREQ(strv_find_closest(l, "cc"),   "ccc");
+        ASSERT_STREQ(strv_find_closest(l, "ccc"),  "ccc");
+
+        /* levenshtein match */
+        ASSERT_STREQ(strv_find_closest(l, "aab"),  "aaa");
+        ASSERT_STREQ(strv_find_closest(l, "abb"),  "bbb");
+        ASSERT_STREQ(strv_find_closest(l, "cbc"),  "ccc");
+        ASSERT_STREQ(strv_find_closest(l, "aax"),  "aaa");
+        ASSERT_STREQ(strv_find_closest(l, "bbbb"), "bbb");
+        ASSERT_STREQ(strv_find_closest(l, "cbbb"), "bbb");
+        ASSERT_STREQ(strv_find_closest(l, "bbbx"), "bbb");
+
+        ASSERT_NULL(strv_find_closest(l, "sfajosajfosdjaofjdsaf"));
 }
 
 DEFINE_TEST_MAIN(LOG_INFO);

@@ -142,10 +142,8 @@ static int curl_glue_timer_callback(CURLM *curl, long timeout_ms, void *userdata
         }
 
         if (timeout_ms < 0) {
-                if (g->timer) {
-                        if (sd_event_source_set_enabled(g->timer, SD_EVENT_OFF) < 0)
-                                return -1;
-                }
+                if (sd_event_source_set_enabled(g->timer, SD_EVENT_OFF) < 0)
+                        return -1;
 
                 return 0;
         }
@@ -386,7 +384,6 @@ int curl_parse_http_time(const char *t, usec_t *ret) {
         _cleanup_(freelocalep) locale_t loc = (locale_t) 0;
         const char *e;
         struct tm tm;
-        time_t v;
 
         assert(t);
         assert(ret);
@@ -406,10 +403,5 @@ int curl_parse_http_time(const char *t, usec_t *ret) {
         if (!e || *e != 0)
                 return -EINVAL;
 
-        v = timegm(&tm);
-        if (v == (time_t) -1)
-                return -EINVAL;
-
-        *ret = (usec_t) v * USEC_PER_SEC;
-        return 0;
+        return mktime_or_timegm_usec(&tm, /* usec= */ true, ret);
 }

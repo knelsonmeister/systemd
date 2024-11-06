@@ -13,6 +13,7 @@
 #include "networkd-manager.h"
 #include "networkd-queue.h"
 #include "networkd-radv.h"
+#include "networkd-route-util.h"
 #include "networkd-route.h"
 #include "networkd-setlink.h"
 #include "parse-util.h"
@@ -268,9 +269,10 @@ static int dhcp_pd_check_ready(Link *link) {
 static int dhcp_pd_route_handler(sd_netlink *rtnl, sd_netlink_message *m, Request *req, Link *link, Route *route) {
         int r;
 
+        assert(req);
         assert(link);
 
-        r = route_configure_handler_internal(rtnl, m, link, route, "Failed to add prefix route for DHCP delegated subnet prefix");
+        r = route_configure_handler_internal(rtnl, m, req, "Failed to add prefix route for DHCP delegated subnet prefix");
         if (r <= 0)
                 return r;
 
@@ -661,9 +663,10 @@ void dhcp4_pd_prefix_lost(Link *uplink) {
 static int dhcp4_unreachable_route_handler(sd_netlink *rtnl, sd_netlink_message *m, Request *req, Link *link, Route *route) {
         int r;
 
+        assert(req);
         assert(link);
 
-        r = route_configure_handler_internal(rtnl, m, link, route, "Failed to set unreachable route for DHCPv4 delegated prefix");
+        r = route_configure_handler_internal(rtnl, m, req, "Failed to set unreachable route for DHCPv4 delegated prefix");
         if (r <= 0)
                 return r;
 
@@ -677,9 +680,10 @@ static int dhcp4_unreachable_route_handler(sd_netlink *rtnl, sd_netlink_message 
 static int dhcp6_unreachable_route_handler(sd_netlink *rtnl, sd_netlink_message *m, Request *req, Link *link, Route *route) {
         int r;
 
+        assert(req);
         assert(link);
 
-        r = route_configure_handler_internal(rtnl, m, link, route, "Failed to set unreachable route for DHCPv6 delegated prefix");
+        r = route_configure_handler_internal(rtnl, m, req, "Failed to set unreachable route for DHCPv6 delegated prefix");
         if (r <= 0)
                 return r;
 
@@ -697,6 +701,7 @@ static int dhcp_request_unreachable_route(
                 usec_t lifetime_usec,
                 NetworkConfigSource source,
                 const union in_addr_union *server_address,
+                uint8_t type, /* RTN_* */
                 unsigned *counter,
                 route_netlink_handler_t callback,
                 bool *configured) {
@@ -710,9 +715,13 @@ static int dhcp_request_unreachable_route(
         assert(addr);
         assert(IN_SET(source, NETWORK_CONFIG_SOURCE_DHCP4, NETWORK_CONFIG_SOURCE_DHCP6));
         assert(server_address);
+        assert(type == RTN_UNSPEC || route_type_is_reject(type));
         assert(counter);
         assert(callback);
         assert(configured);
+
+        if (type == RTN_UNSPEC)
+                return 0; /* Disabled. */
 
         if (prefixlen >= 64) {
                 log_link_debug(link, "Not adding a blocking route for DHCP delegated prefix %s since the prefix has length >= 64.",
@@ -729,7 +738,7 @@ static int dhcp_request_unreachable_route(
         route->family = AF_INET6;
         route->dst.in6 = *addr;
         route->dst_prefixlen = prefixlen;
-        route->type = RTN_UNREACHABLE;
+        route->type = type;
         route->protocol = RTPROT_DHCP;
         route->priority = IP6_RT_PRIO_USER;
         route->lifetime_usec = lifetime_usec;
@@ -758,8 +767,12 @@ static int dhcp4_request_unreachable_route(
                 usec_t lifetime_usec,
                 const union in_addr_union *server_address) {
 
+        assert(link);
+        assert(link->network);
+
         return dhcp_request_unreachable_route(link, addr, prefixlen, lifetime_usec,
                                               NETWORK_CONFIG_SOURCE_DHCP4, server_address,
+                                              link->network->dhcp_6rd_prefix_route_type,
                                               &link->dhcp4_messages, dhcp4_unreachable_route_handler,
                                               &link->dhcp4_configured);
 }
@@ -771,8 +784,12 @@ static int dhcp6_request_unreachable_route(
                 usec_t lifetime_usec,
                 const union in_addr_union *server_address) {
 
+        assert(link);
+        assert(link->network);
+
         return dhcp_request_unreachable_route(link, addr, prefixlen, lifetime_usec,
                                               NETWORK_CONFIG_SOURCE_DHCP6, server_address,
+                                              link->network->dhcp6_pd_prefix_route_type,
                                               &link->dhcp6_messages, dhcp6_unreachable_route_handler,
                                               &link->dhcp6_configured);
 }
@@ -944,7 +961,6 @@ static int dhcp4_pd_6rd_tunnel_create_handler(sd_netlink *rtnl, sd_netlink_messa
 }
 
 int dhcp4_pd_prefix_acquired(Link *uplink) {
-        _cleanup_free_ char *tunnel_name = NULL;
         uint8_t ipv4masklen, sixrd_prefixlen, pd_prefixlen;
         struct in6_addr sixrd_prefix, pd_prefix;
         struct in_addr ipv4address;
@@ -993,28 +1009,10 @@ int dhcp4_pd_prefix_acquired(Link *uplink) {
         if (r < 0)
                 return r;
 
-        /* Generate 6rd SIT tunnel device name. */
-        r = dhcp4_pd_create_6rd_tunnel_name(uplink, &tunnel_name);
+        /* Create or update 6rd SIT tunnel device. */
+        r = dhcp4_pd_create_6rd_tunnel(uplink, dhcp4_pd_6rd_tunnel_create_handler);
         if (r < 0)
-                return r;
-
-        /* Remove old tunnel device if exists. */
-        if (!streq_ptr(uplink->dhcp4_6rd_tunnel_name, tunnel_name)) {
-                Link *old_tunnel;
-
-                if (uplink->dhcp4_6rd_tunnel_name &&
-                    link_get_by_name(uplink->manager, uplink->dhcp4_6rd_tunnel_name, &old_tunnel) >= 0)
-                        (void) link_remove(old_tunnel);
-
-                free_and_replace(uplink->dhcp4_6rd_tunnel_name, tunnel_name);
-        }
-
-        /* Create 6rd SIT tunnel device if it does not exist yet. */
-        if (link_get_by_name(uplink->manager, uplink->dhcp4_6rd_tunnel_name, NULL) < 0) {
-                r = dhcp4_pd_create_6rd_tunnel(uplink, dhcp4_pd_6rd_tunnel_create_handler);
-                if (r < 0)
-                        return r;
-        }
+                return log_link_warning_errno(uplink, r, "Failed to create or update 6rd SIT tunnel: %m");
 
         /* Then, assign subnet prefixes to downstream interfaces. */
         HASHMAP_FOREACH(link, uplink->manager->links_by_index) {
@@ -1254,6 +1252,28 @@ int dhcp_request_prefix_delegation(Link *link) {
                 dhcp6_pd_assign_subnet_prefixes(link, uplink);
 }
 
+int link_drop_dhcp_pd_config(Link *link, Network *network) {
+        assert(link);
+        assert(network);
+
+        if (!link_dhcp_pd_is_enabled(link))
+                return 0;
+
+        /* If will be disabled or at least one config is changed, then drop all configurations. */
+        if (!network->dhcp_pd ||
+            link->network->dhcp_pd_assign != network->dhcp_pd_assign ||
+            (link->network->dhcp_pd_assign &&
+             (link->network->dhcp_pd_manage_temporary_address != network->dhcp_pd_manage_temporary_address ||
+              !set_equal(link->network->dhcp_pd_tokens, network->dhcp_pd_tokens))) ||
+            link->network->dhcp_pd_subnet_id != network->dhcp_pd_subnet_id ||
+            link->network->dhcp_pd_route_metric != network->dhcp_pd_route_metric ||
+            link->network->dhcp_pd_uplink_index != network->dhcp_pd_uplink_index ||
+            !streq_ptr(link->network->dhcp_pd_uplink_name, network->dhcp_pd_uplink_name))
+                return dhcp_pd_remove(link, /* only_marked = */ false);
+
+        return 0;
+}
+
 int config_parse_dhcp_pd_subnet_id(
                 const char *unit,
                 const char *filename,
@@ -1295,5 +1315,53 @@ int config_parse_dhcp_pd_subnet_id(
 
         *p = (int64_t) t;
 
+        return 0;
+}
+
+int config_parse_dhcp_pd_prefix_route_type(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        uint8_t *p = ASSERT_PTR(data);
+        int r;
+
+        assert(filename);
+        assert(lvalue);
+        assert(rvalue);
+
+        if (isempty(rvalue)) {
+                *p = RTN_UNREACHABLE; /* Defaults to unreachable. */
+                return 0;
+        }
+
+        if (streq(rvalue, "none")) {
+                *p = RTN_UNSPEC; /* Indicate that the route is disabled. */
+                return 0;
+        }
+
+        r = route_type_from_string(rvalue);
+        if (r < 0) {
+                log_syntax(unit, LOG_WARNING, filename, line, r,
+                           "Failed to parse %s=, ignoring assignment: %s",
+                           lvalue, rvalue);
+                return 0;
+        }
+
+        if (!route_type_is_reject(r)) {
+                log_syntax(unit, LOG_WARNING, filename, line, 0,
+                           "Invalid route type is specified to %s=, ignoring assignment: %s",
+                           lvalue, rvalue);
+                return 0;
+        }
+
+        *p = r;
         return 0;
 }

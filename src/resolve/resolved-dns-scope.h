@@ -106,6 +106,7 @@ bool dns_scope_name_wants_search_domain(DnsScope *s, const char *name);
 bool dns_scope_network_good(DnsScope *s);
 
 int dns_scope_ifindex(DnsScope *s);
+const char* dns_scope_ifname(DnsScope *s);
 
 int dns_scope_announce(DnsScope *scope, bool goodbye);
 
@@ -114,7 +115,7 @@ int dns_scope_remove_dnssd_services(DnsScope *scope);
 
 bool dns_scope_is_default_route(DnsScope *scope);
 
-int dns_scope_dump_cache_to_json(DnsScope *scope, JsonVariant **ret);
+int dns_scope_dump_cache_to_json(DnsScope *scope, sd_json_variant **ret);
 
 int dns_type_suitable_for_protocol(uint16_t type, DnsProtocol protocol);
 int dns_question_types_suitable_for_protocol(DnsQuestion *q, DnsProtocol protocol);

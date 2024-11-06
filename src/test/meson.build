@@ -156,9 +156,9 @@ simple_tests += files(
         'test-sd-hwdb.c',
         'test-sd-path.c',
         'test-secure-bits.c',
-        'test-selinux.c',
         'test-serialize.c',
         'test-set.c',
+        'test-sha1.c',
         'test-sha256.c',
         'test-sigbus.c',
         'test-signal-util.c',
@@ -183,6 +183,7 @@ simple_tests += files(
         'test-umask-util.c',
         'test-unaligned.c',
         'test-unit-file.c',
+        'test-user-record.c',
         'test-user-util.c',
         'test-utf8.c',
         'test-verbs.c',
@@ -347,11 +348,6 @@ executables += [
                 'type' : 'manual',
         },
         test_template + {
-                'sources' : files('test-nscd-flush.c'),
-                'conditions' : ['ENABLE_NSCD'],
-                'type' : 'manual',
-        },
-        test_template + {
                 'sources' : files(
                         'test-nss-hosts.c',
                         'nss-test-util.c',
@@ -383,7 +379,6 @@ executables += [
         },
         test_template + {
                 'sources' : files('test-progress-bar.c'),
-                'type' : 'manual',
         },
         test_template + {
                 'sources' : files('test-qrcode-util.c'),
@@ -403,6 +398,10 @@ executables += [
                 'sources' : files('test-seccomp.c'),
                 'dependencies' : libseccomp,
                 'conditions' : ['HAVE_SECCOMP'],
+        },
+        test_template + {
+                'sources' : files('test-selinux.c'),
+                'dependencies' : libselinux,
         },
         test_template + {
                 'sources' : files('test-set-disable-mempool.c'),

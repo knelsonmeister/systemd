@@ -15,6 +15,7 @@
 
 #include "alloc-util.h"
 #include "bus-polkit.h"
+#include "clock-util.h"
 #include "common-signal.h"
 #include "dns-domain.h"
 #include "event-util.h"
@@ -334,8 +335,8 @@ static bool manager_sample_spike_detection(Manager *m, double offset, double del
                         idx_min = i;
 
         j = 0;
-        for (i = 0; i < ELEMENTSOF(m->samples); i++)
-                j += pow(m->samples[i].offset - m->samples[idx_min].offset, 2);
+        FOREACH_ELEMENT(sample, m->samples)
+                j += pow(sample->offset - m->samples[idx_min].offset, 2);
         m->samples_jitter = sqrt(j / (ELEMENTSOF(m->samples) - 1));
 
         /* ignore samples when resyncing */
@@ -422,15 +423,18 @@ static int manager_receive_response(sd_event_source *source, int fd, uint32_t re
         }
 
         len = recvmsg_safe(fd, &msghdr, MSG_DONTWAIT);
-        if (len == -EAGAIN)
+        if (ERRNO_IS_NEG_TRANSIENT(len))
                 return 0;
         if (len < 0) {
-                log_warning_errno(len, "Error receiving message, disconnecting: %m");
+                log_warning_errno(len, "Error receiving message, disconnecting: %s",
+                                  len == -ECHRNG ? "got truncated control data" :
+                                  len == -EXFULL ? "got truncated payload data" :
+                                  STRERROR((int) len));
                 return manager_connect(m);
         }
 
-        /* Too short or too long packet? */
-        if (iov.iov_len < sizeof(struct ntp_msg) || (msghdr.msg_flags & MSG_TRUNC)) {
+        /* Too short packet? */
+        if (iov.iov_len < sizeof(struct ntp_msg)) {
                 log_warning("Invalid response from server. Disconnecting.");
                 return manager_connect(m);
         }
@@ -1023,7 +1027,7 @@ clear:
         return r;
 }
 
-bool manager_is_connected(Manager *m) {
+static bool manager_is_connected(Manager *m) {
         assert(m);
 
         /* Return true when the manager is sending a request, resolving a server name, or
@@ -1048,11 +1052,15 @@ static int manager_network_event_handler(sd_event_source *s, int fd, uint32_t re
         connected = manager_is_connected(m);
 
         if (connected && !online) {
-                log_info("No network connectivity, watching for changes.");
+                /* When m->talking is false, we have not received any responses from the server,
+                 * and it is not necessary to log about disconnection. */
+                log_full(m->talking ? LOG_INFO : LOG_DEBUG,
+                         "No network connectivity, watching for changes.");
                 manager_disconnect(m);
 
         } else if ((!connected || changed) && online) {
-                log_info("Network configuration changed, trying to establish connection.");
+                log_full(connected ? LOG_DEBUG : LOG_INFO,
+                         "Network configuration changed, trying to establish connection.");
 
                 if (m->current_server_address)
                         r = manager_begin(m);
@@ -1124,15 +1132,21 @@ int manager_new(Manager **ret) {
         if (r < 0)
                 return r;
 
-        (void) sd_event_add_signal(m->event, NULL, SIGTERM, NULL,  NULL);
-        (void) sd_event_add_signal(m->event, NULL, SIGINT, NULL, NULL);
-        (void) sd_event_add_signal(m->event, NULL, SIGRTMIN+18, sigrtmin18_handler, NULL);
+        r = sd_event_set_signal_exit(m->event, true);
+        if (r < 0)
+                return r;
+
+        r = sd_event_add_signal(m->event, /* ret_event_source= */ NULL, (SIGRTMIN+18)|SD_EVENT_SIGNAL_PROCMASK, sigrtmin18_handler, /* userdata= */ NULL);
+        if (r < 0)
+                log_debug_errno(r, "Failed to install SIGRTMIN+18 signal handler, ignoring: %m");
 
         r = sd_event_add_memory_pressure(m->event, NULL, NULL, NULL);
         if (r < 0)
                 log_debug_errno(r, "Failed allocate memory pressure event source, ignoring: %m");
 
-        (void) sd_event_set_watchdog(m->event, true);
+        r = sd_event_set_watchdog(m->event, true);
+        if (r < 0)
+                log_debug_errno(r, "Failed to enable watchdog handling, ignoring: %m");
 
         /* Load previous synchronization state */
         r = access("/run/systemd/timesync/synchronized", F_OK);
@@ -1199,9 +1213,9 @@ static int manager_save_time_and_rearm(Manager *m, usec_t t) {
          * clock, but otherwise uses the specified timestamp. Note that whenever we acquire an NTP sync the
          * specified timestamp value might be more accurate than the system clock, since the latter is
          * subject to slow adjustments. */
-        r = touch_file(CLOCK_FILE, false, t, UID_INVALID, GID_INVALID, MODE_INVALID);
+        r = touch_file(TIMESYNCD_CLOCK_FILE, false, t, UID_INVALID, GID_INVALID, MODE_INVALID);
         if (r < 0)
-                log_debug_errno(r, "Failed to update " CLOCK_FILE ", ignoring: %m");
+                log_debug_errno(r, "Failed to update "TIMESYNCD_CLOCK_FILE", ignoring: %m");
 
         m->save_on_exit = true;
 

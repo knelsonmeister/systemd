@@ -107,6 +107,7 @@ static char *arg_forward_journal = NULL;
 static bool arg_runtime_directory_created = false;
 static bool arg_privileged = false;
 static bool arg_register = false;
+static bool arg_keep_unit = false;
 static sd_id128_t arg_uuid = {};
 static char **arg_kernel_cmdline_extra = NULL;
 static char **arg_extra_drives = NULL;
@@ -170,6 +171,7 @@ static int help(void) {
                "     --uuid=UUID           Set a specific machine UUID for the VM\n"
                "\n%3$sProperties:%4$s\n"
                "     --register=BOOLEAN    Register VM with systemd-machined\n"
+               "     --keep-unit           Don't let systemd-machined allocate scope unit for us\n"
                "\n%3$sUser Namespacing:%4$s\n"
                "     --private-users=UIDBASE[:NUIDS]\n"
                "                           Configure the UID/GID range to map into the\n"
@@ -235,6 +237,7 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_NETWORK_USER_MODE,
                 ARG_UUID,
                 ARG_REGISTER,
+                ARG_KEEP_UNIT,
                 ARG_BIND,
                 ARG_BIND_RO,
                 ARG_EXTRA_DRIVE,
@@ -277,6 +280,7 @@ static int parse_argv(int argc, char *argv[]) {
                 { "network-user-mode", no_argument,       NULL, ARG_NETWORK_USER_MODE },
                 { "uuid",              required_argument, NULL, ARG_UUID              },
                 { "register",          required_argument, NULL, ARG_REGISTER          },
+                { "keep-unit",         no_argument,       NULL, ARG_KEEP_UNIT         },
                 { "bind",              required_argument, NULL, ARG_BIND              },
                 { "bind-ro",           required_argument, NULL, ARG_BIND_RO           },
                 { "extra-drive",       required_argument, NULL, ARG_EXTRA_DRIVE       },
@@ -443,6 +447,11 @@ static int parse_argv(int argc, char *argv[]) {
                         r = parse_boolean_argument("--register=", optarg, &arg_register);
                         if (r < 0)
                                 return r;
+
+                        break;
+
+                case ARG_KEEP_UNIT:
+                        arg_keep_unit = true;
                         break;
 
                 case ARG_BIND:
@@ -573,94 +582,119 @@ static int parse_argv(int argc, char *argv[]) {
 }
 
 static int open_vsock(void) {
-        _cleanup_close_ int vsock_fd = -EBADF;
-        int r;
         static const union sockaddr_union bind_addr = {
                 .vm.svm_family = AF_VSOCK,
                 .vm.svm_cid = VMADDR_CID_ANY,
                 .vm.svm_port = VMADDR_PORT_ANY,
         };
 
-        vsock_fd = socket(AF_VSOCK, SOCK_STREAM|SOCK_CLOEXEC, 0);
+        _cleanup_close_ int vsock_fd = socket(AF_VSOCK, SOCK_STREAM|SOCK_CLOEXEC, 0);
         if (vsock_fd < 0)
                 return log_error_errno(errno, "Failed to open AF_VSOCK socket: %m");
 
-        r = bind(vsock_fd, &bind_addr.sa, sizeof(bind_addr.vm));
-        if (r < 0)
+        if (bind(vsock_fd, &bind_addr.sa, sizeof(bind_addr.vm)) < 0)
                 return log_error_errno(errno, "Failed to bind to VSOCK address %u:%u: %m", bind_addr.vm.svm_cid, bind_addr.vm.svm_port);
 
-        r = listen(vsock_fd, SOMAXCONN_DELUXE);
-        if (r < 0)
+        if (listen(vsock_fd, SOMAXCONN_DELUXE) < 0)
                 return log_error_errno(errno, "Failed to listen on VSOCK: %m");
 
         return TAKE_FD(vsock_fd);
 }
 
-static int vmspawn_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t revents, void *userdata) {
-        char buf[NOTIFY_BUFFER_MAX+1];
-        const char *p = NULL;
-        struct iovec iovec = {
-                .iov_base = buf,
-                .iov_len = sizeof(buf)-1,
-        };
-        struct msghdr msghdr = {
-                .msg_iov = &iovec,
-                .msg_iovlen = 1,
-        };
-        ssize_t n;
-        _cleanup_strv_free_ char **tags = NULL;
-        int r, *exit_status = ASSERT_PTR(userdata);
+typedef struct NotifyConnectionData {
+        char buffer[NOTIFY_BUFFER_MAX+1];
+        size_t full;
+        int *exit_status;
+} NotifyConnectionData;
 
-        n = recvmsg_safe(fd, &msghdr, MSG_DONTWAIT);
-        if (ERRNO_IS_NEG_TRANSIENT(n))
-                return 0;
-        if (n == -EXFULL) {
-                log_warning_errno(n, "Got message with truncated control data, ignoring: %m");
-                return 0;
+static int read_vsock_notify(NotifyConnectionData *d, int fd) {
+        int r;
+
+        assert(d);
+        assert(fd >= 0);
+
+        for (;;) {
+                assert(d->full < sizeof(d->buffer));
+
+                ssize_t n = read(fd, d->buffer + d->full, sizeof(d->buffer) - d->full);
+                if (n < 0) {
+                        if (ERRNO_IS_TRANSIENT(errno))
+                                return 0;
+
+                        return log_error_errno(errno, "Failed to read notification message: %m");
+                }
+                if (n == 0) /* We hit EOF! Let's parse this */
+                        break;
+
+                if ((size_t) n >= sizeof(d->buffer) - d->full)
+                        return log_error_errno(SYNTHETIC_ERRNO(EBADMSG), "Received notify message exceeded maximum size.");
+
+                d->full += n;
         }
-        if (n < 0)
-                return log_warning_errno(n, "Couldn't read notification socket: %m");
 
-        if ((size_t) n >= sizeof(buf)) {
-                log_warning("Received notify message exceeded maximum size. Ignoring.");
-                return 0;
-        }
+        /* We reached EOF, now parse the thing */
+        assert(d->full < sizeof(d->buffer));
+        d->buffer[d->full] = 0;
 
-        buf[n] = 0;
-        tags = strv_split(buf, "\n\r");
+        _cleanup_strv_free_ char **tags = strv_split(d->buffer, "\n\r");
         if (!tags)
                 return log_oom();
 
-        STRV_FOREACH(s, tags)
-                log_debug("Received tag %s from notify socket", *s);
+        if (DEBUG_LOGGING) {
+                _cleanup_free_ char *j = strv_join(tags, " ");
+                log_debug("Received notification message with tags: %s", strnull(j));
+        }
 
         if (strv_contains(tags, "READY=1")) {
-                r = sd_notify(false, "READY=1\n");
+                r = sd_notify(false, "READY=1");
                 if (r < 0)
                         log_warning_errno(r, "Failed to send readiness notification, ignoring: %m");
         }
 
-        p = strv_find_startswith(tags, "STATUS=");
+        const char *p = strv_find_startswith(tags, "STATUS=");
         if (p)
                 (void) sd_notifyf(false, "STATUS=VM running: %s", p);
 
         p = strv_find_startswith(tags, "EXIT_STATUS=");
         if (p) {
-                r = safe_atoi(p, exit_status);
+                r = safe_atoi(p, d->exit_status);
                 if (r < 0)
                         log_warning_errno(r, "Failed to parse exit status from %s, ignoring: %m", p);
         }
 
-        /* we will only receive one message from each connection so disable this source once one is received */
-        source = sd_event_source_disable_unref(source);
+        return 1; /* done */
+}
+
+static int vmspawn_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t revents, void *userdata) {
+        NotifyConnectionData *d = ASSERT_PTR(userdata);
+        int r;
+
+        assert(source);
+        assert(fd >= 0);
+
+        r = read_vsock_notify(d, fd);
+        if (r != 0) {
+                int q;
+
+                /* If we are done or are seeing an error we'll turn off floating mode, which means the event
+                 * loop itself won't keep the event source pinned anymore, and since no one else (hopefully!)
+                 * keeps a reference anymore the whole thing will be released once we exit from this handler
+                 * here. */
+
+                q = sd_event_source_set_floating(source, false);
+                if (q < 0)
+                        log_warning_errno(q, "Failed to disable floating mode of event source, ignoring: %m");
+
+                return r;
+        }
 
         return 0;
 }
 
 static int vmspawn_dispatch_vsock_connections(sd_event_source *source, int fd, uint32_t revents, void *userdata) {
-        int r;
-        sd_event *event;
         _cleanup_close_ int conn_fd = -EBADF;
+        sd_event *event;
+        int r;
 
         assert(userdata);
 
@@ -671,7 +705,10 @@ static int vmspawn_dispatch_vsock_connections(sd_event_source *source, int fd, u
 
         conn_fd = accept4(fd, NULL, NULL, SOCK_CLOEXEC|SOCK_NONBLOCK);
         if (conn_fd < 0) {
-                log_warning_errno(errno, "Failed to accept connection from VSOCK fd (%m), ignoring...");
+                if (ERRNO_IS_TRANSIENT(errno))
+                        return 0;
+
+                log_warning_errno(errno, "Failed to accept connection from VSOCK connection, ignoring: %m");
                 return 0;
         }
 
@@ -679,13 +716,36 @@ static int vmspawn_dispatch_vsock_connections(sd_event_source *source, int fd, u
         if (!event)
                 return log_error_errno(SYNTHETIC_ERRNO(ENOENT), "Failed to retrieve event from event source, exiting task");
 
+        _cleanup_free_ NotifyConnectionData *d = new(NotifyConnectionData, 1);
+        if (!d)
+                return log_oom();
+
+        *d = (NotifyConnectionData) {
+                .exit_status = userdata,
+        };
+
         /* add a new floating task to read from the connection */
-        r = sd_event_add_io(event, NULL, conn_fd, revents, vmspawn_dispatch_notify_fd, userdata);
+        _cleanup_(sd_event_source_unrefp) sd_event_source *s = NULL;
+        r = sd_event_add_io(event, &s, conn_fd, EPOLLIN, vmspawn_dispatch_notify_fd, d);
         if (r < 0)
                 return log_error_errno(r, "Failed to allocate notify connection event source: %m");
 
-        /* conn_fd is now owned by the event loop so don't clean it up */
-        TAKE_FD(conn_fd);
+        r = sd_event_source_set_io_fd_own(s, true);
+        if (r < 0)
+                return log_error_errno(r, "Failed to pass ownership of notify to event source: %m");
+        TAKE_FD(conn_fd); /* conn_fd is now owned by the event loop so don't clean it up */
+
+        r = sd_event_source_set_destroy_callback(s, free);
+        if (r < 0)
+                return log_error_errno(r, "Failed to set destroy callback on event source: %m");
+        TAKE_PTR(d); /* The data object will now automatically be freed by the event source when it goes away */
+
+        /* Finally, make sure the event loop pins the event source */
+        r = sd_event_source_set_floating(s, true);
+        if (r < 0)
+                return log_error_errno(r, "Failed to set event source to floating mode: %m");
+
+        (void) sd_event_source_set_description(s, "vmspawn-notify-socket-connection");
 
         return 0;
 }
@@ -702,7 +762,7 @@ static int setup_notify_parent(sd_event *event, int fd, int *exit_status, sd_eve
         if (r < 0)
                 return log_error_errno(r, "Failed to allocate notify socket event source: %m");
 
-        (void) sd_event_source_set_description(*ret_notify_event_source, "vmspawn-notify-sock");
+        (void) sd_event_source_set_description(*ret_notify_event_source, "vmspawn-notify-socket-listen");
 
         return 0;
 }
@@ -1257,6 +1317,9 @@ static void set_window_title(PTYForward *f) {
 
         assert(f);
 
+        if (!shall_set_terminal_title())
+                return;
+
         (void) gethostname_strict(&hn);
 
         if (emoji_enabled())
@@ -1425,11 +1488,11 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
 
         /* if we are going to be starting any units with state then create our runtime dir */
         if (arg_tpm != 0 || arg_directory || arg_runtime_mounts.n_mounts != 0) {
-                r = runtime_directory(&arg_runtime_directory, arg_privileged ? RUNTIME_SCOPE_SYSTEM : RUNTIME_SCOPE_USER, "systemd/vmspawn");
+                r = runtime_directory(arg_privileged ? RUNTIME_SCOPE_SYSTEM : RUNTIME_SCOPE_USER, "systemd/vmspawn",
+                                      &arg_runtime_directory);
                 if (r < 0)
                         return log_error_errno(r, "Failed to lookup runtime directory: %m");
-                if (r) {
-                        /* r > 0 means we need to create our own runtime dir */
+                if (r > 0) { /* We need to create our own runtime dir */
                         r = mkdir_p(arg_runtime_directory, 0755);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to create runtime directory: %m");
@@ -1441,7 +1504,7 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
                 _cleanup_free_ char *tap_name = NULL;
                 struct ether_addr mac_vm = {};
 
-                tap_name = strjoin("tp-", arg_machine);
+                tap_name = strjoin("vt-", arg_machine);
                 if (!tap_name)
                         return log_oom();
 
@@ -1458,7 +1521,7 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
                 if (r < 0)
                         return log_oom();
 
-                r = strv_extendf(&cmdline, "tap,ifname=%s,script=no,model=virtio-net-pci,mac=%s", tap_name, ETHER_ADDR_TO_STR(&mac_vm));
+                r = strv_extendf(&cmdline, "tap,ifname=%s,script=no,downscript=no,model=virtio-net-pci,mac=%s", tap_name, ETHER_ADDR_TO_STR(&mac_vm));
                 if (r < 0)
                         return log_oom();
         } else if (arg_network_stack == NETWORK_STACK_USER)
@@ -2025,14 +2088,11 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
 
         const char *e = secure_getenv("SYSTEMD_VMSPAWN_QEMU_EXTRA");
         if (e) {
-                _cleanup_strv_free_ char **extra = NULL;
-
-                r = strv_split_full(&extra, e, /* separator= */ NULL, EXTRACT_CUNESCAPE|EXTRACT_UNQUOTE);
+                r = strv_split_and_extend_full(&cmdline, e,
+                                               /* separator = */ NULL, /* filter_duplicates = */ false,
+                                               EXTRACT_CUNESCAPE|EXTRACT_UNQUOTE);
                 if (r < 0)
-                        return log_error_errno(r, "Failed to split $SYSTEMD_VMSPAWN_QEMU_EXTRA environment variable: %m");
-
-                if (strv_extend_strv(&cmdline, extra, /* filter_duplicates= */ false) < 0)
-                        return log_oom();
+                        return log_error_errno(r, "Failed to parse $SYSTEMD_VMSPAWN_QEMU_EXTRA: %m");
         }
 
         if (DEBUG_LOGGING) {
@@ -2051,16 +2111,17 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
                                 bus,
                                 arg_machine,
                                 arg_uuid,
-                                trans_scope,
+                                "systemd-vmspawn",
                                 arg_directory,
                                 child_cid,
                                 child_cid != VMADDR_CID_ANY ? vm_address : NULL,
-                                ssh_private_key_path);
+                                ssh_private_key_path,
+                                arg_keep_unit);
                 if (r < 0)
                         return r;
         }
 
-        assert_se(sigprocmask_many(SIG_BLOCK, /* old_sigset=*/ NULL, SIGCHLD, SIGWINCH) >= 0);
+        assert_se(sigprocmask_many(SIG_BLOCK, /* ret_old_mask=*/ NULL, SIGCHLD) >= 0);
 
         _cleanup_(sd_event_source_unrefp) sd_event_source *notify_event_source = NULL;
         _cleanup_(sd_event_unrefp) sd_event *event = NULL;
@@ -2141,8 +2202,7 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
                 } else if (!isempty(arg_background))
                         (void) pty_forward_set_background_color(forward, arg_background);
 
-                if (shall_set_terminal_title())
-                        set_window_title(forward);
+                set_window_title(forward);
         }
 
         r = sd_event_loop(event);
@@ -2230,8 +2290,10 @@ static int verify_arguments(void) {
         if (!strv_isempty(arg_initrds) && !arg_linux)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Option --initrd= cannot be used without --linux=.");
 
-        if (arg_register && !arg_privileged)
-                return log_error_errno(SYNTHETIC_ERRNO(EPERM), "--register= requires root privileges, refusing.");
+        if (arg_keep_unit && arg_register && cg_pid_get_owner_uid(0, NULL) >= 0)
+                /* Save the user from accidentally registering either user-$SESSION.scope or user@.service.
+                 * The latter is not technically a user session, but we don't need to labour the point. */
+                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "--keep-unit --register=yes may not be used when invoked from a user session.");
 
         return 0;
 }

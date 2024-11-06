@@ -33,7 +33,7 @@ enum {
 
 JournalctlAction arg_action = ACTION_SHOW;
 OutputMode arg_output = OUTPUT_SHORT;
-JsonFormatFlags arg_json_format_flags = JSON_FORMAT_OFF;
+sd_json_format_flags_t arg_json_format_flags = SD_JSON_FORMAT_OFF;
 PagerFlags arg_pager_flags = 0;
 bool arg_utc = false;
 bool arg_follow = false;
@@ -50,11 +50,11 @@ sd_id128_t arg_boot_id = {};
 int arg_boot_offset = 0;
 bool arg_dmesg = false;
 bool arg_no_hostname = false;
-const char *arg_cursor = NULL;
-const char *arg_cursor_file = NULL;
-const char *arg_after_cursor = NULL;
+char *arg_cursor = NULL;
+char *arg_cursor_file = NULL;
+char *arg_after_cursor = NULL;
 bool arg_show_cursor = false;
-const char *arg_directory = NULL;
+char *arg_directory = NULL;
 char **arg_file = NULL;
 bool arg_file_stdin = false;
 int arg_priorities = 0;
@@ -72,7 +72,10 @@ char **arg_syslog_identifier = NULL;
 char **arg_exclude_identifier = NULL;
 char **arg_system_units = NULL;
 char **arg_user_units = NULL;
-const char *arg_field = NULL;
+bool arg_invocation = false;
+sd_id128_t arg_invocation_id = SD_ID128_NULL;
+int arg_invocation_offset = 0;
+char *arg_field = NULL;
 bool arg_catalog = false;
 bool arg_reverse = false;
 int arg_journal_type = 0;
@@ -80,27 +83,35 @@ int arg_journal_additional_open_flags = 0;
 int arg_namespace_flags = 0;
 char *arg_root = NULL;
 char *arg_image = NULL;
-const char *arg_machine = NULL;
-const char *arg_namespace = NULL;
+char *arg_machine = NULL;
+char *arg_namespace = NULL;
 uint64_t arg_vacuum_size = 0;
 uint64_t arg_vacuum_n_files = 0;
 usec_t arg_vacuum_time = 0;
 Set *arg_output_fields = NULL;
-const char *arg_pattern = NULL;
+char *arg_pattern = NULL;
 pcre2_code *arg_compiled_pattern = NULL;
 PatternCompileCase arg_case = PATTERN_COMPILE_CASE_AUTO;
 static ImagePolicy *arg_image_policy = NULL;
 
+STATIC_DESTRUCTOR_REGISTER(arg_cursor, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_cursor_file, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_after_cursor, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_directory, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_file, strv_freep);
 STATIC_DESTRUCTOR_REGISTER(arg_facilities, set_freep);
-STATIC_DESTRUCTOR_REGISTER(arg_verify_key, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_verify_key, erase_and_freep);
 STATIC_DESTRUCTOR_REGISTER(arg_syslog_identifier, strv_freep);
 STATIC_DESTRUCTOR_REGISTER(arg_exclude_identifier, strv_freep);
 STATIC_DESTRUCTOR_REGISTER(arg_system_units, strv_freep);
 STATIC_DESTRUCTOR_REGISTER(arg_user_units, strv_freep);
+STATIC_DESTRUCTOR_REGISTER(arg_field, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_root, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_image, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_machine, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_namespace, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_output_fields, set_freep);
+STATIC_DESTRUCTOR_REGISTER(arg_pattern, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_compiled_pattern, pattern_freep);
 STATIC_DESTRUCTOR_REGISTER(arg_image_policy, image_policy_freep);
 
@@ -227,6 +238,8 @@ static int help(void) {
                "  -b --boot[=ID]             Show current boot or the specified boot\n"
                "  -u --unit=UNIT             Show logs from the specified unit\n"
                "     --user-unit=UNIT        Show logs from the specified user unit\n"
+               "     --invocation=ID         Show logs from the matching invocation ID\n"
+               "  -I                         Show logs from the latest invocation of unit\n"
                "  -t --identifier=STRING     Show entries with the specified syslog identifier\n"
                "  -T --exclude-identifier=STRING\n"
                "                             Hide entries with the specified syslog identifier\n"
@@ -267,6 +280,7 @@ static int help(void) {
                "  -N --fields                List all field names currently used\n"
                "  -F --field=FIELD           List all values that a specified field takes\n"
                "     --list-boots            Show terse information about recorded boots\n"
+               "     --list-invocations      Show invocation IDs of specified unit\n"
                "     --list-namespaces       Show list of journal namespaces\n"
                "     --disk-usage            Show total disk usage of all journal files\n"
                "     --vacuum-size=BYTES     Reduce disk usage below specified size\n"
@@ -304,6 +318,7 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_NEW_ID128,
                 ARG_THIS_BOOT,
                 ARG_LIST_BOOTS,
+                ARG_LIST_INVOCATIONS,
                 ARG_USER,
                 ARG_SYSTEM,
                 ARG_ROOT,
@@ -320,6 +335,7 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_CURSOR_FILE,
                 ARG_SHOW_CURSOR,
                 ARG_USER_UNIT,
+                ARG_INVOCATION,
                 ARG_LIST_CATALOG,
                 ARG_DUMP_CATALOG,
                 ARG_UPDATE_CATALOG,
@@ -361,6 +377,7 @@ static int parse_argv(int argc, char *argv[]) {
                 { "this-boot",            no_argument,       NULL, ARG_THIS_BOOT            }, /* deprecated */
                 { "boot",                 optional_argument, NULL, 'b'                      },
                 { "list-boots",           no_argument,       NULL, ARG_LIST_BOOTS           },
+                { "list-invocations",     no_argument,       NULL, ARG_LIST_INVOCATIONS     },
                 { "dmesg",                no_argument,       NULL, 'k'                      },
                 { "system",               no_argument,       NULL, ARG_SYSTEM               },
                 { "user",                 no_argument,       NULL, ARG_USER                 },
@@ -389,6 +406,7 @@ static int parse_argv(int argc, char *argv[]) {
                 { "until",                required_argument, NULL, 'U'                      },
                 { "unit",                 required_argument, NULL, 'u'                      },
                 { "user-unit",            required_argument, NULL, ARG_USER_UNIT            },
+                { "invocation",           required_argument, NULL, ARG_INVOCATION           },
                 { "field",                required_argument, NULL, 'F'                      },
                 { "fields",               no_argument,       NULL, 'N'                      },
                 { "catalog",              no_argument,       NULL, 'x'                      },
@@ -418,7 +436,7 @@ static int parse_argv(int argc, char *argv[]) {
         assert(argc >= 0);
         assert(argv);
 
-        while ((c = getopt_long(argc, argv, "hefo:aln::qmb::kD:p:g:c:S:U:t:T:u:NF:xrM:i:", options, NULL)) >= 0)
+        while ((c = getopt_long(argc, argv, "hefo:aln::qmb::kD:p:g:c:S:U:t:T:u:INF:xrM:i:", options, NULL)) >= 0)
 
                 switch (c) {
 
@@ -460,9 +478,9 @@ static int parse_argv(int argc, char *argv[]) {
                                 arg_quiet = true;
 
                         if (OUTPUT_MODE_IS_JSON(arg_output))
-                                arg_json_format_flags = output_mode_to_json_format_flags(arg_output) | JSON_FORMAT_COLOR_AUTO;
+                                arg_json_format_flags = output_mode_to_json_format_flags(arg_output) | SD_JSON_FORMAT_COLOR_AUTO;
                         else
-                                arg_json_format_flags = JSON_FORMAT_OFF;
+                                arg_json_format_flags = SD_JSON_FORMAT_OFF;
 
                         break;
 
@@ -540,6 +558,10 @@ static int parse_argv(int argc, char *argv[]) {
                         arg_action = ACTION_LIST_BOOTS;
                         break;
 
+                case ARG_LIST_INVOCATIONS:
+                        arg_action = ACTION_LIST_INVOCATIONS;
+                        break;
+
                 case 'k':
                         arg_boot = arg_dmesg = true;
                         break;
@@ -553,24 +575,29 @@ static int parse_argv(int argc, char *argv[]) {
                         break;
 
                 case 'M':
-                        arg_machine = optarg;
+                        r = free_and_strdup_warn(&arg_machine, optarg);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_NAMESPACE:
                         if (streq(optarg, "*")) {
                                 arg_namespace_flags = SD_JOURNAL_ALL_NAMESPACES;
-                                arg_namespace = NULL;
+                                arg_namespace = mfree(arg_namespace);
                         } else if (startswith(optarg, "+")) {
                                 arg_namespace_flags = SD_JOURNAL_INCLUDE_DEFAULT_NAMESPACE;
-                                arg_namespace = optarg + 1;
+                                r = free_and_strdup_warn(&arg_namespace, optarg + 1);
+                                if (r < 0)
+                                        return r;
                         } else if (isempty(optarg)) {
                                 arg_namespace_flags = 0;
-                                arg_namespace = NULL;
+                                arg_namespace = mfree(arg_namespace);
                         } else {
                                 arg_namespace_flags = 0;
-                                arg_namespace = optarg;
+                                r = free_and_strdup_warn(&arg_namespace, optarg);
+                                if (r < 0)
+                                        return r;
                         }
-
                         break;
 
                 case ARG_LIST_NAMESPACES:
@@ -578,7 +605,9 @@ static int parse_argv(int argc, char *argv[]) {
                         break;
 
                 case 'D':
-                        arg_directory = optarg;
+                        r = free_and_strdup_warn(&arg_directory, optarg);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case 'i':
@@ -614,15 +643,21 @@ static int parse_argv(int argc, char *argv[]) {
                         break;
 
                 case 'c':
-                        arg_cursor = optarg;
+                        r = free_and_strdup_warn(&arg_cursor, optarg);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_CURSOR_FILE:
-                        arg_cursor_file = optarg;
+                        r = free_and_strdup_warn(&arg_cursor_file, optarg);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_AFTER_CURSOR:
-                        arg_after_cursor = optarg;
+                        r = free_and_strdup_warn(&arg_after_cursor, optarg);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_SHOW_CURSOR:
@@ -675,9 +710,11 @@ static int parse_argv(int argc, char *argv[]) {
                         break;
 
                 case ARG_VERIFY_KEY:
-                        r = free_and_strdup(&arg_verify_key, optarg);
-                        if (r < 0)
-                                return r;
+                        erase_and_free(arg_verify_key);
+                        arg_verify_key = strdup(optarg);
+                        if (!arg_verify_key)
+                                return log_oom();
+
                         /* Use memset not explicit_bzero() or similar so this doesn't look confusing
                          * in ps or htop output. */
                         memset(optarg, 'x', strlen(optarg));
@@ -777,7 +814,9 @@ static int parse_argv(int argc, char *argv[]) {
                 }
 
                 case 'g':
-                        arg_pattern = optarg;
+                        r = free_and_strdup_warn(&arg_pattern, optarg);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_CASE_SENSITIVE:
@@ -831,9 +870,25 @@ static int parse_argv(int argc, char *argv[]) {
                                 return log_oom();
                         break;
 
+                case ARG_INVOCATION:
+                        r = parse_id_descriptor(optarg, &arg_invocation_id, &arg_invocation_offset);
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to parse invocation descriptor: %s", optarg);
+                        arg_invocation = r;
+                        break;
+
+                case 'I':
+                        /* Equivalent to --invocation=0 */
+                        arg_invocation = true;
+                        arg_invocation_id = SD_ID128_NULL;
+                        arg_invocation_offset = 0;
+                        break;
+
                 case 'F':
                         arg_action = ACTION_LIST_FIELDS;
-                        arg_field = optarg;
+                        r = free_and_strdup_warn(&arg_field, optarg);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case 'N':
@@ -1004,6 +1059,7 @@ static int parse_argv(int argc, char *argv[]) {
 static int run(int argc, char *argv[]) {
         _cleanup_(loop_device_unrefp) LoopDevice *loop_device = NULL;
         _cleanup_(umount_and_freep) char *mounted_dir = NULL;
+        _cleanup_strv_free_ char **args = NULL;
         int r;
 
         setlocale(LC_ALL, "");
@@ -1013,7 +1069,9 @@ static int run(int argc, char *argv[]) {
         if (r <= 0)
                 return r;
 
-        char **args = strv_skip(argv, optind);
+        r = strv_copy_unless_empty(strv_skip(argv, optind), &args);
+        if (r < 0)
+                return log_oom();
 
         if (arg_image) {
                 assert(!arg_root);
@@ -1073,6 +1131,9 @@ static int run(int argc, char *argv[]) {
 
         case ACTION_LIST_FIELD_NAMES:
                 return action_list_field_names();
+
+        case ACTION_LIST_INVOCATIONS:
+                return action_list_invocations();
 
         case ACTION_LIST_NAMESPACES:
                 return action_list_namespaces();

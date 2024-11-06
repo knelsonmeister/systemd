@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: LGPL-2.1-or-later
+# shellcheck disable=SC2016
+
 set -eux
 set -o pipefail
 
@@ -154,6 +156,7 @@ assert_rc 3 systemctl --quiet is-active propagatestopto-and-pullin.target
 assert_rc 3 systemctl --quiet is-active sleep-infinity-simple.service
 
 # Test restart mode direct
+
 systemctl start succeeds-on-restart-restartdirect.target
 assert_rc 0 systemctl --quiet is-active succeeds-on-restart-restartdirect.target
 
@@ -165,5 +168,55 @@ assert_rc 3 systemctl --quiet is-active succeeds-on-restart.target
 
 systemctl start fails-on-restart.target || :
 assert_rc 3 systemctl --quiet is-active fails-on-restart.target
+
+COUNTER_FILE=/tmp/test-03-restart-counter
+export FAILURE_FLAG_FILE=/tmp/test-03-restart-failure-flag
+
+assert_rc 3 systemctl --quiet is-active sleep-infinity-restart-normal.service
+assert_rc 3 systemctl --quiet is-active sleep-infinity-restart-direct.service
+assert_rc 3 systemctl --quiet is-active counter.service
+echo 0 >"$COUNTER_FILE"
+
+systemctl start counter.service
+assert_eq "$(cat "$COUNTER_FILE")" "1"
+systemctl --quiet is-active sleep-infinity-restart-normal.service
+systemctl --quiet is-active sleep-infinity-restart-direct.service
+systemctl --quiet is-active counter.service
+
+systemctl kill --signal=KILL sleep-infinity-restart-direct.service
+systemctl --quiet is-active counter.service
+assert_eq "$(cat "$COUNTER_FILE")" "1"
+[[ ! -f "$FAILURE_FLAG_FILE" ]]
+
+systemctl kill --signal=KILL sleep-infinity-restart-normal.service
+timeout 10 bash -c 'while [[ ! -f $FAILURE_FLAG_FILE ]]; do sleep .5; done'
+timeout 10 bash -c 'while ! systemctl --quiet is-active counter.service; do sleep .5; done'
+assert_eq "$(cat "$COUNTER_FILE")" "2"
+
+# Test shortcutting auto restart
+
+export UNIT_NAME="TEST-03-JOBS-shortcut-restart.service"
+TMP_FILE="/tmp/test-03-shortcut-restart-test$RANDOM"
+
+cat >"/run/systemd/system/$UNIT_NAME" <<EOF
+[Service]
+Type=oneshot
+ExecStart=rm -v "$TMP_FILE"
+Restart=on-failure
+RestartSec=1d
+RemainAfterExit=yes
+EOF
+
+(! systemctl start "$UNIT_NAME")
+timeout 10 bash -c 'while [[ "$(systemctl show "$UNIT_NAME" -P SubState)" != "auto-restart" ]]; do sleep .5; done'
+touch "$TMP_FILE"
+assert_eq "$(systemctl show "$UNIT_NAME" -P SubState)" "auto-restart"
+
+timeout 30 systemctl start "$UNIT_NAME"
+systemctl --quiet is-active "$UNIT_NAME"
+assert_eq "$(systemctl show "$UNIT_NAME" -P NRestarts)" "1"
+[[ ! -f "$TMP_FILE" ]]
+
+rm /run/systemd/system/"$UNIT_NAME"
 
 touch /testok

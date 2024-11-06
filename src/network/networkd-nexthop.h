@@ -29,14 +29,14 @@ typedef struct NextHop {
         /* struct nhmsg */
         int family;
         uint8_t protocol;
-        uint8_t flags;
+        uint32_t flags;
 
         /* attributes */
         uint32_t id; /* NHA_ID */
         Hashmap *group; /* NHA_GROUP */
         bool blackhole; /* NHA_BLACKHOLE */
         int ifindex; /* NHA_OIF */
-        union in_addr_union gw; /* NHA_GATEWAY */
+        struct in_addr_data gw; /* NHA_GATEWAY, gw.family is only used by conf parser. */
 
         /* Only used in conf parser and nexthop_section_verify(). */
         int onlink;
@@ -53,14 +53,13 @@ int nexthop_remove(NextHop *nexthop, Manager *manager);
 
 int network_drop_invalid_nexthops(Network *network);
 
-int link_drop_nexthops(Link *link, bool foreign);
-static inline int link_drop_foreign_nexthops(Link *link) {
-        return link_drop_nexthops(link, /* foreign = */ true);
+int link_drop_nexthops(Link *link, bool only_static);
+static inline int link_drop_unmanaged_nexthops(Link *link) {
+        return link_drop_nexthops(link, /* only_static = */ false);
 }
 static inline int link_drop_static_nexthops(Link *link) {
-        return link_drop_nexthops(link, /* foreign = */ false);
+        return link_drop_nexthops(link, /* only_static = */ true);
 }
-void link_foreignize_nexthops(Link *link);
 
 int link_request_static_nexthops(Link *link, bool only_ipv4);
 
@@ -71,9 +70,15 @@ int manager_build_nexthop_ids(Manager *manager);
 
 DEFINE_NETWORK_CONFIG_STATE_FUNCTIONS(NextHop, nexthop);
 
-CONFIG_PARSER_PROTOTYPE(config_parse_nexthop_id);
-CONFIG_PARSER_PROTOTYPE(config_parse_nexthop_gateway);
-CONFIG_PARSER_PROTOTYPE(config_parse_nexthop_family);
-CONFIG_PARSER_PROTOTYPE(config_parse_nexthop_onlink);
-CONFIG_PARSER_PROTOTYPE(config_parse_nexthop_blackhole);
-CONFIG_PARSER_PROTOTYPE(config_parse_nexthop_group);
+typedef enum NextHopConfParserType {
+        NEXTHOP_ID,
+        NEXTHOP_GATEWAY,
+        NEXTHOP_FAMILY,
+        NEXTHOP_ONLINK,
+        NEXTHOP_BLACKHOLE,
+        NEXTHOP_GROUP,
+        _NEXTHOP_CONF_PARSER_MAX,
+        _NEXTHOP_CONF_PARSER_INVALID = -EINVAL,
+} NextHopConfParserType;
+
+CONFIG_PARSER_PROTOTYPE(config_parse_nexthop_section);

@@ -2,6 +2,8 @@
 
 #include <getopt.h>
 
+#include "sd-varlink.h"
+
 #include "blockdev-util.h"
 #include "bootctl.h"
 #include "bootctl-install.h"
@@ -14,15 +16,16 @@
 #include "build.h"
 #include "devnum-util.h"
 #include "dissect-image.h"
+#include "efi-loader.h"
 #include "escape.h"
 #include "find-esp.h"
 #include "main-func.h"
 #include "mount-util.h"
 #include "pager.h"
 #include "parse-argument.h"
+#include "path-util.h"
 #include "pretty-print.h"
 #include "utf8.h"
-#include "varlink.h"
 #include "varlink-io.systemd.BootControl.h"
 #include "verbs.h"
 #include "virt.h"
@@ -37,8 +40,11 @@ char *arg_esp_path = NULL;
 char *arg_xbootldr_path = NULL;
 bool arg_print_esp_path = false;
 bool arg_print_dollar_boot_path = false;
+bool arg_print_loader_path = false;
+bool arg_print_stub_path = false;
 unsigned arg_print_root_device = 0;
 bool arg_touch_variables = true;
+bool arg_install_random_seed = true;
 PagerFlags arg_pager_flags = 0;
 bool arg_graceful = false;
 bool arg_quiet = false;
@@ -47,7 +53,7 @@ sd_id128_t arg_machine_id = SD_ID128_NULL;
 char *arg_install_layout = NULL;
 BootEntryTokenType arg_entry_token_type = BOOT_ENTRY_TOKEN_AUTO;
 char *arg_entry_token = NULL;
-JsonFormatFlags arg_json_format_flags = JSON_FORMAT_OFF;
+sd_json_format_flags_t arg_json_format_flags = SD_JSON_FORMAT_OFF;
 bool arg_arch_all = false;
 char *arg_root = NULL;
 char *arg_image = NULL;
@@ -56,6 +62,11 @@ char *arg_efi_boot_option_description = NULL;
 bool arg_dry_run = false;
 ImagePolicy *arg_image_policy = NULL;
 bool arg_varlink = false;
+bool arg_secure_boot_auto_enroll = false;
+char *arg_certificate = NULL;
+char *arg_private_key = NULL;
+KeySourceType arg_private_key_source_type = OPENSSL_KEY_SOURCE_FILE;
+char *arg_private_key_source = NULL;
 
 STATIC_DESTRUCTOR_REGISTER(arg_esp_path, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_xbootldr_path, freep);
@@ -65,6 +76,9 @@ STATIC_DESTRUCTOR_REGISTER(arg_root, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_image, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_efi_boot_option_description, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_image_policy, image_policy_freep);
+STATIC_DESTRUCTOR_REGISTER(arg_certificate, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_private_key, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_private_key_source, freep);
 
 int acquire_esp(
                 int unprivileged_mode,
@@ -131,6 +145,71 @@ int acquire_xbootldr(
         return 1;
 }
 
+static int print_loader_or_stub_path(void) {
+        _cleanup_free_ char *p = NULL;
+        sd_id128_t uuid;
+        int r;
+
+        if (arg_print_loader_path) {
+                r = efi_loader_get_device_part_uuid(&uuid);
+                if (r == -ENOENT)
+                        return log_error_errno(r, "No loader partition UUID passed.");
+                if (r < 0)
+                        return log_error_errno(r, "Unable to determine loader partition UUID: %m");
+
+                r = efi_get_variable_path(EFI_LOADER_VARIABLE_STR("LoaderImageIdentifier"), &p);
+                if (r == -ENOENT)
+                        return log_error_errno(r, "No loader EFI binary path passed.");
+                if (r < 0)
+                        return log_error_errno(r, "Unable to determine loader EFI binary path: %m");
+        } else {
+                assert(arg_print_stub_path);
+
+                r = efi_stub_get_device_part_uuid(&uuid);
+                if (r == -ENOENT)
+                        return log_error_errno(r, "No stub partition UUID passed.");
+                if (r < 0)
+                        return log_error_errno(r, "Unable to determine stub partition UUID: %m");
+
+                r = efi_get_variable_path(EFI_LOADER_VARIABLE_STR("StubImageIdentifier"), &p);
+                if (r == -ENOENT)
+                        return log_error_errno(r, "No stub EFI binary path passed.");
+                if (r < 0)
+                        return log_error_errno(r, "Unable to determine stub EFI binary path: %m");
+        }
+
+        sd_id128_t esp_uuid;
+        r = acquire_esp(/* unprivileged_mode= */ false, /* graceful= */ false,
+                        /* ret_part= */ NULL, /* ret_pstart= */ NULL, /* ret_psize= */ NULL,
+                        &esp_uuid, /* ret_devid= */ NULL);
+        if (r < 0)
+                return r;
+
+        const char *found_path = NULL;
+        if (sd_id128_equal(esp_uuid, uuid))
+                found_path = arg_esp_path;
+        else if (arg_print_stub_path) { /* In case of the stub, also look for things in the xbootldr partition */
+                sd_id128_t xbootldr_uuid;
+
+                r = acquire_xbootldr(/* unprivileged_mode= */ false, &xbootldr_uuid, /* ret_devid= */ NULL);
+                if (r < 0)
+                        return r;
+
+                if (sd_id128_equal(xbootldr_uuid, uuid))
+                        found_path = arg_xbootldr_path;
+        }
+
+        if (!found_path)
+                return log_error_errno(SYNTHETIC_ERRNO(ENOENT), "Failed to discover partition " SD_ID128_FORMAT_STR " among mounted boot partitions.", SD_ID128_FORMAT_VAL(uuid));
+
+        _cleanup_free_ char *j = path_join(found_path, p);
+        if (!j)
+                return log_oom();
+
+        puts(j);
+        return 0;
+}
+
 static int help(int argc, char *argv[], void *userdata) {
         _cleanup_free_ char *link = NULL;
         int r;
@@ -180,12 +259,17 @@ static int help(int argc, char *argv[], void *userdata) {
                "                       Where to pick files when using --root=/--image=\n"
                "  -p --print-esp-path  Print path to the EFI System Partition mount point\n"
                "  -x --print-boot-path Print path to the $BOOT partition mount point\n"
+               "     --print-loader-path\n"
+               "                       Print path to currently booted boot loader binary\n"
+               "     --print-stub-path Print path to currently booted unified kernel binary\n"
                "  -R --print-root-device\n"
                "                       Print path to the block device node backing the\n"
                "                       root file system (returns e.g. /dev/nvme0n1p5)\n"
                "  -RR                  Print path to the whole disk block device node\n"
                "                       backing the root FS (returns e.g. /dev/nvme0n1)\n"
                "     --no-variables    Don't touch EFI variables\n"
+               "     --random-seed=yes|no\n"
+               "                       Whether to create random-seed file during install\n"
                "     --no-pager        Do not pipe output into a pager\n"
                "     --graceful        Don't fail when the ESP cannot be found or EFI\n"
                "                       variables cannot be written\n"
@@ -201,6 +285,19 @@ static int help(int argc, char *argv[], void *userdata) {
                "     --efi-boot-option-description=DESCRIPTION\n"
                "                       Description of the entry in the boot option list\n"
                "     --dry-run         Dry run (unlink and cleanup)\n"
+               "     --secure-boot-auto-enroll\n"
+               "                       Set up secure boot auto-enrollment\n"
+               "     --private-key=PATH|URI\n"
+               "                       Private key to use when setting up secure boot\n"
+               "                       auto-enrollment or an engine or provider specific\n"
+               "                       designation if --private-key-source= is used\n"
+               "     --private-key-source=file|provider:PROVIDER|engine:ENGINE\n"
+               "                       Specify how to use KEY for --private-key=. Allows\n"
+               "                       an OpenSSL engine/provider to be used when setting\n"
+               "                       up secure boot auto-enrollment\n"
+               "     --certificate=PATH\n"
+               "                       PEM certificate to use when setting up secure boot\n"
+               "                       auto-enrollment\n"
                "\nSee the %2$s for details.\n",
                program_invocation_short_name,
                link,
@@ -222,6 +319,7 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_INSTALL_SOURCE,
                 ARG_VERSION,
                 ARG_NO_VARIABLES,
+                ARG_RANDOM_SEED,
                 ARG_NO_PAGER,
                 ARG_GRACEFUL,
                 ARG_MAKE_ENTRY_DIRECTORY,
@@ -230,6 +328,12 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_ARCH_ALL,
                 ARG_EFI_BOOT_OPTION_DESCRIPTION,
                 ARG_DRY_RUN,
+                ARG_PRINT_LOADER_PATH,
+                ARG_PRINT_STUB_PATH,
+                ARG_SECURE_BOOT_AUTO_ENROLL,
+                ARG_CERTIFICATE,
+                ARG_PRIVATE_KEY,
+                ARG_PRIVATE_KEY_SOURCE,
         };
 
         static const struct option options[] = {
@@ -245,8 +349,11 @@ static int parse_argv(int argc, char *argv[]) {
                 { "print-esp-path",              no_argument,       NULL, 'p'                             },
                 { "print-path",                  no_argument,       NULL, 'p'                             }, /* Compatibility alias */
                 { "print-boot-path",             no_argument,       NULL, 'x'                             },
+                { "print-loader-path",           no_argument,       NULL, ARG_PRINT_LOADER_PATH           },
+                { "print-stub-path",             no_argument,       NULL, ARG_PRINT_STUB_PATH             },
                 { "print-root-device",           no_argument,       NULL, 'R'                             },
                 { "no-variables",                no_argument,       NULL, ARG_NO_VARIABLES                },
+                { "random-seed",                 required_argument, NULL, ARG_RANDOM_SEED                 },
                 { "no-pager",                    no_argument,       NULL, ARG_NO_PAGER                    },
                 { "graceful",                    no_argument,       NULL, ARG_GRACEFUL                    },
                 { "quiet",                       no_argument,       NULL, 'q'                             },
@@ -257,6 +364,10 @@ static int parse_argv(int argc, char *argv[]) {
                 { "all-architectures",           no_argument,       NULL, ARG_ARCH_ALL                    },
                 { "efi-boot-option-description", required_argument, NULL, ARG_EFI_BOOT_OPTION_DESCRIPTION },
                 { "dry-run",                     no_argument,       NULL, ARG_DRY_RUN                     },
+                { "secure-boot-auto-enroll",     required_argument, NULL, ARG_SECURE_BOOT_AUTO_ENROLL     },
+                { "certificate",                 required_argument, NULL, ARG_CERTIFICATE                 },
+                { "private-key",                 required_argument, NULL, ARG_PRIVATE_KEY                 },
+                { "private-key-source",          required_argument, NULL, ARG_PRIVATE_KEY_SOURCE          },
                 {}
         };
 
@@ -326,12 +437,26 @@ static int parse_argv(int argc, char *argv[]) {
                         arg_print_dollar_boot_path = true;
                         break;
 
+                case ARG_PRINT_LOADER_PATH:
+                        arg_print_loader_path = true;
+                        break;
+
+                case ARG_PRINT_STUB_PATH:
+                        arg_print_stub_path = true;
+                        break;
+
                 case 'R':
                         arg_print_root_device++;
                         break;
 
                 case ARG_NO_VARIABLES:
                         arg_touch_variables = false;
+                        break;
+
+                case ARG_RANDOM_SEED:
+                        r = parse_boolean_argument("--random-seed=", optarg, &arg_install_random_seed);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_NO_PAGER:
@@ -395,6 +520,35 @@ static int parse_argv(int argc, char *argv[]) {
                         arg_dry_run = true;
                         break;
 
+                case ARG_SECURE_BOOT_AUTO_ENROLL:
+                        r = parse_boolean_argument("--secure-boot-auto-enroll=", optarg, &arg_secure_boot_auto_enroll);
+                        if (r < 0)
+                                return r;
+                        break;
+
+                case ARG_CERTIFICATE: {
+                        r = parse_path_argument(optarg, /*suppress_root=*/ false, &arg_certificate);
+                        if (r < 0)
+                                return r;
+                        break;
+                }
+
+                case ARG_PRIVATE_KEY: {
+                        r = free_and_strdup_warn(&arg_private_key, optarg);
+                        if (r < 0)
+                                return r;
+                        break;
+                }
+
+                case ARG_PRIVATE_KEY_SOURCE:
+                        r = parse_openssl_key_source_argument(
+                                        optarg,
+                                        &arg_private_key_source,
+                                        &arg_private_key_source_type);
+                        if (r < 0)
+                                return r;
+                        break;
+
                 case '?':
                         return -EINVAL;
 
@@ -402,9 +556,9 @@ static int parse_argv(int argc, char *argv[]) {
                         assert_not_reached();
                 }
 
-        if (!!arg_print_esp_path + !!arg_print_dollar_boot_path + (arg_print_root_device > 0) > 1)
+        if (!!arg_print_esp_path + !!arg_print_dollar_boot_path + (arg_print_root_device > 0) + arg_print_loader_path + arg_print_stub_path > 1)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                                       "--print-esp-path/-p, --print-boot-path/-x, --print-root-device=/-R cannot be combined.");
+                                                       "--print-esp-path/-p, --print-boot-path/-x, --print-root-device=/-R, --print-loader-path, --print-stub-path cannot be combined.");
 
         if ((arg_root || arg_image) && argv[optind] && !STR_IN_SET(argv[optind], "status", "list",
                         "install", "update", "remove", "is-installed", "random-seed", "unlink", "cleanup"))
@@ -421,7 +575,13 @@ static int parse_argv(int argc, char *argv[]) {
         if (arg_dry_run && argv[optind] && !STR_IN_SET(argv[optind], "unlink", "cleanup"))
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "--dry is only supported with --unlink or --cleanup");
 
-        r = varlink_invocation(VARLINK_ALLOW_ACCEPT);
+        if (arg_secure_boot_auto_enroll && !arg_certificate)
+                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Secure boot auto-enrollment requested but no certificate provided");
+
+        if (arg_secure_boot_auto_enroll && !arg_private_key)
+                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Secure boot auto-enrollment requested but no private key provided");
+
+        r = sd_varlink_invocation(SD_VARLINK_ALLOW_ACCEPT);
         if (r < 0)
                 return log_error_errno(r, "Failed to check if invoked in Varlink mode: %m");
         if (r > 0) {
@@ -474,19 +634,19 @@ static int run(int argc, char *argv[]) {
                 return r;
 
         if (arg_varlink) {
-                _cleanup_(varlink_server_unrefp) VarlinkServer *varlink_server = NULL;
+                _cleanup_(sd_varlink_server_unrefp) sd_varlink_server *varlink_server = NULL;
 
                 /* Invocation as Varlink service */
 
-                r = varlink_server_new(&varlink_server, VARLINK_SERVER_ROOT_ONLY);
+                r = sd_varlink_server_new(&varlink_server, SD_VARLINK_SERVER_ROOT_ONLY);
                 if (r < 0)
                         return log_error_errno(r, "Failed to allocate Varlink server: %m");
 
-                r = varlink_server_add_interface(varlink_server, &vl_interface_io_systemd_BootControl);
+                r = sd_varlink_server_add_interface(varlink_server, &vl_interface_io_systemd_BootControl);
                 if (r < 0)
                         return log_error_errno(r, "Failed to add Varlink interface: %m");
 
-                r = varlink_server_bind_method_many(
+                r = sd_varlink_server_bind_method_many(
                                 varlink_server,
                                 "io.systemd.BootControl.ListBootEntries",     vl_method_list_boot_entries,
                                 "io.systemd.BootControl.SetRebootToFirmware", vl_method_set_reboot_to_firmware,
@@ -494,7 +654,7 @@ static int run(int argc, char *argv[]) {
                 if (r < 0)
                         return log_error_errno(r, "Failed to bind Varlink methods: %m");
 
-                r = varlink_server_loop_auto(varlink_server);
+                r = sd_varlink_server_loop_auto(varlink_server);
                 if (r < 0)
                         return log_error_errno(r, "Failed to run Varlink event loop: %m");
 
@@ -528,6 +688,9 @@ static int run(int argc, char *argv[]) {
                 puts(path);
                 return 0;
         }
+
+        if (arg_print_loader_path || arg_print_stub_path)
+                return print_loader_or_stub_path();
 
         /* Open up and mount the image */
         if (arg_image) {

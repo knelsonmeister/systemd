@@ -20,8 +20,8 @@ else
         project_minor_version = '0'
 endif
 
-libsystemd_version = '0.39.0'
-libudev_version = '1.7.9'
+libsystemd_version = '0.40.0'
+libudev_version = '1.7.10'
 
 conf = configuration_data()
 conf.set_quoted('PROJECT_URL', 'https://systemd.io/')
@@ -188,7 +188,7 @@ mimepackagesdir = prefixdir / 'share/mime/packages'
 
 configfiledir = get_option('configfiledir')
 if configfiledir == ''
-        configfiledir= sysconfdir
+        configfiledir = sysconfdir
 endif
 pkgconfigfiledir = configfiledir / 'systemd'
 
@@ -228,6 +228,13 @@ if libcryptsetup_plugins_dir == ''
         libcryptsetup_plugins_dir = libdir / 'cryptsetup'
 endif
 
+shellprofiledir = get_option('shellprofiledir')
+if shellprofiledir == ''
+        shellprofiledir = sysconfdir / 'profile.d'
+endif
+conf.set10('LINK_SHELL_EXTRA_DROPIN', shellprofiledir != 'no' and not shellprofiledir.startswith('/usr/'))
+conf.set('SHELLPROFILEDIR', shellprofiledir, description : 'shell profile directory')
+
 memory_accounting_default = get_option('memory-accounting-default')
 status_unit_format_default = get_option('status-unit-format-default')
 if status_unit_format_default == 'auto'
@@ -257,6 +264,7 @@ conf.set_quoted('RANDOM_SEED_DIR',                            randomseeddir)
 conf.set_quoted('RC_LOCAL_PATH',                              get_option('rc-local'))
 conf.set_quoted('SSHCONFDIR',                                 sshconfdir)
 conf.set_quoted('SSHDCONFDIR',                                sshdconfdir)
+conf.set_quoted('SHELLPROFILEDIR',                            shellprofiledir)
 conf.set_quoted('SYSCONF_DIR',                                sysconfdir)
 conf.set_quoted('SYSCTL_DIR',                                 sysctldir)
 conf.set_quoted('SYSTEMCTL_BINARY_PATH',                      bindir / 'systemctl')
@@ -277,6 +285,7 @@ conf.set_quoted('SYSTEMD_LANGUAGE_FALLBACK_MAP',              pkgdatadir / 'lang
 conf.set_quoted('SYSTEMD_MAKEFS_PATH',                        libexecdir / 'systemd-makefs')
 conf.set_quoted('SYSTEMD_PULL_PATH',                          libexecdir / 'systemd-pull')
 conf.set_quoted('SYSTEMD_SHUTDOWN_BINARY_PATH',               libexecdir / 'systemd-shutdown')
+conf.set_quoted('SYSTEMD_SYSUPDATE_PATH',                     libexecdir / 'systemd-sysupdate')
 conf.set_quoted('SYSTEMD_TEST_DATA',                          testdata_dir)
 conf.set_quoted('SYSTEMD_TTY_ASK_PASSWORD_AGENT_BINARY_PATH', bindir / 'systemd-tty-ask-password-agent')
 conf.set_quoted('SYSTEMD_UPDATE_HELPER_PATH',                 libexecdir / 'systemd-update-helper')
@@ -358,6 +367,7 @@ endif
 # avoid them.
 basic_disabled_warnings = [
         '-Wno-missing-field-initializers',
+        '-Wno-unknown-warning-option',
         '-Wno-unused-parameter',
         '-Wno-nonnull-compare',
 ]
@@ -552,10 +562,10 @@ conf.set_quoted('LONG_MAX_STR', '@0@'.format(long_max))
 
 decl_headers = '''
 #include <dirent.h>
-#include <uchar.h>
+#include <sched.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
-#include <sched.h>
+#include <uchar.h>
 '''
 
 foreach decl : ['char16_t',
@@ -734,7 +744,7 @@ gperf = find_program('gperf')
 
 gperf_test_format = '''
 #include <string.h>
-const char * in_word_set(const char *, @0@);
+const char* in_word_set(const char *, @0@);
 @1@
 '''
 gperf_snippet = run_command(sh, '-c', 'echo foo,bar | "$1" -L ANSI-C', '_', gperf,
@@ -763,7 +773,6 @@ foreach header : ['crypt.h',
                   'linux/ioprio.h',
                   'linux/memfd.h',
                   'linux/time_types.h',
-                  'linux/vm_sockets.h',
                   'sys/auxv.h',
                   'sys/sdt.h',
                   'threads.h',
@@ -1109,6 +1118,7 @@ else
         elif bpf_compiler == 'gcc'
                 bpf_gcc = find_program('bpf-gcc',
                                        'bpf-none-gcc',
+                                       'bpf-unknown-none-gcc',
                                        required : true,
                                        version : '>= 13.1.0')
                 bpf_gcc_found = bpf_gcc.found()
@@ -1279,7 +1289,8 @@ foreach ident : ['crypt_set_metadata_size',
                  'crypt_reencrypt_run',
                  'crypt_set_data_offset',
                  'crypt_set_keyring_to_link',
-                 'crypt_resume_by_volume_key']
+                 'crypt_resume_by_volume_key',
+                 'crypt_token_set_external_path']
         have_ident = have and cc.has_function(
                 ident,
                 prefix : '#include <libcryptsetup.h>',
@@ -1389,6 +1400,10 @@ conf.set10('HAVE_ELFUTILS', libdw.found())
 # New in elfutils 0.177
 conf.set10('HAVE_DWELF_ELF_E_MACHINE_STRING',
            libdw.found() and cc.has_function('dwelf_elf_e_machine_string', dependencies : libdw))
+
+# New in elfutils 0.192
+conf.set10('HAVE_DWFL_SET_SYSROOT',
+           libdw.found() and cc.has_function('dwfl_set_sysroot', dependencies : libdw))
 
 libz = dependency('zlib',
                   required : get_option('zlib'))
@@ -1594,6 +1609,20 @@ have = get_option('sysupdate').require(
         error_message : 'fdisk and openssl required').allowed()
 conf.set10('ENABLE_SYSUPDATE', have)
 
+have2 = get_option('sysupdated')
+if have2 == 'enabled'
+        if have
+                have2 = true
+        else
+                error('sysupdated requires sysupdate to be enabled')
+        endif
+elif have2 == 'auto'
+        have2 = have and conf.get('BUILD_MODE_DEVELOPER') == 1
+else
+        have2 = false
+endif
+conf.set10('ENABLE_SYSUPDATED', have2)
+
 conf.set10('ENABLE_STORAGETM', get_option('storagetm'))
 
 have = get_option('importd').require(
@@ -1647,6 +1676,7 @@ foreach term : ['analyze',
                 'hwdb',
                 'idn',
                 'ima',
+                'ipe',
                 'initrd',
                 'kernel-install',
                 'ldconfig',
@@ -1655,7 +1685,6 @@ foreach term : ['analyze',
                 'machined',
                 'mountfsd',
                 'networkd',
-                'nscd',
                 'nsresourced',
                 'nss-myhostname',
                 'nss-systemd',
@@ -1774,15 +1803,16 @@ if conf.get('BPF_FRAMEWORK') == 1
         # C.f. https://mesonbuild.com/Reference-tables.html#cpu-families
         # and src/basic/missing_syscall_def.h.
         cpu_arch_defines = {
-                'ppc'     : ['-D__powerpc__', '-D__TARGET_ARCH_powerpc'],
-                'ppc64'   : ['-D__powerpc64__', '-D__TARGET_ARCH_powerpc', '-D_CALL_ELF=2'],
-                'riscv32' : ['-D__riscv', '-D__riscv_xlen=32', '-D__TARGET_ARCH_riscv'],
-                'riscv64' : ['-D__riscv', '-D__riscv_xlen=64', '-D__TARGET_ARCH_riscv'],
-                'x86'     : ['-D__i386__', '-D__TARGET_ARCH_x86'],
-                's390x'   : ['-D__s390__', '-D__s390x__', '-D__TARGET_ARCH_s390'],
+                'ppc'         : ['-D__powerpc__', '-D__TARGET_ARCH_powerpc'],
+                'ppc64'       : ['-D__powerpc64__', '-D__TARGET_ARCH_powerpc', '-D_CALL_ELF=2'],
+                'riscv32'     : ['-D__riscv', '-D__riscv_xlen=32', '-D__TARGET_ARCH_riscv'],
+                'riscv64'     : ['-D__riscv', '-D__riscv_xlen=64', '-D__TARGET_ARCH_riscv'],
+                'x86'         : ['-D__i386__', '-D__TARGET_ARCH_x86'],
+                's390x'       : ['-D__s390__', '-D__s390x__', '-D__TARGET_ARCH_s390'],
 
                 # For arm, assume hardware fp is available.
-                'arm'     : ['-D__arm__', '-D__ARM_PCS_VFP', '-D__TARGET_ARCH_arm'],
+                'arm'         : ['-D__arm__', '-D__ARM_PCS_VFP', '-D__TARGET_ARCH_arm'],
+                'loongarch64' : ['-D__loongarch__', '-D__loongarch_grlen=64', '-D__TARGET_ARCH_loongarch']
         }
 
         bpf_arch_flags = cpu_arch_defines.get(host_machine.cpu_family(),
@@ -2075,9 +2105,12 @@ libsystemd_includes = [basic_includes, include_directories(
         'src/libsystemd/sd-hwdb',
         'src/libsystemd/sd-id128',
         'src/libsystemd/sd-journal',
+        'src/libsystemd/sd-json',
         'src/libsystemd/sd-netlink',
         'src/libsystemd/sd-network',
-        'src/libsystemd/sd-resolve')]
+        'src/libsystemd/sd-path',
+        'src/libsystemd/sd-resolve',
+        'src/libsystemd/sd-varlink')]
 
 includes = [libsystemd_includes, include_directories('src/shared')]
 
@@ -2123,6 +2156,7 @@ install_libsystemd_static = static_library(
                         libdl,
                         libgcrypt_cflags,
                         liblz4_cflags,
+                        libm,
                         libmount,
                         libopenssl,
                         librt,
@@ -2701,6 +2735,7 @@ subdir('man')
 subdir('modprobe.d')
 subdir('network')
 subdir('presets')
+subdir('profile.d')
 subdir('shell-completion/bash')
 subdir('shell-completion/zsh')
 subdir('sysctl.d')
@@ -2923,6 +2958,7 @@ summary({
         'ssh server privilege separation directory' : sshdprivsepdir,
         'ssh client configuration directory' : sshconfdir,
         'libcryptsetup plugins directory' : libcryptsetup_plugins_dir,
+        'Shell profile directory' :         shellprofiledir,
         'RPM macros directory' :            rpmmacrosdir,
         'modprobe.d directory' :            modprobedir,
         'D-Bus policy directory' :          dbuspolicydir,
@@ -3049,6 +3085,7 @@ foreach tuple : [
         ['sysext'],
         ['systemd-analyze',        conf.get('ENABLE_ANALYZE') == 1],
         ['sysupdate'],
+        ['sysupdated'],
         ['sysusers'],
         ['storagetm'],
         ['timedated'],
@@ -3063,7 +3100,6 @@ foreach tuple : [
         ['dmi'],
         ['idn'],
         ['polkit'],
-        ['nscd'],
         ['legacy-pkla',            install_polkit_pkla],
         ['kmod'],
         ['xenctrl'],

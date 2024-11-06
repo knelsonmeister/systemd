@@ -3,6 +3,9 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#if WANT_LINUX_FS_H
+#include <linux/fs.h>
+#endif
 
 #include "errno-util.h"
 #include "fd-util.h"
@@ -10,6 +13,8 @@
 #include "missing_fs.h"
 #include "missing_magic.h"
 #include "missing_sched.h"
+#include "missing_syscall.h"
+#include "mountpoint-util.h"
 #include "namespace-util.h"
 #include "parse-util.h"
 #include "process-util.h"
@@ -17,7 +22,7 @@
 #include "stdio-util.h"
 #include "user-util.h"
 
-const struct namespace_info namespace_info[] = {
+const struct namespace_info namespace_info[_NAMESPACE_TYPE_MAX + 1] = {
         [NAMESPACE_CGROUP] =  { "cgroup", "ns/cgroup", CLONE_NEWCGROUP,                          },
         [NAMESPACE_IPC]    =  { "ipc",    "ns/ipc",    CLONE_NEWIPC,                             },
         [NAMESPACE_NET]    =  { "net",    "ns/net",    CLONE_NEWNET,                             },
@@ -42,8 +47,8 @@ static NamespaceType clone_flag_to_namespace_type(unsigned long clone_flag) {
         return _NAMESPACE_TYPE_INVALID;
 }
 
-int namespace_open(
-                pid_t pid,
+int pidref_namespace_open(
+                const PidRef *pidref,
                 int *ret_pidns_fd,
                 int *ret_mntns_fd,
                 int *ret_netns_fd,
@@ -52,13 +57,14 @@ int namespace_open(
 
         _cleanup_close_ int pidns_fd = -EBADF, mntns_fd = -EBADF, netns_fd = -EBADF,
                 userns_fd = -EBADF, root_fd = -EBADF;
+        int r;
 
-        assert(pid >= 0);
+        assert(pidref_is_set(pidref));
 
         if (ret_pidns_fd) {
                 const char *pidns;
 
-                pidns = pid_namespace_path(pid, NAMESPACE_PID);
+                pidns = pid_namespace_path(pidref->pid, NAMESPACE_PID);
                 pidns_fd = open(pidns, O_RDONLY|O_NOCTTY|O_CLOEXEC);
                 if (pidns_fd < 0)
                         return -errno;
@@ -67,7 +73,7 @@ int namespace_open(
         if (ret_mntns_fd) {
                 const char *mntns;
 
-                mntns = pid_namespace_path(pid, NAMESPACE_MOUNT);
+                mntns = pid_namespace_path(pidref->pid, NAMESPACE_MOUNT);
                 mntns_fd = open(mntns, O_RDONLY|O_NOCTTY|O_CLOEXEC);
                 if (mntns_fd < 0)
                         return -errno;
@@ -76,7 +82,7 @@ int namespace_open(
         if (ret_netns_fd) {
                 const char *netns;
 
-                netns = pid_namespace_path(pid, NAMESPACE_NET);
+                netns = pid_namespace_path(pidref->pid, NAMESPACE_NET);
                 netns_fd = open(netns, O_RDONLY|O_NOCTTY|O_CLOEXEC);
                 if (netns_fd < 0)
                         return -errno;
@@ -85,7 +91,7 @@ int namespace_open(
         if (ret_userns_fd) {
                 const char *userns;
 
-                userns = pid_namespace_path(pid, NAMESPACE_USER);
+                userns = pid_namespace_path(pidref->pid, NAMESPACE_USER);
                 userns_fd = open(userns, O_RDONLY|O_NOCTTY|O_CLOEXEC);
                 if (userns_fd < 0 && errno != ENOENT)
                         return -errno;
@@ -94,11 +100,15 @@ int namespace_open(
         if (ret_root_fd) {
                 const char *root;
 
-                root = procfs_file_alloca(pid, "root");
+                root = procfs_file_alloca(pidref->pid, "root");
                 root_fd = open(root, O_RDONLY|O_NOCTTY|O_CLOEXEC|O_DIRECTORY);
                 if (root_fd < 0)
                         return -errno;
         }
+
+        r = pidref_verify(pidref);
+        if (r < 0)
+                return r;
 
         if (ret_pidns_fd)
                 *ret_pidns_fd = TAKE_FD(pidns_fd);
@@ -116,6 +126,22 @@ int namespace_open(
                 *ret_root_fd = TAKE_FD(root_fd);
 
         return 0;
+}
+
+int namespace_open(
+                pid_t pid,
+                int *ret_pidns_fd,
+                int *ret_mntns_fd,
+                int *ret_netns_fd,
+                int *ret_userns_fd,
+                int *ret_root_fd) {
+
+        assert(pid >= 0);
+
+        if (pid == 0)
+                pid = getpid_cached();
+
+        return pidref_namespace_open(&PIDREF_MAKE_FROM_PID(pid), ret_pidns_fd, ret_mntns_fd, ret_netns_fd, ret_userns_fd, ret_root_fd);
 }
 
 int namespace_enter(int pidns_fd, int mntns_fd, int netns_fd, int userns_fd, int root_fd) {
@@ -480,4 +506,53 @@ int is_our_namespace(int fd, NamespaceType request_type) {
         }
 
         return stat_inode_same(&st_ours, &st_fd);
+}
+
+int is_idmapping_supported(const char *path) {
+        _cleanup_close_ int mount_fd = -EBADF, userns_fd = -EBADF, dir_fd = -EBADF;
+        _cleanup_free_ char *uid_map = NULL, *gid_map = NULL;
+        int r;
+
+        assert(path);
+
+        if (!mount_new_api_supported())
+                return false;
+
+        r = strextendf(&uid_map, UID_FMT " " UID_FMT " " UID_FMT "\n", UID_NOBODY, UID_NOBODY, 1u);
+        if (r < 0)
+                return r;
+
+        r = strextendf(&gid_map, GID_FMT " " GID_FMT " " GID_FMT "\n", GID_NOBODY, GID_NOBODY, 1u);
+        if (r < 0)
+                return r;
+
+        userns_fd = userns_acquire(uid_map, gid_map);
+        if (ERRNO_IS_NEG_NOT_SUPPORTED(userns_fd) || ERRNO_IS_NEG_PRIVILEGE(userns_fd))
+                return false;
+        if (userns_fd < 0)
+                return log_debug_errno(userns_fd, "ID-mapping supported namespace acquire failed for '%s' : %m", path);
+
+        dir_fd = RET_NERRNO(open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+        if (ERRNO_IS_NEG_NOT_SUPPORTED(dir_fd))
+                return false;
+        if (dir_fd < 0)
+                return log_debug_errno(dir_fd, "ID-mapping supported open failed for '%s' : %m", path);
+
+        mount_fd = RET_NERRNO(open_tree(dir_fd, "", AT_EMPTY_PATH | OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC));
+        if (ERRNO_IS_NEG_NOT_SUPPORTED(mount_fd) || ERRNO_IS_NEG_PRIVILEGE(mount_fd) || mount_fd == -EINVAL)
+                return false;
+        if (mount_fd < 0)
+                return log_debug_errno(mount_fd, "ID-mapping supported open_tree failed for '%s' : %m", path);
+
+        r = RET_NERRNO(mount_setattr(mount_fd, "", AT_EMPTY_PATH,
+                       &(struct mount_attr) {
+                                .attr_set = MOUNT_ATTR_IDMAP | MOUNT_ATTR_NOSUID | MOUNT_ATTR_NOEXEC | MOUNT_ATTR_RDONLY | MOUNT_ATTR_NODEV,
+                                .userns_fd = userns_fd,
+                        }, sizeof(struct mount_attr)));
+        if (ERRNO_IS_NEG_NOT_SUPPORTED(r) || ERRNO_IS_NEG_PRIVILEGE(r) || r == -EINVAL)
+                return false;
+        if (r < 0)
+                return log_debug_errno(r, "ID-mapping supported setattr failed for '%s' : %m", path);
+
+        return true;
 }

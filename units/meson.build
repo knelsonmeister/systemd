@@ -362,6 +362,11 @@ units = [
           'symlinks' : ['dbus-org.freedesktop.import1.service'],
         },
         {
+          'file' : 'systemd-importd.socket',
+          'conditions' : ['ENABLE_IMPORTD'],
+          'symlinks' : ['sockets.target.wants/'],
+        },
+        {
           'file' : 'systemd-initctl.service.in',
           'conditions' : ['HAVE_SYSV_COMPAT'],
         },
@@ -638,6 +643,11 @@ units = [
         {
           'file' : 'systemd-sysupdate.timer',
           'conditions' : ['ENABLE_SYSUPDATE'],
+        },
+        {
+          'file' : 'systemd-sysupdated.service.in',
+          'conditions' : ['ENABLE_SYSUPDATED'],
+          'symlinks' : ['dbus-org.freedesktop.sysupdate1.service'],
         },
         {
           'file' : 'systemd-sysusers.service',

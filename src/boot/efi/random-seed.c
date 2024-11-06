@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
+#include "efivars.h"
 #include "memory-util-fundamental.h"
 #include "proto/rng.h"
 #include "random-seed.h"
@@ -55,7 +56,7 @@ static EFI_STATUS acquire_system_token(void **ret, size_t *ret_size) {
         assert(ret);
         assert(ret_size);
 
-        err = efivar_get_raw(MAKE_GUID_PTR(LOADER), u"LoaderSystemToken", &data, &size);
+        err = efivar_get_raw(MAKE_GUID_PTR(LOADER), u"LoaderSystemToken", (void**) &data, &size);
         if (err != EFI_SUCCESS) {
                 if (err != EFI_NOT_FOUND)
                         log_error_status(err, "Failed to read LoaderSystemToken EFI variable: %m");
@@ -107,8 +108,8 @@ static void validate_sha256(void) {
                     0xaf, 0xac, 0x45, 0x03, 0x7a, 0xfe, 0xe9, 0xd1 }},
         };
 
-        for (size_t i = 0; i < ELEMENTSOF(array); i++)
-                assert(memcmp(SHA256_DIRECT(array[i].string, strlen8(array[i].string)), array[i].hash, HASH_VALUE_SIZE) == 0);
+        FOREACH_ELEMENT(i, array)
+                assert(memcmp(SHA256_DIRECT(i->string, strlen8(i->string)), i->hash, HASH_VALUE_SIZE) == 0);
 #endif
 }
 

@@ -191,6 +191,7 @@ listen	6049
 listmount	6458
 listxattr	6186
 llistxattr	6187
+llseek
 lookup_dcookie	6206
 lremovexattr	6190
 lseek	6008
@@ -502,6 +503,7 @@ uname	6061
 unlink	6085
 unlinkat	6257
 unshare	6266
+uretprobe
 userfaultfd	6321
 ustat	6133
 utime	6130

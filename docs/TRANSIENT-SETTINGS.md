@@ -281,6 +281,7 @@ All cgroup/resource control settings are available for transient units
 ✓ ManagedOOMSwap=
 ✓ ManagedOOMMemoryPressure=
 ✓ ManagedOOMMemoryPressureLimit=
+✓ ManagedOOMMemoryPressureDurationSec=
 ✓ ManagedOOMPreference=
 ✓ CoredumpReceive=
 ```
@@ -387,6 +388,7 @@ Most timer unit settings are available to transient units.
 ✓ AccuracySec=
 ✓ RandomizedDelaySec=
 ✓ FixedRandomDelay=
+✓ DeferReactivation=
   Unit=
 ```
 

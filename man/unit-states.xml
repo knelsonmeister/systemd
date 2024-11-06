@@ -49,6 +49,11 @@
             <entry><varname>reloading</varname></entry>
             <entry>Unit is <constant>active</constant> and it is reloading its configuration.</entry>
         </row>
+        <row>
+            <entry><varname>refreshing</varname></entry>
+            <entry>Unit is <constant>active</constant> and a new mount is being activated in its namespace.
+            </entry>
+        </row>
       </tbody>
     </tgroup>
   </table>

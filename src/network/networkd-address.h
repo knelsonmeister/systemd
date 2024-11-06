@@ -73,6 +73,8 @@ struct Address {
         NFTSetContext nft_set_context;
 };
 
+void log_address_debug(const Address *address, const char *str, const Link *link);
+
 const char* format_lifetime(char *buf, size_t l, usec_t lifetime_usec) _warn_unused_result_;
 /* Note: the lifetime of the compound literal is the immediately surrounding block,
  * see C11 §6.5.2.5, and
@@ -88,6 +90,8 @@ void link_get_address_states(
                 LinkAddressState *ret_ipv6,
                 LinkAddressState *ret_all);
 
+void address_hash_func(const Address *a, struct siphash *state);
+int address_compare_func(const Address *a1, const Address *a2);
 extern const struct hash_ops address_hash_ops;
 
 bool address_can_update(const Address *existing, const Address *requesting);
@@ -109,21 +113,34 @@ bool link_check_addresses_ready(Link *link, NetworkConfigSource source);
 DEFINE_SECTION_CLEANUP_FUNCTIONS(Address, address_unref);
 
 int link_drop_static_addresses(Link *link);
-int link_drop_foreign_addresses(Link *link);
+int link_drop_unmanaged_addresses(Link *link);
 int link_drop_ipv6ll_addresses(Link *link);
-void link_foreignize_addresses(Link *link);
 bool link_address_is_dynamic(const Link *link, const Address *address);
-int link_get_address(Link *link, int family, const union in_addr_union *address, unsigned char prefixlen, Address **ret);
-static inline int link_get_ipv6_address(Link *link, const struct in6_addr *address, unsigned char prefixlen, Address **ret) {
-        assert(address);
-        return link_get_address(link, AF_INET6, &(union in_addr_union) { .in6 = *address }, prefixlen, ret);
+
+int link_get_address_full(
+                Link *link,
+                int family,
+                const union in_addr_union *address,
+                const union in_addr_union *peer, /* optional, can be NULL */
+                unsigned char prefixlen,         /* optional, can be 0 */
+                Address **ret);
+static inline int link_get_address(Link *link, int family, const union in_addr_union *address, Address **ret) {
+        return link_get_address_full(link, family, address, NULL, 0, ret);
 }
-static inline int link_get_ipv4_address(Link *link, const struct in_addr *address, unsigned char prefixlen, Address **ret) {
+static inline int link_get_ipv6_address(Link *link, const struct in6_addr *address, Address **ret) {
         assert(address);
-        return link_get_address(link, AF_INET, &(union in_addr_union) { .in = *address }, prefixlen, ret);
+        return link_get_address(link, AF_INET6, &(union in_addr_union) { .in6 = *address }, ret);
 }
-int manager_get_address(Manager *manager, int family, const union in_addr_union *address, unsigned char prefixlen, Address **ret);
-bool manager_has_address(Manager *manager, int family, const union in_addr_union *address);
+int manager_get_address_full(
+                Manager *manager,
+                int family,
+                const union in_addr_union *address,
+                const union in_addr_union *peer,
+                unsigned char prefixlen,
+                Address **ret);
+static inline int manager_get_address(Manager *manager, int family, const union in_addr_union *address, Address **ret) {
+        return manager_get_address_full(manager, family, address, NULL, 0, ret);
+}
 
 int link_request_address(
                 Link *link,
@@ -143,13 +160,24 @@ DEFINE_NETWORK_CONFIG_STATE_FUNCTIONS(Address, address);
 
 void link_mark_addresses(Link *link, NetworkConfigSource source);
 
-CONFIG_PARSER_PROTOTYPE(config_parse_address);
-CONFIG_PARSER_PROTOTYPE(config_parse_broadcast);
-CONFIG_PARSER_PROTOTYPE(config_parse_label);
-CONFIG_PARSER_PROTOTYPE(config_parse_lifetime);
-CONFIG_PARSER_PROTOTYPE(config_parse_address_flags);
-CONFIG_PARSER_PROTOTYPE(config_parse_address_scope);
-CONFIG_PARSER_PROTOTYPE(config_parse_address_route_metric);
-CONFIG_PARSER_PROTOTYPE(config_parse_duplicate_address_detection);
-CONFIG_PARSER_PROTOTYPE(config_parse_address_netlabel);
-CONFIG_PARSER_PROTOTYPE(config_parse_address_ip_nft_set);
+typedef enum AddressConfParserType {
+        ADDRESS_ADDRESS,
+        ADDRESS_PEER,
+        ADDRESS_BROADCAST,
+        ADDRESS_LABEL,
+        ADDRESS_PREFERRED_LIFETIME,
+        ADDRESS_HOME_ADDRESS,
+        ADDRESS_MANAGE_TEMPORARY_ADDRESS,
+        ADDRESS_PREFIX_ROUTE,
+        ADDRESS_ADD_PREFIX_ROUTE,
+        ADDRESS_AUTO_JOIN,
+        ADDRESS_DAD,
+        ADDRESS_SCOPE,
+        ADDRESS_ROUTE_METRIC,
+        ADDRESS_NET_LABEL,
+        ADDRESS_NFT_SET,
+        _ADDRESS_CONF_PARSER_MAX,
+        _ADDRESS_CONF_PARSER_INVALID = -EINVAL,
+} AddressConfParserType;
+
+CONFIG_PARSER_PROTOTYPE(config_parse_address_section);

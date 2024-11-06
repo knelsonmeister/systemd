@@ -85,10 +85,7 @@ _noreturn_ static void crash(int sig, siginfo_t *siginfo, void *context) {
                 else if (pid == 0) {
                         /* Enable default signal handler for core dump */
 
-                        sa = (struct sigaction) {
-                                .sa_handler = SIG_DFL,
-                        };
-                        (void) sigaction(sig, &sa, NULL);
+                        (void) sigaction(sig, &sigaction_default, NULL);
 
                         /* Don't limit the coredump size */
                         (void) setrlimit(RLIMIT_CORE, &RLIMIT_MAKE_CONST(RLIM_INFINITY));
@@ -158,8 +155,7 @@ _noreturn_ static void crash(int sig, siginfo_t *siginfo, void *context) {
         (void) sigaction(SIGCHLD, &sa, NULL);
 
         if (arg_crash_shell) {
-                log_notice("Executing crash shell in 10s...");
-                (void) sleep(10);
+                log_notice("Executing crash shell...");
 
                 pid = raw_clone(SIGCHLD);
                 if (pid < 0)
@@ -168,6 +164,7 @@ _noreturn_ static void crash(int sig, siginfo_t *siginfo, void *context) {
                                          "MESSAGE_ID=" SD_MESSAGE_CRASH_SHELL_FORK_FAILED_STR);
                 else if (pid == 0) {
                         (void) setsid();
+                        (void) terminal_vhangup("/dev/console");
                         (void) make_console_stdio();
                         (void) rlimit_nofile_safe();
                         (void) execle("/bin/sh", "/bin/sh", NULL, environ);

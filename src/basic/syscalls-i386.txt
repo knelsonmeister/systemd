@@ -191,6 +191,7 @@ listen	363
 listmount	458
 listxattr	232
 llistxattr	233
+llseek
 lookup_dcookie	253
 lremovexattr	236
 lseek	19
@@ -502,6 +503,7 @@ uname	122
 unlink	10
 unlinkat	301
 unshare	310
+uretprobe
 userfaultfd	374
 ustat	62
 utime	30

@@ -212,9 +212,6 @@ int fd_cloexec_many(const int fds[], size_t n_fds, bool cloexec) {
                         continue;
 
                 RET_GATHER(r, fd_cloexec(*fd, cloexec));
-
-                if (r >= 0)
-                        r = 1; /* report if we did anything */
         }
 
         return r;
@@ -514,6 +511,16 @@ int pack_fds(int fds[], size_t n_fds) {
         return 0;
 }
 
+int fd_validate(int fd) {
+        if (fd < 0)
+                return -EBADF;
+
+        if (fcntl(fd, F_GETFD) < 0)
+                return -errno;
+
+        return 0;
+}
+
 int same_fd(int a, int b) {
         struct stat sta, stb;
         pid_t pid;
@@ -523,25 +530,57 @@ int same_fd(int a, int b) {
         assert(b >= 0);
 
         /* Compares two file descriptors. Note that semantics are quite different depending on whether we
-         * have kcmp() or we don't. If we have kcmp() this will only return true for dup()ed file
-         * descriptors, but not otherwise. If we don't have kcmp() this will also return true for two fds of
-         * the same file, created by separate open() calls. Since we use this call mostly for filtering out
-         * duplicates in the fd store this difference hopefully doesn't matter too much. */
+         * have F_DUPFD_QUERY/kcmp() or we don't. If we have F_DUPFD_QUERY/kcmp() this will only return true
+         * for dup()ed file descriptors, but not otherwise. If we don't have F_DUPFD_QUERY/kcmp() this will
+         * also return true for two fds of the same file, created by separate open() calls. Since we use this
+         * call mostly for filtering out duplicates in the fd store this difference hopefully doesn't matter
+         * too much.
+         *
+         * Guarantees that if either of the passed fds is not allocated we'll return -EBADF. */
 
-        if (a == b)
+        if (a == b) {
+                /* Let's validate that the fd is valid */
+                r = fd_validate(a);
+                if (r < 0)
+                        return r;
+
                 return true;
+        }
+
+        /* Try to use F_DUPFD_QUERY if we have it first, as it is the nicest API */
+        r = fcntl(a, F_DUPFD_QUERY, b);
+        if (r > 0)
+                return true;
+        if (r == 0) {
+                /* The kernel will return 0 in case the first fd is allocated, but the 2nd is not. (Which is different in the kcmp() case) Explicitly validate it hence. */
+                r = fd_validate(b);
+                if (r < 0)
+                        return r;
+
+                return false;
+        }
+        /* On old kernels (< 6.10) that do not support F_DUPFD_QUERY this will return EINVAL for regular fds, and EBADF on O_PATH fds. Confusing. */
+        if (errno == EBADF) {
+                /* EBADF could mean two things: the first fd is not valid, or it is valid and is O_PATH and
+                 * F_DUPFD_QUERY is not supported. Let's validate the fd explicitly, to distinguish this
+                 * case. */
+                r = fd_validate(a);
+                if (r < 0)
+                        return r;
+
+                /* If the fd is valid, but we got EBADF, then let's try kcmp(). */
+        } else if (!ERRNO_IS_NOT_SUPPORTED(errno) && !ERRNO_IS_PRIVILEGE(errno) && errno != EINVAL)
+                return -errno;
 
         /* Try to use kcmp() if we have it. */
         pid = getpid_cached();
         r = kcmp(pid, pid, KCMP_FILE, a, b);
-        if (r == 0)
-                return true;
-        if (r > 0)
-                return false;
+        if (r >= 0)
+                return !r;
         if (!ERRNO_IS_NOT_SUPPORTED(errno) && !ERRNO_IS_PRIVILEGE(errno))
                 return -errno;
 
-        /* We don't have kcmp(), use fstat() instead. */
+        /* We have neither F_DUPFD_QUERY nor kcmp(), use fstat() instead. */
         if (fstat(a, &sta) < 0)
                 return -errno;
 
@@ -571,14 +610,21 @@ int same_fd(int a, int b) {
 }
 
 void cmsg_close_all(struct msghdr *mh) {
-        struct cmsghdr *cmsg;
-
         assert(mh);
 
-        CMSG_FOREACH(cmsg, mh)
-                if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS)
+        struct cmsghdr *cmsg;
+        CMSG_FOREACH(cmsg, mh) {
+                if (cmsg->cmsg_level != SOL_SOCKET)
+                        continue;
+
+                if (cmsg->cmsg_type == SCM_RIGHTS)
                         close_many(CMSG_TYPED_DATA(cmsg, int),
                                    (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int));
+                else if (cmsg->cmsg_type == SCM_PIDFD) {
+                        assert(cmsg->cmsg_len == CMSG_LEN(sizeof(int)));
+                        safe_close(*CMSG_TYPED_DATA(cmsg, int));
+                }
+        }
 }
 
 bool fdname_is_valid(const char *s) {
@@ -617,16 +663,8 @@ int fd_get_path(int fd, char **ret) {
                 return safe_getcwd(ret);
 
         r = readlink_malloc(FORMAT_PROC_FD_PATH(fd), ret);
-        if (r == -ENOENT) {
-                /* ENOENT can mean two things: that the fd does not exist or that /proc is not mounted. Let's make
-                 * things debuggable and distinguish the two. */
-
-                if (proc_mounted() == 0)
-                        return -ENOSYS;  /* /proc is not available or not set up properly, we're most likely in some chroot
-                                          * environment. */
-                return -EBADF; /* The directory exists, hence it's the fd that doesn't. */
-        }
-
+        if (r == -ENOENT)
+                return proc_fd_enoent_errno();
         return r;
 }
 
@@ -764,8 +802,7 @@ int rearrange_stdio(int original_input_fd, int original_output_fd, int original_
         }
 
         /* Let's assemble fd[] with the fds to install in place of stdin/stdout/stderr */
-        for (int i = 0; i < 3; i++) {
-
+        for (int i = 0; i < 3; i++)
                 if (fd[i] < 0)
                         fd[i] = null_fd;        /* A negative parameter means: connect this one to /dev/null */
                 else if (fd[i] != i && fd[i] < 3) {
@@ -778,20 +815,16 @@ int rearrange_stdio(int original_input_fd, int original_output_fd, int original_
 
                         fd[i] = copy_fd[i];
                 }
-        }
 
         /* At this point we now have the fds to use in fd[], and they are all above the stdio range, so that
          * we have freedom to move them around. If the fds already were at the right places then the specific
          * fds are -EBADF. Let's now move them to the right places. This is the point of no return. */
-        for (int i = 0; i < 3; i++) {
-
+        for (int i = 0; i < 3; i++)
                 if (fd[i] == i) {
-
                         /* fd is already in place, but let's make sure O_CLOEXEC is off */
                         r = fd_cloexec(i, false);
                         if (r < 0)
                                 goto finish;
-
                 } else {
                         assert(fd[i] > 2);
 
@@ -800,7 +833,6 @@ int rearrange_stdio(int original_input_fd, int original_output_fd, int original_
                                 goto finish;
                         }
                 }
-        }
 
         r = 0;
 
@@ -823,8 +855,6 @@ finish:
 }
 
 int fd_reopen(int fd, int flags) {
-        int r;
-
         assert(fd >= 0 || fd == AT_FDCWD);
         assert(!FLAGS_SET(flags, O_CREAT));
 
@@ -860,13 +890,7 @@ int fd_reopen(int fd, int flags) {
                 if (errno != ENOENT)
                         return -errno;
 
-                r = proc_mounted();
-                if (r == 0)
-                        return -ENOSYS; /* if we have no /proc/, the concept is not implementable */
-
-                return r > 0 ? -EBADF : -ENOENT; /* If /proc/ is definitely around then this means the fd is
-                                                  * not valid, otherwise let's propagate the original
-                                                  * error */
+                return proc_fd_enoent_errno();
         }
 
         return new_fd;
@@ -1116,7 +1140,7 @@ int fds_are_same_mount(int fd1, int fd2) {
         return statx_mount_same(&st1.nsx, &st2.nsx);
 }
 
-const char *accmode_to_string(int flags) {
+const char* accmode_to_string(int flags) {
         switch (flags & O_ACCMODE) {
         case O_RDONLY:
                 return "ro";
@@ -1129,10 +1153,27 @@ const char *accmode_to_string(int flags) {
         }
 }
 
-char *format_proc_pid_fd_path(char buf[static PROC_PID_FD_PATH_MAX], pid_t pid, int fd) {
+char* format_proc_pid_fd_path(char buf[static PROC_PID_FD_PATH_MAX], pid_t pid, int fd) {
         assert(buf);
         assert(fd >= 0);
         assert(pid >= 0);
         assert_se(snprintf_ok(buf, PROC_PID_FD_PATH_MAX, "/proc/" PID_FMT "/fd/%i", pid == 0 ? getpid_cached() : pid, fd));
         return buf;
+}
+
+int proc_fd_enoent_errno(void) {
+        int r;
+
+        /* When ENOENT is returned during the use of FORMAT_PROC_FD_PATH, it can mean two things:
+         * that the fd does not exist or that /proc/ is not mounted.
+         * Let's make things debuggable and figure out the most appropriate errno. */
+
+        r = proc_mounted();
+        if (r == 0)
+                return -ENOSYS;  /* /proc/ is not available or not set up properly, we're most likely
+                                    in some chroot environment. */
+        if (r > 0)
+                return -EBADF;   /* If /proc/ is definitely around then this means the fd is not valid. */
+
+        return -ENOENT;          /* Otherwise let's propagate the original ENOENT. */
 }

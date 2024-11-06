@@ -169,7 +169,7 @@ static int condition_test_credential(Condition *c, char **env) {
                 if (!j)
                         return -ENOMEM;
 
-                r = laccess(j, F_OK);
+                r = access_nofollow(j, F_OK);
                 if (r >= 0)
                         return true; /* yay! */
                 if (r != -ENOENT)
@@ -668,7 +668,7 @@ static int has_tpm2(void) {
          *
          * Note that we don't check if we ourselves are built with TPM2 support here! */
 
-        return FLAGS_SET(tpm2_support(), TPM2_SUPPORT_SUBSYSTEM|TPM2_SUPPORT_FIRMWARE);
+        return FLAGS_SET(tpm2_support_full(TPM2_SUPPORT_SUBSYSTEM|TPM2_SUPPORT_FIRMWARE), TPM2_SUPPORT_SUBSYSTEM|TPM2_SUPPORT_FIRMWARE);
 }
 
 static int condition_test_security(Condition *c, char **env) {
@@ -1009,8 +1009,8 @@ static int condition_test_psi(Condition *c, char **env) {
         const char *p, *value, *pressure_type;
         loadavg_t *current, limit;
         ResourcePressure pressure;
-        int r;
         PressureType preferred_pressure_type = PRESSURE_TYPE_FULL;
+        int r;
 
         assert(c);
         assert(c->parameter);
@@ -1032,7 +1032,7 @@ static int condition_test_psi(Condition *c, char **env) {
         /* If only one parameter is passed, then we look at the global system pressure rather than a specific cgroup. */
         if (r == 1) {
                 /* cpu.pressure 'full' is reported but undefined at system level */
-                if(c->type == CONDITION_CPU_PRESSURE)
+                if (c->type == CONDITION_CPU_PRESSURE)
                         preferred_pressure_type = PRESSURE_TYPE_SOME;
 
                 pressure_path = path_join("/proc/pressure", pressure_type);

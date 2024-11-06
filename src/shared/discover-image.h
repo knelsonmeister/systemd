@@ -5,10 +5,10 @@
 #include <stdint.h>
 
 #include "sd-id128.h"
+#include "sd-json.h"
 
 #include "hashmap.h"
 #include "image-policy.h"
-#include "json.h"
 #include "lock-util.h"
 #include "macro.h"
 #include "os-util.h"
@@ -60,9 +60,9 @@ Image *image_ref(Image *i);
 
 DEFINE_TRIVIAL_CLEANUP_FUNC(Image*, image_unref);
 
-int image_find(ImageClass class, const char *root, const char *name, Image **ret);
+int image_find(ImageClass class, const char *name, const char *root, Image **ret);
 int image_from_path(const char *path, Image **ret);
-int image_find_harder(ImageClass class, const char *root, const char *name_or_path, Image **ret);
+int image_find_harder(ImageClass class, const char *name_or_path, const char *root, Image **ret);
 int image_discover(ImageClass class, const char *root, Hashmap *map);
 
 int image_remove(Image *i);
@@ -117,9 +117,9 @@ static inline bool IMAGE_IS_HOST(const struct Image *i) {
         return false;
 }
 
-int image_to_json(const struct Image *i, JsonVariant **ret);
+int image_to_json(const struct Image *i, sd_json_variant **ret);
 
-const char *image_root_to_string(ImageClass c) _const_;
+const char* image_root_to_string(ImageClass c) _const_;
 
 extern const struct hash_ops image_hash_ops;
 

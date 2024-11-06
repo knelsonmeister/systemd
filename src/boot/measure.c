@@ -3,20 +3,24 @@
 #include <getopt.h>
 #include <unistd.h>
 
+#include "sd-json.h"
+
 #include "alloc-util.h"
+#include "ask-password-api.h"
 #include "build.h"
 #include "efi-loader.h"
 #include "fd-util.h"
 #include "fileio.h"
 #include "hexdecoct.h"
-#include "json.h"
 #include "main-func.h"
 #include "memstream-util.h"
 #include "openssl-util.h"
 #include "parse-argument.h"
 #include "parse-util.h"
+#include "pe-binary.h"
 #include "pretty-print.h"
 #include "sha256.h"
+#include "strv.h"
 #include "terminal-util.h"
 #include "tpm2-pcr.h"
 #include "tpm2-util.h"
@@ -34,7 +38,7 @@ static KeySourceType arg_private_key_source_type = OPENSSL_KEY_SOURCE_FILE;
 static char *arg_private_key_source = NULL;
 static char *arg_public_key = NULL;
 static char *arg_certificate = NULL;
-static JsonFormatFlags arg_json_format_flags = JSON_FORMAT_PRETTY_AUTO|JSON_FORMAT_COLOR_AUTO|JSON_FORMAT_OFF;
+static sd_json_format_flags_t arg_json_format_flags = SD_JSON_FORMAT_PRETTY_AUTO|SD_JSON_FORMAT_COLOR_AUTO|SD_JSON_FORMAT_OFF;
 static PagerFlags arg_pager_flags = 0;
 static bool arg_current = false;
 static char **arg_phase = NULL;
@@ -94,10 +98,12 @@ static int help(int argc, char *argv[], void *userdata) {
                "     --initrd=PATH       Path to initrd image file              %7$s .initrd\n"
                "     --ucode=PATH        Path to microcode image file           %7$s .ucode\n"
                "     --splash=PATH       Path to splash bitmap file             %7$s .splash\n"
-               "     --dtb=PATH          Path to Devicetree file                %7$s .dtb\n"
+               "     --dtb=PATH          Path to DeviceTree file                %7$s .dtb\n"
                "     --uname=PATH        Path to 'uname -r' file                %7$s .uname\n"
                "     --sbat=PATH         Path to SBAT file                      %7$s .sbat\n"
                "     --pcrpkey=PATH      Path to public key for PCR signatures  %7$s .pcrpkey\n"
+               "     --profile=PATH      Path to profile file                   %7$s .profile\n"
+               "     --hwids=PATH        Path to HWIDs file                     %7$s .hwids\n"
                "\nSee the %2$s for details.\n",
                program_invocation_short_name,
                link,
@@ -140,8 +146,11 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_UNAME,
                 ARG_SBAT,
                 _ARG_PCRSIG, /* the .pcrsig section is not input for signing, hence not actually an argument here */
+                ARG_PCRPKEY,
+                ARG_PROFILE,
+                ARG_HWIDS,
                 _ARG_SECTION_LAST,
-                ARG_PCRPKEY = _ARG_SECTION_LAST,
+                ARG_DTBAUTO = _ARG_SECTION_LAST,
                 ARG_BANK,
                 ARG_PRIVATE_KEY,
                 ARG_PRIVATE_KEY_SOURCE,
@@ -164,9 +173,12 @@ static int parse_argv(int argc, char *argv[]) {
                 { "ucode",              required_argument, NULL, ARG_UCODE              },
                 { "splash",             required_argument, NULL, ARG_SPLASH             },
                 { "dtb",                required_argument, NULL, ARG_DTB                },
+                { "dtbauto",            required_argument, NULL, ARG_DTBAUTO            },
                 { "uname",              required_argument, NULL, ARG_UNAME              },
                 { "sbat",               required_argument, NULL, ARG_SBAT               },
                 { "pcrpkey",            required_argument, NULL, ARG_PCRPKEY            },
+                { "profile",            required_argument, NULL, ARG_PROFILE            },
+                { "hwids",              required_argument, NULL, ARG_HWIDS              },
                 { "current",            no_argument,       NULL, 'c'                    },
                 { "bank",               required_argument, NULL, ARG_BANK               },
                 { "tpm2-device",        required_argument, NULL, ARG_TPM2_DEVICE        },
@@ -276,7 +288,7 @@ static int parse_argv(int argc, char *argv[]) {
                 }
 
                 case 'j':
-                        arg_json_format_flags = JSON_FORMAT_PRETTY_AUTO|JSON_FORMAT_COLOR_AUTO;
+                        arg_json_format_flags = SD_JSON_FORMAT_PRETTY_AUTO|SD_JSON_FORMAT_COLOR_AUTO;
                         break;
 
                 case ARG_JSON:
@@ -327,8 +339,7 @@ static int parse_argv(int argc, char *argv[]) {
                         return log_oom();
         }
 
-        strv_sort(arg_banks);
-        strv_uniq(arg_banks);
+        strv_sort_uniq(arg_banks);
 
         if (arg_current)
                 for (UnifiedSection us = 0; us < _UNIFIED_SECTION_MAX; us++)
@@ -345,10 +356,8 @@ static int parse_argv(int argc, char *argv[]) {
                                      "enter-initrd:leave-initrd:sysinit",
                                      "enter-initrd:leave-initrd:sysinit:ready") < 0)
                         return log_oom();
-        } else {
-                strv_sort(arg_phase);
-                strv_uniq(arg_phase);
-        }
+        } else
+                strv_sort_uniq(arg_phase);
 
         _cleanup_free_ char *j = NULL;
         j = strv_join(arg_phase, ", ");
@@ -515,6 +524,38 @@ static int measure_kernel(PcrState *pcr_states, size_t n) {
                         m += sz;
                 }
 
+                if (c == UNIFIED_SECTION_LINUX) {
+                        _cleanup_free_ PeHeader *pe_header = NULL;
+
+                        r = pe_load_headers(fd, /*ret_dos_header=*/ NULL, &pe_header);
+                        if (r < 0)
+                                log_warning_errno(r, "Failed to parse kernel image file '%s', ignoring: %m", arg_sections[c]);
+                        else if (m < pe_header->optional.SizeOfImage) {
+                                memzero(buffer, BUFFER_SIZE);
+
+                                /* Our EFI stub measures VirtualSize bytes of the .linux section into PCR 11.
+                                 * Notably, VirtualSize can be larger than the section's size on disk. In
+                                 * that case the extra space is initialized with zeros, so the stub ends up
+                                 * measuring a bunch of zeros. To accommodate this, we have to measure the
+                                 * same number of zeros here. We opt to measure extra zeros here instead of
+                                 * modifying the stub to only measure the number of bytes on disk as we want
+                                 * newer ukify + systemd-measure to work with older versions of the stub and
+                                 * as of 6.12 the kernel image's VirtualSize won't be larger than its size on
+                                 * disk anymore (see https://github.com/systemd/systemd/issues/34578#issuecomment-2382459515).
+                                 */
+
+                                while (m < pe_header->optional.SizeOfImage) {
+                                        uint64_t sz = MIN(BUFFER_SIZE, pe_header->optional.SizeOfImage - m);
+
+                                        for (size_t i = 0; i < n; i++)
+                                                if (EVP_DigestUpdate(mdctx[i], buffer, sz) != 1)
+                                                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to run digest.");
+
+                                        m += sz;
+                                }
+                        }
+                }
+
                 fd = safe_close(fd);
 
                 if (m == 0) /* We skip over empty files, the stub does so too */
@@ -676,7 +717,7 @@ static void pcr_states_restore(PcrState *pcr_states, size_t n) {
 }
 
 static int verb_calculate(int argc, char *argv[], void *userdata) {
-        _cleanup_(json_variant_unrefp) JsonVariant *w = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *w = NULL;
         _cleanup_(pcr_state_free_all) PcrState *pcr_states = NULL;
         int r;
 
@@ -713,7 +754,7 @@ static int verb_calculate(int argc, char *argv[], void *userdata) {
                         return r;
 
                 for (size_t i = 0; i < n; i++) {
-                        if (arg_json_format_flags & JSON_FORMAT_OFF) {
+                        if (!sd_json_format_enabled(arg_json_format_flags)) {
                                 _cleanup_free_ char *hd = NULL;
 
                                 if (i == 0) {
@@ -732,20 +773,19 @@ static int verb_calculate(int argc, char *argv[], void *userdata) {
 
                                 printf("%i:%s=%s\n", TPM2_PCR_KERNEL_BOOT, pcr_states[i].bank, hd);
                         } else {
-                                _cleanup_(json_variant_unrefp) JsonVariant *array = NULL;
+                                _cleanup_(sd_json_variant_unrefp) sd_json_variant *array = NULL;
 
-                                array = json_variant_ref(json_variant_by_key(w, pcr_states[i].bank));
+                                array = sd_json_variant_ref(sd_json_variant_by_key(w, pcr_states[i].bank));
 
-                                r = json_variant_append_arrayb(
+                                r = sd_json_variant_append_arraybo(
                                                 &array,
-                                                JSON_BUILD_OBJECT(
-                                                                JSON_BUILD_PAIR_CONDITION(!isempty(*phase), "phase", JSON_BUILD_STRING(*phase)),
-                                                                JSON_BUILD_PAIR("pcr", JSON_BUILD_INTEGER(TPM2_PCR_KERNEL_BOOT)),
-                                                                JSON_BUILD_PAIR("hash", JSON_BUILD_HEX(pcr_states[i].value, pcr_states[i].value_size))));
+                                                SD_JSON_BUILD_PAIR_CONDITION(!isempty(*phase), "phase", SD_JSON_BUILD_STRING(*phase)),
+                                                SD_JSON_BUILD_PAIR("pcr", SD_JSON_BUILD_INTEGER(TPM2_PCR_KERNEL_BOOT)),
+                                                SD_JSON_BUILD_PAIR("hash", SD_JSON_BUILD_HEX(pcr_states[i].value, pcr_states[i].value_size)));
                                 if (r < 0)
                                         return log_error_errno(r, "Failed to append JSON object to array: %m");
 
-                                r = json_variant_set_field(&w, pcr_states[i].bank, array);
+                                r = sd_json_variant_set_field(&w, pcr_states[i].bank, array);
                                 if (r < 0)
                                         return log_error_errno(r, "Failed to add bank info to object: %m");
                         }
@@ -755,20 +795,21 @@ static int verb_calculate(int argc, char *argv[], void *userdata) {
                 pcr_states_restore(pcr_states, n);
         }
 
-        if (!FLAGS_SET(arg_json_format_flags, JSON_FORMAT_OFF)) {
+        if (sd_json_format_enabled(arg_json_format_flags)) {
 
-                if (arg_json_format_flags & (JSON_FORMAT_PRETTY|JSON_FORMAT_PRETTY_AUTO))
+                if (arg_json_format_flags & (SD_JSON_FORMAT_PRETTY|SD_JSON_FORMAT_PRETTY_AUTO))
                         pager_open(arg_pager_flags);
 
-                json_variant_dump(w, arg_json_format_flags, stdout, NULL);
+                sd_json_variant_dump(w, arg_json_format_flags, stdout, NULL);
         }
 
         return 0;
 }
 
 static int verb_sign(int argc, char *argv[], void *userdata) {
-        _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
         _cleanup_(pcr_state_free_all) PcrState *pcr_states = NULL;
+        _cleanup_(openssl_ask_password_ui_freep) OpenSSLAskPasswordUI *ui = NULL;
         _cleanup_(EVP_PKEY_freep) EVP_PKEY *privkey = NULL, *pubkey = NULL;
         _cleanup_(X509_freep) X509 *certificate = NULL;
         size_t n;
@@ -786,68 +827,45 @@ static int verb_sign(int argc, char *argv[], void *userdata) {
         assert(!strv_isempty(arg_phase));
 
         if (arg_append) {
-                r = json_parse_file(NULL, arg_append, 0, &v, NULL, NULL);
+                r = sd_json_parse_file(NULL, arg_append, 0, &v, NULL, NULL);
                 if (r < 0)
                         return log_error_errno(r, "Failed to parse '%s': %m", arg_append);
 
-                if (!json_variant_is_object(v))
+                if (!sd_json_variant_is_object(v))
                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
                                                "File '%s' is not a valid JSON object, refusing.", arg_append);
         }
 
         /* When signing we only support JSON output */
-        arg_json_format_flags &= ~JSON_FORMAT_OFF;
+        arg_json_format_flags &= ~SD_JSON_FORMAT_OFF;
 
-        /* This must be done before openssl_load_key_from_token() otherwise it will get stuck */
+        /* This must be done before openssl_load_private_key() otherwise it will get stuck */
         if (arg_certificate) {
-                _cleanup_(BIO_freep) BIO *cb = NULL;
-                _cleanup_free_ char *crt = NULL;
-
-                r = read_full_file_full(
-                                AT_FDCWD, arg_certificate, UINT64_MAX, SIZE_MAX,
-                                READ_FULL_FILE_CONNECT_SOCKET,
-                                /* bind_name= */ NULL,
-                                &crt, &n);
+                r = openssl_load_x509_certificate(arg_certificate, &certificate);
                 if (r < 0)
-                        return log_error_errno(r, "Failed to read certificate file '%s': %m", arg_certificate);
-
-                cb = BIO_new_mem_buf(crt, n);
-                if (!cb)
-                        return log_oom();
-
-                certificate = PEM_read_bio_X509(cb, NULL, NULL, NULL);
-                if (!certificate)
-                        return log_error_errno(
-                                        SYNTHETIC_ERRNO(EBADMSG),
-                                        "Failed to parse X.509 certificate: %s",
-                                        ERR_error_string(ERR_get_error(), NULL));
+                        return log_error_errno(r, "Failed to load X.509 certificate from %s: %m", arg_certificate);
         }
 
-        if (arg_private_key_source_type == OPENSSL_KEY_SOURCE_FILE) {
-                _cleanup_fclose_ FILE *privkeyf = NULL;
-                _cleanup_free_ char *resolved_pkey = NULL;
+        if (arg_private_key) {
+                if (arg_private_key_source_type == OPENSSL_KEY_SOURCE_FILE) {
+                        r = parse_path_argument(arg_private_key, /* suppress_root= */ false, &arg_private_key);
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to parse private key path %s: %m", arg_private_key);
+                }
 
-                r = parse_path_argument(arg_private_key, /* suppress_root= */ false, &resolved_pkey);
+                r = openssl_load_private_key(
+                                arg_private_key_source_type,
+                                arg_private_key_source,
+                                arg_private_key,
+                                &(AskPasswordRequest) {
+                                        .id = "measure-private-key-pin",
+                                        .keyring = arg_private_key,
+                                        .credential = "measure.private-key-pin",
+                                },
+                                &privkey,
+                                &ui);
                 if (r < 0)
-                        return log_error_errno(r, "Failed to parse private key path %s: %m", arg_private_key);
-
-                privkeyf = fopen(resolved_pkey, "re");
-                if (!privkeyf)
-                        return log_error_errno(errno, "Failed to open private key file '%s': %m", resolved_pkey);
-
-                privkey = PEM_read_PrivateKey(privkeyf, NULL, NULL, NULL);
-                if (!privkey)
-                        return log_error_errno(SYNTHETIC_ERRNO(EIO), "Failed to parse private key '%s'.", resolved_pkey);
-        } else if (arg_private_key_source &&
-                   IN_SET(arg_private_key_source_type, OPENSSL_KEY_SOURCE_ENGINE, OPENSSL_KEY_SOURCE_PROVIDER)) {
-                r = openssl_load_key_from_token(
-                                arg_private_key_source_type, arg_private_key_source, arg_private_key, &privkey);
-                if (r < 0)
-                        return log_error_errno(
-                                        r,
-                                        "Failed to load key '%s' from OpenSSL key source %s: %m",
-                                        arg_private_key,
-                                        arg_private_key_source);
+                        return log_error_errno(r, "Failed to load private key from %s: %m", arg_private_key);
         }
 
         if (arg_public_key) {
@@ -939,28 +957,28 @@ static int verb_sign(int argc, char *argv[], void *userdata) {
                         if (r < 0)
                                 return r;
 
-                        _cleanup_(json_variant_unrefp) JsonVariant *a = NULL;
+                        _cleanup_(sd_json_variant_unrefp) sd_json_variant *a = NULL;
                         r = tpm2_make_pcr_json_array(UINT64_C(1) << TPM2_PCR_KERNEL_BOOT, &a);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to build JSON PCR mask array: %m");
 
-                        _cleanup_(json_variant_unrefp) JsonVariant *bv = NULL;
-                        r = json_build(&bv, JSON_BUILD_OBJECT(
-                                                       JSON_BUILD_PAIR("pcrs", JSON_BUILD_VARIANT(a)),                                             /* PCR mask */
-                                                       JSON_BUILD_PAIR("pkfp", JSON_BUILD_HEX(pubkey_fp, pubkey_fp_size)),                         /* SHA256 fingerprint of public key (DER) used for the signature */
-                                                       JSON_BUILD_PAIR("pol", JSON_BUILD_HEX(pcr_policy_digest.buffer, pcr_policy_digest.size)),   /* TPM2 policy hash that is signed */
-                                                       JSON_BUILD_PAIR("sig", JSON_BUILD_BASE64(sig, ss))));                                       /* signature data */
+                        _cleanup_(sd_json_variant_unrefp) sd_json_variant *bv = NULL;
+                        r = sd_json_buildo(&bv,
+                                           SD_JSON_BUILD_PAIR("pcrs", SD_JSON_BUILD_VARIANT(a)),                                             /* PCR mask */
+                                           SD_JSON_BUILD_PAIR("pkfp", SD_JSON_BUILD_HEX(pubkey_fp, pubkey_fp_size)),                         /* SHA256 fingerprint of public key (DER) used for the signature */
+                                           SD_JSON_BUILD_PAIR("pol", SD_JSON_BUILD_HEX(pcr_policy_digest.buffer, pcr_policy_digest.size)),   /* TPM2 policy hash that is signed */
+                                           SD_JSON_BUILD_PAIR("sig", SD_JSON_BUILD_BASE64(sig, ss)));                                        /* signature data */
                         if (r < 0)
                                 return log_error_errno(r, "Failed to build JSON object: %m");
 
-                        _cleanup_(json_variant_unrefp) JsonVariant *av = NULL;
-                        av = json_variant_ref(json_variant_by_key(v, p->bank));
+                        _cleanup_(sd_json_variant_unrefp) sd_json_variant *av = NULL;
+                        av = sd_json_variant_ref(sd_json_variant_by_key(v, p->bank));
 
-                        r = json_variant_append_array_nodup(&av, bv);
+                        r = sd_json_variant_append_array_nodup(&av, bv);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to append JSON object: %m");
 
-                        r = json_variant_set_field(&v, p->bank, av);
+                        r = sd_json_variant_set_field(&v, p->bank, av);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to add JSON field: %m");
                 }
@@ -969,10 +987,10 @@ static int verb_sign(int argc, char *argv[], void *userdata) {
                 pcr_states_restore(pcr_states, n);
         }
 
-        if (arg_json_format_flags & (JSON_FORMAT_PRETTY|JSON_FORMAT_PRETTY_AUTO))
+        if (arg_json_format_flags & (SD_JSON_FORMAT_PRETTY|SD_JSON_FORMAT_PRETTY_AUTO))
                 pager_open(arg_pager_flags);
 
-        json_variant_dump(v, arg_json_format_flags, stdout, NULL);
+        sd_json_variant_dump(v, arg_json_format_flags, stdout, NULL);
 
         return 0;
 }
@@ -1004,7 +1022,7 @@ static int validate_stub(void) {
         bool found = false;
         int r;
 
-        if (tpm2_support() != TPM2_SUPPORT_FULL)
+        if (!tpm2_is_fully_supported())
                 return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Sorry, system lacks full TPM2 support.");
 
         r = efi_stub_get_features(&features);
@@ -1015,15 +1033,7 @@ static int validate_stub(void) {
                 log_warning("Warning: current kernel image does not support measuring itself, the command line or initrd system extension images.\n"
                             "The PCR measurements seen are unlikely to be valid.");
 
-        r = compare_reported_pcr_nr(TPM2_PCR_KERNEL_BOOT, EFI_LOADER_VARIABLE(StubPcrKernelImage), "kernel image");
-        if (r < 0)
-                return r;
-
-        r = compare_reported_pcr_nr(TPM2_PCR_KERNEL_CONFIG, EFI_LOADER_VARIABLE(StubPcrKernelParameters), "kernel parameters");
-        if (r < 0)
-                return r;
-
-        r = compare_reported_pcr_nr(TPM2_PCR_SYSEXTS, EFI_LOADER_VARIABLE(StubPcrInitRDSysExts), "initrd system extension images");
+        r = compare_reported_pcr_nr(TPM2_PCR_KERNEL_BOOT, EFI_LOADER_VARIABLE_STR("StubPcrKernelImage"), "kernel image");
         if (r < 0)
                 return r;
 
@@ -1051,95 +1061,84 @@ static int validate_stub(void) {
 }
 
 static int verb_status(int argc, char *argv[], void *userdata) {
-        static const uint32_t relevant_pcrs[] = {
-                TPM2_PCR_KERNEL_BOOT,
-                TPM2_PCR_KERNEL_CONFIG,
-                TPM2_PCR_SYSEXTS,
-        };
-
-        _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
         int r;
 
         r = validate_stub();
         if (r < 0)
                 return r;
 
-        for (size_t i = 0; i < ELEMENTSOF(relevant_pcrs); i++) {
+        STRV_FOREACH(bank, arg_banks) {
+                _cleanup_free_ char *b = NULL, *p = NULL, *s = NULL;
+                _cleanup_free_ void *h = NULL;
+                size_t l;
 
-                STRV_FOREACH(bank, arg_banks) {
-                        _cleanup_free_ char *b = NULL, *p = NULL, *s = NULL;
-                        _cleanup_free_ void *h = NULL;
-                        size_t l;
+                b = strdup(*bank);
+                if (!b)
+                        return log_oom();
 
-                        b = strdup(*bank);
-                        if (!b)
+                if (asprintf(&p, "/sys/class/tpm/tpm0/pcr-%s/%" PRIu32, ascii_strlower(b), (uint32_t) TPM2_PCR_KERNEL_BOOT) < 0)
+                        return log_oom();
+
+                r = read_virtual_file(p, 4096, &s, NULL);
+                if (r == -ENOENT)
+                        continue;
+                if (r < 0)
+                        return log_error_errno(r, "Failed to read '%s': %m", p);
+
+                r = unhexmem(strstrip(s), &h, &l);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to decode PCR value '%s': %m", s);
+
+                if (!sd_json_format_enabled(arg_json_format_flags)) {
+                        _cleanup_free_ char *f = NULL;
+
+                        f = hexmem(h, l);
+                        if (!h)
                                 return log_oom();
 
-                        if (asprintf(&p, "/sys/class/tpm/tpm0/pcr-%s/%" PRIu32, ascii_strlower(b), relevant_pcrs[i]) < 0)
-                                return log_oom();
-
-                        r = read_virtual_file(p, 4096, &s, NULL);
-                        if (r == -ENOENT)
-                                continue;
-                        if (r < 0)
-                                return log_error_errno(r, "Failed to read '%s': %m", p);
-
-                        r = unhexmem(strstrip(s), &h, &l);
-                        if (r < 0)
-                                return log_error_errno(r, "Failed to decode PCR value '%s': %m", s);
-
-                        if (arg_json_format_flags & JSON_FORMAT_OFF) {
-                                _cleanup_free_ char *f = NULL;
-
-                                f = hexmem(h, l);
-                                if (!h)
-                                        return log_oom();
-
-                                if (bank == arg_banks) {
-                                        /* before the first line for each PCR, write a short descriptive text to
-                                         * stderr, and leave the primary content on stdout */
-                                        fflush(stdout);
-                                        fprintf(stderr, "%s# PCR[%" PRIu32 "] %s%s%s\n",
-                                                ansi_grey(),
-                                                relevant_pcrs[i],
-                                                tpm2_pcr_index_to_string(relevant_pcrs[i]),
-                                                memeqzero(h, l) ? " (NOT SET!)" : "",
-                                                ansi_normal());
-                                        fflush(stderr);
-                                }
-
-                                printf("%" PRIu32 ":%s=%s\n", relevant_pcrs[i], b, f);
-
-                        } else {
-                                _cleanup_(json_variant_unrefp) JsonVariant *bv = NULL, *a = NULL;
-
-                                r = json_build(&bv,
-                                               JSON_BUILD_OBJECT(
-                                                               JSON_BUILD_PAIR("pcr", JSON_BUILD_INTEGER(relevant_pcrs[i])),
-                                                               JSON_BUILD_PAIR("hash", JSON_BUILD_HEX(h, l))
-                                               )
-                                );
-                                if (r < 0)
-                                        return log_error_errno(r, "Failed to build JSON object: %m");
-
-                                a = json_variant_ref(json_variant_by_key(v, b));
-
-                                r = json_variant_append_array(&a, bv);
-                                if (r < 0)
-                                        return log_error_errno(r, "Failed to append PCR entry to JSON array: %m");
-
-                                r = json_variant_set_field(&v, b, a);
-                                if (r < 0)
-                                        return log_error_errno(r, "Failed to add bank info to object: %m");
+                        if (bank == arg_banks) {
+                                /* before the first line for each PCR, write a short descriptive text to
+                                 * stderr, and leave the primary content on stdout */
+                                fflush(stdout);
+                                fprintf(stderr, "%s# PCR[%" PRIu32 "] %s%s%s\n",
+                                        ansi_grey(),
+                                        (uint32_t) TPM2_PCR_KERNEL_BOOT,
+                                        tpm2_pcr_index_to_string(TPM2_PCR_KERNEL_BOOT),
+                                        memeqzero(h, l) ? " (NOT SET!)" : "",
+                                        ansi_normal());
+                                fflush(stderr);
                         }
+
+                        printf("%" PRIu32 ":%s=%s\n", (uint32_t) TPM2_PCR_KERNEL_BOOT, b, f);
+
+                } else {
+                        _cleanup_(sd_json_variant_unrefp) sd_json_variant *bv = NULL, *a = NULL;
+
+                        r = sd_json_buildo(
+                                        &bv,
+                                        SD_JSON_BUILD_PAIR("pcr", SD_JSON_BUILD_INTEGER(TPM2_PCR_KERNEL_BOOT)),
+                                        SD_JSON_BUILD_PAIR("hash", SD_JSON_BUILD_HEX(h, l)));
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to build JSON object: %m");
+
+                        a = sd_json_variant_ref(sd_json_variant_by_key(v, b));
+
+                        r = sd_json_variant_append_array(&a, bv);
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to append PCR entry to JSON array: %m");
+
+                        r = sd_json_variant_set_field(&v, b, a);
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to add bank info to object: %m");
                 }
         }
 
-        if (!FLAGS_SET(arg_json_format_flags, JSON_FORMAT_OFF)) {
-                if (arg_json_format_flags & (JSON_FORMAT_PRETTY|JSON_FORMAT_PRETTY_AUTO))
+        if (sd_json_format_enabled(arg_json_format_flags)) {
+                if (arg_json_format_flags & (SD_JSON_FORMAT_PRETTY|SD_JSON_FORMAT_PRETTY_AUTO))
                         pager_open(arg_pager_flags);
 
-                json_variant_dump(v, arg_json_format_flags, stdout, NULL);
+                sd_json_variant_dump(v, arg_json_format_flags, stdout, NULL);
         }
 
         return 0;

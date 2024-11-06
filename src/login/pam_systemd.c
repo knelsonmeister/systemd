@@ -27,6 +27,7 @@
 #include "cap-list.h"
 #include "capability-util.h"
 #include "cgroup-setup.h"
+#include "creds-util.h"
 #include "devnum-util.h"
 #include "errno-util.h"
 #include "fd-util.h"
@@ -196,10 +197,10 @@ static int acquire_user_record(
         if (!IN_SET(r, PAM_SUCCESS, PAM_NO_MODULE_DATA))
                 return pam_syslog_pam_error(handle, LOG_ERR, r, "Failed to get PAM user record data: @PAMERR@");
         if (r == PAM_SUCCESS && json) {
-                _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+                _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
 
                 /* Parse cached record */
-                r = json_parse(json, JSON_PARSE_SENSITIVE, &v, NULL, NULL);
+                r = sd_json_parse(json, SD_JSON_PARSE_SENSITIVE, &v, NULL, NULL);
                 if (r < 0)
                         return pam_syslog_errno(handle, LOG_ERR, r, "Failed to parse JSON user record: %m");
 
@@ -225,7 +226,7 @@ static int acquire_user_record(
                         return PAM_USER_UNKNOWN;
                 }
 
-                r = json_variant_format(ur->json, 0, &formatted);
+                r = sd_json_variant_format(ur->json, 0, &formatted);
                 if (r < 0)
                         return pam_syslog_errno(handle, LOG_ERR, r, "Failed to format user JSON: %m");
 
@@ -563,6 +564,31 @@ static int update_environment(pam_handle_t *handle, const char *key, const char 
         if (r != PAM_SUCCESS)
                 return pam_syslog_pam_error(handle, LOG_ERR, r,
                                             "Failed to set environment variable %s: @PAMERR@", key);
+
+        return PAM_SUCCESS;
+}
+
+static int propagate_credential_to_environment(pam_handle_t *handle, const char *credential, const char *varname) {
+        int r;
+
+        assert(handle);
+        assert(credential);
+        assert(varname);
+
+        _cleanup_free_ char *value = NULL;
+
+        /* Read a service credential, and propagate it into an environment variable */
+
+        r = read_credential(credential, (void**) &value, /* ret_size= */ NULL);
+        if (r < 0) {
+                log_debug_errno(r, "Failed to read credential '%s', ignoring: %m", credential);
+                return PAM_SUCCESS;
+        }
+
+        r = pam_misc_setenv(handle, varname, value, 0);
+        if (r != PAM_SUCCESS)
+                return pam_syslog_pam_error(handle, LOG_ERR, r,
+                                            "Failed to set environment variable %s: @PAMERR@", varname);
 
         return PAM_SUCCESS;
 }
@@ -1061,7 +1087,7 @@ _public_ PAM_EXTERN int pam_sm_open_session(
                 return pam_syslog_pam_error(handle, LOG_ERR, r, "Failed to get PAM systemd.runtime_max_sec data: @PAMERR@");
 
         /* Talk to logind over the message bus */
-        r = pam_acquire_bus_connection(handle, "pam-systemd", &bus, &d);
+        r = pam_acquire_bus_connection(handle, "pam-systemd", debug, &bus, &d);
         if (r != PAM_SUCCESS)
                 return r;
 
@@ -1192,6 +1218,19 @@ _public_ PAM_EXTERN int pam_sm_open_session(
         if (r != PAM_SUCCESS)
                 return r;
 
+        static const char *const propagate[] = {
+                "shell.prompt.prefix", "SHELL_PROMPT_PREFIX",
+                "shell.prompt.suffix", "SHELL_PROMPT_SUFFIX",
+                "shell.welcome",       "SHELL_WELCOME",
+                NULL
+        };
+
+        STRV_FOREACH_PAIR(k, v, propagate) {
+                r = propagate_credential_to_environment(handle, *k, *v);
+                if (r != PAM_SUCCESS)
+                        return r;
+        }
+
         if (vtnr > 0) {
                 char buf[DECIMAL_STR_MAX(vtnr)];
                 sprintf(buf, "%u", vtnr);
@@ -1264,7 +1303,7 @@ _public_ PAM_EXTERN int pam_sm_close_session(
                 /* Before we go and close the FIFO we need to tell logind that this is a clean session
                  * shutdown, so that it doesn't just go and slaughter us immediately after closing the fd */
 
-                r = pam_acquire_bus_connection(handle, "pam-systemd", &bus, NULL);
+                r = pam_acquire_bus_connection(handle, "pam-systemd", debug, &bus, NULL);
                 if (r != PAM_SUCCESS)
                         return r;
 

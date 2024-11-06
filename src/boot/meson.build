@@ -30,7 +30,7 @@ executables += [
                 ],
                 'sources' : bootctl_sources,
                 'link_with' : boot_link_with,
-                'dependencies' : libblkid,
+                'dependencies' : [libblkid, libopenssl],
         },
         libexec_template + {
                 'name' : 'systemd-bless-boot',
@@ -60,6 +60,14 @@ executables += [
                         'HAVE_TPM2',
                 ],
                 'sources' : files('measure.c'),
+                'dependencies' : libopenssl,
+        },
+        libexec_template + {
+                'name' : 'systemd-sbsign',
+                'conditions' : [
+                        'HAVE_OPENSSL',
+                ],
+                'sources' : files('sbsign.c'),
                 'dependencies' : libopenssl,
         },
         libexec_template + {

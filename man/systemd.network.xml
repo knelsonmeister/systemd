@@ -188,8 +188,9 @@
       <varlistentry>
         <term><varname>ARP=</varname></term>
         <listitem>
-          <para>Takes a boolean. If set to true, the ARP (low-level Address Resolution Protocol)
-          for this interface is enabled. When unset, the kernel's default will be used.</para>
+          <para>Takes a boolean. If set to true, the IPv4 ARP (low-level Address Resolution Protocol)
+          and IPv6 NDP (Neighbor Discovery Protocol) for this interface are enabled. When unset, the
+          kernel's default will be used.</para>
           <para> For example, disabling ARP is useful when creating multiple MACVLAN or VLAN virtual
           interfaces atop a single lower-level physical interface, which will then only serve as a
           link/"bridge" device aggregating traffic to the same physical link and not participate in
@@ -1004,6 +1005,27 @@ DuplicateAddressDetection=none</programlisting></para>
       </varlistentry>
 
       <varlistentry>
+        <term><varname>MulticastIGMPVersion=</varname></term>
+        <listitem>
+          <para>Configures IPv4 Multicast IGMP Version to be used, and controls the value of
+          <filename>/proc/sys/net/ipv4/conf/<replaceable>INTERFACE</replaceable>/force_igmp_version</filename>.
+          Takes one of <literal>no</literal>,
+          <literal>v1</literal>, <literal>v2</literal>, or <literal>v3</literal>.
+          When <literal>no</literal>, no enforcement of an IGMP version will be applied, IGMPv1/v2 fallback are allowed, will back to
+          IGMPv3 mode again if all IGMPv1/v2 Querier Present timer expire.
+          When <literal>v1</literal>, use of IGMP version 1 will be enforced, and IGMPv1 report will be replied even if IGMPv2/v3
+          queries are received.
+          When <literal>v2</literal>, use of IGMP version 2 will be enforced, and IGMPv2 report will be replied if an IGMPv2/v3 query
+          is received, but fallback to IGMPv1 if an IGMPv1 query is received.
+          When <literal>v3</literal>, use of IGMP version 3 will be enforced, and the same reaction will be done as <literal>no</literal>.
+          Defaults to unset, and the sysctl value will be unchanged.
+          </para>
+
+          <xi:include href="version-info.xml" xpointer="v257"/>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
         <term><varname>IPv4AcceptLocal=</varname></term>
         <listitem>
           <para>Takes a boolean. Accept packets with local source addresses. In combination with
@@ -1628,8 +1650,8 @@ NFTSet=prefix:netdev:filter:eth_ipv4_prefix</programlisting>
       <varlistentry>
         <term><varname>Label=</varname></term>
         <listitem>
-          <para>The label for the prefix, an unsigned integer in the range 0…4294967294. 0xffffffff is
-          reserved. This setting is mandatory.</para>
+          <para>The label for the prefix. Takes an unsigned integer in the range 0…4294967294 (0xfffffffe).
+          4294967295 (0xffffffff) is reserved. This setting is mandatory.</para>
 
           <xi:include href="version-info.xml" xpointer="v234"/>
         </listitem>
@@ -1638,8 +1660,8 @@ NFTSet=prefix:netdev:filter:eth_ipv4_prefix</programlisting>
       <varlistentry>
         <term><varname>Prefix=</varname></term>
         <listitem>
-          <para>IPv6 prefix is an address with a prefix length, separated by a slash
-          <literal>/</literal> character. This setting is mandatory. </para>
+          <para>Takes an IPv6 address with a prefix length, separated by a slash
+          <literal>/</literal> character. This setting is mandatory.</para>
 
           <xi:include href="version-info.xml" xpointer="v234"/>
         </listitem>
@@ -1725,6 +1747,18 @@ NFTSet=prefix:netdev:filter:eth_ipv4_prefix</programlisting>
           increasing number. Defaults to unset, and the kernel will pick a value dynamically.</para>
 
         <xi:include href="version-info.xml" xpointer="v235"/>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><varname>GoTo=</varname></term>
+        <listitem>
+          <para>Specifies the target priority used by <literal>goto</literal> type of rule. Takes an integer
+          in the range 1…4294967295. This must be larger than the priority of this rule specified in
+          <varname>Priority=</varname>. When specified, <varname>Type=goto</varname> is implied. This is
+          mandatory when <varname>Type=goto</varname>.</para>
+
+          <xi:include href="version-info.xml" xpointer="v257"/>
         </listitem>
       </varlistentry>
 
@@ -1853,8 +1887,10 @@ NFTSet=prefix:netdev:filter:eth_ipv4_prefix</programlisting>
         <term><varname>Type=</varname></term>
         <listitem>
           <para>Specifies Routing Policy Database (RPDB) rule type. Takes one of
-          <literal>blackhole</literal>, <literal>unreachable</literal> or <literal>prohibit</literal>.
-          </para>
+          <literal>table</literal>, <literal>goto</literal>, <literal>nop</literal>,
+          <literal>blackhole</literal>, <literal>unreachable</literal>, or <literal>prohibit</literal>.
+          When <literal>goto</literal>, the target priority must be specified in <varname>GoTo=</varname>.
+          Defaults to <literal>table</literal>.</para>
 
           <xi:include href="version-info.xml" xpointer="v248"/>
         </listitem>
@@ -2591,6 +2627,18 @@ NFTSet=prefix:netdev:filter:eth_ipv4_prefix</programlisting>
       </varlistentry>
 
       <varlistentry>
+        <term><varname>UseDNR=</varname></term>
+        <listitem>
+          <para>When true, designated resolvers advertised by the DHCP server will be used as encrypted
+          DNS servers. See <ulink url="https://datatracker.ietf.org/doc/html/rfc9463">RFC 9463</ulink>.</para>
+
+          <para>Defaults to unset, and the value for <varname>UseDNS=</varname> will be used.</para>
+
+          <xi:include href="version-info.xml" xpointer="v257"/>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
         <term><varname>UseMTU=</varname></term>
         <listitem>
           <para>When true, the interface maximum transmission unit from the DHCP server will be used on
@@ -2759,6 +2807,23 @@ NFTSet=prefix:netdev:filter:eth_ipv4_prefix</programlisting>
           false.</para>
 
           <xi:include href="version-info.xml" xpointer="v250"/>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><varname>UnassignedSubnetPolicy=</varname></term>
+        <listitem>
+          <para>Takes <literal>none</literal>, or one of the reject types: <literal>unreachable</literal>,
+          <literal>prohibit</literal>, <literal>blackhole</literal>, or <literal>throw</literal>. If a reject
+          type is specified, the reject route corresponding to the acquired 6RD prefix will be configured.
+          For example, when <literal>unreachable</literal>,
+          <programlisting>unreachable 2001:db8::/56 dev lo proto dhcp metric 1024 pref medium</programlisting>
+          will be configured. See <ulink url="https://datatracker.ietf.org/doc/html/rfc7084">RFC 7084</ulink>.
+          If <literal>none</literal> is specified, such route will not be configured. This may be useful when
+          custom firewall rules that handle packets for unassigned subnets will be configured.
+          Defaults to <literal>unreachable</literal>.</para>
+
+          <xi:include href="version-info.xml" xpointer="v257"/>
         </listitem>
       </varlistentry>
 
@@ -3003,6 +3068,23 @@ NFTSet=prefix:netdev:filter:eth_ipv4_prefix</programlisting>
       </varlistentry>
 
       <varlistentry>
+        <term><varname>UnassignedSubnetPolicy=</varname></term>
+        <listitem>
+          <para>Takes <literal>none</literal> or one of the reject types: <literal>unreachable</literal>,
+          <literal>prohibit</literal>, <literal>blackhole</literal>, or <literal>throw</literal>. If a reject
+          type is specified, the reject route corresponding to the delegated prefix will be configured.
+          For example, when <literal>unreachable</literal>,
+          <programlisting>unreachable 2001:db8::/56 dev lo proto dhcp metric 1024 pref medium</programlisting>
+          will be configured. See <ulink url="https://datatracker.ietf.org/doc/html/rfc7084">RFC 7084</ulink>.
+          If <literal>none</literal> is specified, such route will not be configured. This may be useful when
+          custom firewall rules that handle packets for unassigned subnets will be configured.
+          Defaults to <literal>unreachable</literal>.</para>
+
+          <xi:include href="version-info.xml" xpointer="v257"/>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
         <term><varname>RapidCommit=</varname></term>
         <listitem>
           <para>Takes a boolean. The DHCPv6 client can obtain configuration parameters from a DHCPv6 server
@@ -3082,6 +3164,7 @@ NFTSet=prefix:netdev:filter:eth_ipv4_prefix</programlisting>
 
       <varlistentry>
         <term><varname>UseDNS=</varname></term>
+        <term><varname>UseDNR=</varname></term>
         <term><varname>UseNTP=</varname></term>
         <term><varname>UseHostname=</varname></term>
         <term><varname>UseDomains=</varname></term>
@@ -3366,6 +3449,16 @@ Token=prefixstable:2002:da8:1::</programlisting></para>
           project='man-pages'><refentrytitle>resolv.conf</refentrytitle><manvolnum>5</manvolnum></citerefentry>.</para>
 
           <xi:include href="version-info.xml" xpointer="v231"/>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><varname>UseDNR=</varname></term>
+        <listitem>
+          <para> When true, the DNR servers received in the Router Advertisement will be used. Defaults to
+            the value of <option>UseDNS=</option>.</para>
+
+          <xi:include href="version-info.xml" xpointer="v257"/>
         </listitem>
       </varlistentry>
 
@@ -4582,7 +4675,7 @@ ServerAddress=192.168.0.1/24</programlisting>
       <varlistentry>
         <term><varname>MulticastGroupAddress=</varname></term>
         <listitem>
-          <para>Specifies the IPv4 or IPv6 multicast group address to add. This setting is mandatory.</para>
+          <para>Specifies the IPv4, IPv6, or L2 MAC multicast group address to add. This setting is mandatory.</para>
 
           <xi:include href="version-info.xml" xpointer="v247"/>
         </listitem>
@@ -6017,6 +6110,26 @@ ServerAddress=192.168.0.1/24</programlisting>
   </refsect1>
 
   <refsect1>
+    <title>[ClassfulMultiQueueing] Section Options</title>
+    <para>The [ClassfulMultiQueueing] section manages the queueing discipline (qdisc) of Classful Multi Queueing (mq).</para>
+
+    <variablelist class='network-directives'>
+      <xi:include href="tc.xml" xpointer="qdisc-parent" />
+      <xi:include href="tc.xml" xpointer="qdisc-handle" />
+    </variablelist>
+  </refsect1>
+
+  <refsect1>
+    <title>[BandMultiQueueing] Section Options</title>
+    <para>The [BandMultiQueueing] section manages the queueing discipline (qdisc) of Band Multi Queueing (multiq).</para>
+
+    <variablelist class='network-directives'>
+      <xi:include href="tc.xml" xpointer="qdisc-parent" />
+      <xi:include href="tc.xml" xpointer="qdisc-handle" />
+    </variablelist>
+  </refsect1>
+
+  <refsect1>
     <title>[HeavyHitterFilter] Section Options</title>
     <para>The [HeavyHitterFilter] section manages the queueing discipline (qdisc) of Heavy Hitter Filter
     (hhf).</para>
@@ -6174,22 +6287,30 @@ Name=enp1s0
 [Network]
 DHCP=ipv6
 
-# The below setting is optional, to also assign an address in the delegated prefix
-# to the upstream interface. If not necessary, then comment out the line below and
-# the [DHCPPrefixDelegation] section.
-DHCPPrefixDelegation=yes
+# The lines below are optional, to also assign an address in the delegated prefix
+# to the upstream interface. Uncomment the lines below if necessary.
+#[Network]
+#DHCPPrefixDelegation=yes
+#[DHCPPrefixDelegation]
+#UplinkInterface=:self
+#SubnetId=0
+#Announce=no
 
-# If the upstream network provides Router Advertisement with Managed bit set,
-# then comment out the line below and WithoutRA= setting in the [DHCPv6] section.
-IPv6AcceptRA=no
+# If the upstream network does not provides any Router Advertisement (RA) messages,
+# then uncomment the lines below to make the DHCPv6 client forcibly started in the
+# managed mode.
+#[Network]
+#IPv6AcceptRA=no
+#[DHCPv6]
+#WithoutRA=solicit
 
-[DHCPv6]
-WithoutRA=solicit
-
-[DHCPPrefixDelegation]
-UplinkInterface=:self
-SubnetId=0
-Announce=no</programlisting>
+# If the upstream network provides Router Advertisement (RA) messages with the
+# Managed bit unset, then uncomment the lines below to make the DHCPv6 client
+# forcibly started in the managed mode when an RA is received.
+#[DHCPv6]
+#UseAddress=no
+#[IPv6AcceptRA]
+#DHCPv6Client=always</programlisting>
 
       <programlisting># /etc/systemd/network/55-dhcpv6-pd-downstream.network
 [Match]

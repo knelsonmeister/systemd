@@ -256,9 +256,6 @@ static int swap_verify(Swap *s) {
         if (!unit_has_name(UNIT(s), e))
                 return log_unit_error_errno(UNIT(s), SYNTHETIC_ERRNO(ENOEXEC), "Value of What= and unit name do not match, not loading.");
 
-        if (s->exec_context.pam_name && s->kill_context.kill_mode != KILL_CONTROL_GROUP)
-                return log_unit_error_errno(UNIT(s), SYNTHETIC_ERRNO(ENOEXEC), "Unit has PAM enabled. Kill mode must be set to 'control-group'. Refusing to load.");
-
         return 0;
 }
 
@@ -548,10 +545,8 @@ static int swap_coldplug(Unit *u) {
                         return r;
         }
 
-        if (!IN_SET(new_state, SWAP_DEAD, SWAP_FAILED)) {
+        if (!IN_SET(new_state, SWAP_DEAD, SWAP_FAILED))
                 (void) unit_setup_exec_runtime(u);
-                (void) unit_setup_cgroup_runtime(u);
-        }
 
         swap_set_state(s, new_state);
         return 0;
@@ -647,6 +642,9 @@ static int swap_spawn(Swap *s, ExecCommand *c, PidRef *ret_pid) {
         if (r < 0)
                 return r;
 
+        /* Assume the label inherited from systemd as the fallback */
+        exec_params.fallback_smack_process_label = NULL;
+
         r = exec_spawn(UNIT(s),
                        c,
                        &s->exec_context,
@@ -672,7 +670,8 @@ static void swap_enter_dead(Swap *s, SwapResult f) {
                 s->result = f;
 
         unit_log_result(UNIT(s), s->result == SWAP_SUCCESS, swap_result_to_string(s->result));
-        unit_warn_leftover_processes(UNIT(s), unit_log_leftover_process_stop);
+        unit_warn_leftover_processes(UNIT(s), /* start = */ false);
+
         swap_set_state(s, s->result != SWAP_SUCCESS ? SWAP_FAILED : SWAP_DEAD);
 
         s->exec_runtime = exec_runtime_destroy(s->exec_runtime);
@@ -754,7 +753,7 @@ static void swap_enter_activating(Swap *s) {
 
         assert(s);
 
-        unit_warn_leftover_processes(UNIT(s), unit_log_leftover_process_start);
+        unit_warn_leftover_processes(UNIT(s), /* start = */ true);
 
         s->control_command_id = SWAP_EXEC_ACTIVATE;
         s->control_command = s->exec_command + SWAP_EXEC_ACTIVATE;

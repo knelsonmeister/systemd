@@ -34,9 +34,9 @@
 static BUS_DEFINE_PROPERTY_GET_ENUM(property_get_collect_mode, collect_mode, CollectMode);
 static BUS_DEFINE_PROPERTY_GET_ENUM(property_get_load_state, unit_load_state, UnitLoadState);
 static BUS_DEFINE_PROPERTY_GET_ENUM(property_get_job_mode, job_mode, JobMode);
+static BUS_DEFINE_PROPERTY_GET_ENUM(property_get_freezer_state, freezer_state, FreezerState);
 static BUS_DEFINE_PROPERTY_GET(property_get_description, "s", Unit, unit_description);
 static BUS_DEFINE_PROPERTY_GET2(property_get_active_state, "s", Unit, unit_active_state, unit_active_state_to_string);
-static BUS_DEFINE_PROPERTY_GET2(property_get_freezer_state, "s", Unit, unit_freezer_state, freezer_state_to_string);
 static BUS_DEFINE_PROPERTY_GET(property_get_sub_state, "s", Unit, unit_sub_state_to_string);
 static BUS_DEFINE_PROPERTY_GET2(property_get_unit_file_state, "s", Unit, unit_get_unit_file_state, unit_file_state_to_string);
 static BUS_DEFINE_PROPERTY_GET(property_get_can_reload, "b", Unit, unit_can_reload);
@@ -87,6 +87,23 @@ static int property_get_can_clean(
         }
 
         return sd_bus_message_close_container(reply);
+}
+
+static int property_get_can_live_mount(
+                sd_bus *bus,
+                const char *path,
+                const char *interface,
+                const char *property,
+                sd_bus_message *reply,
+                void *userdata,
+                sd_bus_error *error) {
+
+        Unit *u = ASSERT_PTR(userdata);
+
+        assert(bus);
+        assert(reply);
+
+        return sd_bus_message_append(reply, "b", unit_can_live_mount(u, /* error= */ NULL) >= 0);
 }
 
 static int property_get_names(
@@ -504,9 +521,9 @@ int bus_unit_method_enqueue_job(sd_bus_message *message, void *userdata, sd_bus_
 int bus_unit_method_kill(sd_bus_message *message, void *userdata, sd_bus_error *error) {
         Unit *u = ASSERT_PTR(userdata);
         int32_t value = 0;
-        const char *swho;
+        const char *swhom;
         int32_t signo;
-        KillWho who;
+        KillWhom whom;
         int r, code;
 
         assert(message);
@@ -515,7 +532,7 @@ int bus_unit_method_kill(sd_bus_message *message, void *userdata, sd_bus_error *
         if (r < 0)
                 return r;
 
-        r = sd_bus_message_read(message, "si", &swho, &signo);
+        r = sd_bus_message_read(message, "si", &swhom, &signo);
         if (r < 0)
                 return r;
 
@@ -528,12 +545,12 @@ int bus_unit_method_kill(sd_bus_message *message, void *userdata, sd_bus_error *
         } else
                 code = SI_USER;
 
-        if (isempty(swho))
-                who = KILL_ALL;
+        if (isempty(swhom))
+                whom = KILL_ALL;
         else {
-                who = kill_who_from_string(swho);
-                if (who < 0)
-                        return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid who argument: %s", swho);
+                whom = kill_whom_from_string(swhom);
+                if (whom < 0)
+                        return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid whom argument: %s", swhom);
         }
 
         if (!SIGNAL_VALID(signo))
@@ -554,7 +571,7 @@ int bus_unit_method_kill(sd_bus_message *message, void *userdata, sd_bus_error *
         if (r == 0)
                 return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
 
-        r = unit_kill(u, who, signo, code, value, error);
+        r = unit_kill(u, whom, signo, code, value, error);
         if (r < 0)
                 return r;
 
@@ -755,8 +772,8 @@ static int bus_unit_method_freezer_generic(sd_bus_message *message, void *userda
                 return sd_bus_error_set(error, BUS_ERROR_UNIT_INACTIVE, "Unit is not active");
         if (r == -EALREADY)
                 return sd_bus_error_set(error, BUS_ERROR_UNIT_BUSY, "Previously requested freezer operation for unit is still in progress");
-        if (r == -ECHILD)
-                return sd_bus_error_set(error, SD_BUS_ERROR_FAILED, "Unit is frozen by a parent slice");
+        if (r == -EDEADLK)
+                return sd_bus_error_set(error, BUS_ERROR_FROZEN_BY_PARENT, "Unit is frozen by a parent slice");
         if (r < 0)
                 return r;
 
@@ -864,7 +881,7 @@ const sd_bus_vtable bus_unit_vtable[] = {
         SD_BUS_PROPERTY("AccessSELinuxContext", "s", NULL, offsetof(Unit, access_selinux_context), SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("LoadState", "s", property_get_load_state, offsetof(Unit, load_state), SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("ActiveState", "s", property_get_active_state, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
-        SD_BUS_PROPERTY("FreezerState", "s", property_get_freezer_state, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("FreezerState", "s", property_get_freezer_state, offsetof(Unit, freezer_state), SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_PROPERTY("SubState", "s", property_get_sub_state, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_PROPERTY("FragmentPath", "s", NULL, offsetof(Unit, fragment_path), SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("SourcePath", "s", NULL, offsetof(Unit, source_path), SD_BUS_VTABLE_PROPERTY_CONST),
@@ -882,6 +899,7 @@ const sd_bus_vtable bus_unit_vtable[] = {
         SD_BUS_PROPERTY("CanIsolate", "b", property_get_can_isolate, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("CanClean", "as", property_get_can_clean, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("CanFreeze", "b", property_get_can_freeze, 0, SD_BUS_VTABLE_PROPERTY_CONST),
+        SD_BUS_PROPERTY("CanLiveMount", "b", property_get_can_live_mount, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("Job", "(uo)", property_get_job, offsetof(Unit, job), SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_PROPERTY("StopWhenUnneeded", "b", bus_property_get_bool, offsetof(Unit, stop_when_unneeded), SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("RefuseManualStart", "b", bus_property_get_bool, offsetof(Unit, refuse_manual_start), SD_BUS_VTABLE_PROPERTY_CONST),
@@ -920,6 +938,7 @@ const sd_bus_vtable bus_unit_vtable[] = {
         SD_BUS_PROPERTY("CollectMode", "s", property_get_collect_mode, offsetof(Unit, collect_mode), SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("Refs", "as", property_get_refs, 0, 0),
         SD_BUS_PROPERTY("ActivationDetails", "a(ss)", bus_property_get_activation_details, offsetof(Unit, activation_details), SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("DebugInvocation", "b", bus_property_get_bool, offsetof(Unit, debug_invocation), 0),
 
         SD_BUS_METHOD_WITH_ARGS("Start",
                                 SD_BUS_ARGS("s", mode),
@@ -1368,8 +1387,7 @@ int bus_unit_method_get_processes(sd_bus_message *message, void *userdata, sd_bu
         if (r < 0)
                 return r;
 
-        CGroupRuntime *crt;
-        crt = unit_get_cgroup_runtime(u);
+        CGroupRuntime *crt = unit_get_cgroup_runtime(u);
         if (crt && crt->cgroup_path) {
                 r = append_cgroup(reply, crt->cgroup_path, pids);
                 if (r < 0)
@@ -1808,9 +1826,7 @@ int bus_unit_queue_job_one(
                         type = JOB_TRY_RELOAD;
         }
 
-        if (type == JOB_STOP &&
-            IN_SET(u->load_state, UNIT_NOT_FOUND, UNIT_ERROR, UNIT_BAD_SETTING) &&
-            unit_active_state(u) == UNIT_INACTIVE)
+        if (type == JOB_STOP && UNIT_IS_LOAD_ERROR(u->load_state) && unit_active_state(u) == UNIT_INACTIVE)
                 return sd_bus_error_setf(error, BUS_ERROR_NO_SUCH_UNIT, "Unit %s not loaded.", u->id);
 
         if ((type == JOB_START && u->refuse_manual_start) ||
@@ -1848,7 +1864,7 @@ int bus_unit_queue_job_one(
                         return -ENOMEM;
         }
 
-        r = manager_add_job(u->manager, type, u, mode, affected, error, &j);
+        r = manager_add_job_full(u->manager, type, u, mode, /* extra_flags = */ 0, affected, error, &j);
         if (r < 0)
                 return r;
 

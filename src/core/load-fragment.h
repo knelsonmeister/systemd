@@ -12,8 +12,6 @@ int unit_is_likely_recursive_template_dependency(Unit *u, const char *name, cons
 int parse_crash_chvt(const char *value, int *data);
 int parse_confirm_spawn(const char *value, char **console);
 
-int hashmap_put_credential(Hashmap **h, const char *id, const char *path, bool encrypted);
-
 /* Read service data from .desktop file style configuration fragments */
 
 int unit_load_fragment(Unit *u);
@@ -90,6 +88,7 @@ CONFIG_PARSER_PROTOTYPE(config_parse_delegate);
 CONFIG_PARSER_PROTOTYPE(config_parse_delegate_subgroup);
 CONFIG_PARSER_PROTOTYPE(config_parse_managed_oom_mode);
 CONFIG_PARSER_PROTOTYPE(config_parse_managed_oom_mem_pressure_limit);
+CONFIG_PARSER_PROTOTYPE(config_parse_managed_oom_mem_pressure_duration_sec);
 CONFIG_PARSER_PROTOTYPE(config_parse_managed_oom_preference);
 CONFIG_PARSER_PROTOTYPE(config_parse_device_policy);
 CONFIG_PARSER_PROTOTYPE(config_parse_device_allow);
@@ -113,6 +112,10 @@ CONFIG_PARSER_PROTOTYPE(config_parse_import_credential);
 CONFIG_PARSER_PROTOTYPE(config_parse_set_status);
 CONFIG_PARSER_PROTOTYPE(config_parse_namespace_path_strv);
 CONFIG_PARSER_PROTOTYPE(config_parse_temporary_filesystems);
+CONFIG_PARSER_PROTOTYPE(config_parse_private_tmp);
+CONFIG_PARSER_PROTOTYPE(config_parse_private_users);
+CONFIG_PARSER_PROTOTYPE(config_parse_private_pids);
+CONFIG_PARSER_PROTOTYPE(config_parse_protect_control_groups);
 CONFIG_PARSER_PROTOTYPE(config_parse_cpu_quota);
 CONFIG_PARSER_PROTOTYPE(config_parse_allowed_cpuset);
 CONFIG_PARSER_PROTOTYPE(config_parse_protect_home);

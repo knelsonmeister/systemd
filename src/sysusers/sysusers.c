@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include <getopt.h>
-#include <utmp.h>
 
 #include "alloc-util.h"
 #include "build.h"
@@ -21,7 +20,6 @@
 #include "main-func.h"
 #include "memory-util.h"
 #include "mount-util.h"
-#include "nscd-flush.h"
 #include "pager.h"
 #include "parse-argument.h"
 #include "path-util.h"
@@ -87,6 +85,8 @@ typedef struct Item {
         bool id_set_strict;
 
         bool uid_set;
+
+        bool locked;
 
         bool todo_user;
         bool todo_group;
@@ -362,8 +362,7 @@ static int putgrent_with_members(
                 if (added) {
                         struct group t;
 
-                        strv_uniq(l);
-                        strv_sort(l);
+                        strv_sort_uniq(l);
 
                         t = *gr;
                         t.gr_mem = l;
@@ -411,8 +410,7 @@ static int putsgent_with_members(
                 if (added) {
                         struct sgrp t;
 
-                        strv_uniq(l);
-                        strv_sort(l);
+                        strv_sort_uniq(l);
 
                         t = *sg;
                         t.sg_mem = l;
@@ -658,7 +656,7 @@ static int write_temporary_shadow(
                         .sp_max = -1,
                         .sp_warn = -1,
                         .sp_inact = -1,
-                        .sp_expire = -1,
+                        .sp_expire = i->locked ? 1 : -1, /* Negative expiration means "unset". Expiration 0 or 1 means "locked" */
                         .sp_flag = ULONG_MAX, /* this appears to be what everybody does ... */
                 };
 
@@ -972,9 +970,6 @@ static int write_files(Context *c) {
                         return log_error_errno(r, "Failed to rename %s to %s: %m",
                                                group_tmp, group_path);
                 group_tmp = mfree(group_tmp);
-
-                if (!arg_root && !arg_image)
-                        (void) nscd_flush_cache(STRV_MAKE("group"));
         }
         if (gshadow) {
                 r = rename_and_apply_smack_floor_label(gshadow_tmp, gshadow_path);
@@ -992,9 +987,6 @@ static int write_files(Context *c) {
                                                passwd_tmp, passwd_path);
 
                 passwd_tmp = mfree(passwd_tmp);
-
-                if (!arg_root && !arg_image)
-                        (void) nscd_flush_cache(STRV_MAKE("passwd"));
         }
         if (shadow) {
                 r = rename_and_apply_smack_floor_label(shadow_tmp, shadow_path);
@@ -1717,10 +1709,17 @@ static int parse_line(
                 return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
                                   "Trailing garbage.");
 
-        /* Verify action */
-        if (strlen(action) != 1)
-                return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
-                                  "Unknown modifier '%s'.", action);
+        if (isempty(action))
+                return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EBADMSG),
+                                  "Empty command specification.");
+
+        bool locked = false;
+        for (int pos = 1; action[pos]; pos++)
+                if (action[pos] == '!' && !locked)
+                        locked = true;
+                else
+                        return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EBADMSG),
+                                          "Unknown modifiers in command '%s'.", action);
 
         if (!IN_SET(action[0], ADD_USER, ADD_GROUP, ADD_MEMBER, ADD_RANGE))
                 return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EBADMSG),
@@ -1803,6 +1802,10 @@ static int parse_line(
         switch (action[0]) {
 
         case ADD_RANGE:
+                if (locked)
+                        return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
+                                          "Flag '!' not permitted on lines of type 'r'.");
+
                 if (resolved_name)
                         return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
                                           "Lines of type 'r' don't take a name field.");
@@ -1829,6 +1832,10 @@ static int parse_line(
                 if (!name)
                         return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
                                           "Lines of type 'm' require a user name in the second field.");
+
+                if (locked)
+                        return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
+                                          "Flag '!' not permitted on lines of type 'm'.");
 
                 if (!resolved_id)
                         return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
@@ -1896,6 +1903,7 @@ static int parse_line(
                 i->description = TAKE_PTR(resolved_description);
                 i->home = TAKE_PTR(resolved_home);
                 i->shell = TAKE_PTR(resolved_shell);
+                i->locked = locked;
 
                 h = c->users;
                 break;
@@ -1904,6 +1912,10 @@ static int parse_line(
                 if (!name)
                         return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
                                           "Lines of type 'g' require a user name in the second field.");
+
+                if (locked)
+                        return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),
+                                          "Flag '!' not permitted on lines of type 'g'.");
 
                 if (description || home || shell)
                         return log_syntax(NULL, LOG_ERR, fname, line, SYNTHETIC_ERRNO(EINVAL),

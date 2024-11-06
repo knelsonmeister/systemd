@@ -656,9 +656,9 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
                 if (r >= 0) {
                         char *n;
 
-                        /* When this is a percentage we'll convert this into a relative value in the range 0…UINT32_MAX
-                         * and pass it in the MemoryLowScale property (and related ones). This way the physical memory
-                         * size can be determined server-side. */
+                        /* When this is a percentage we'll convert this into a relative value in the range
+                         * 0…UINT32_MAX and pass it in the MemoryLowScale property (and related ones). This
+                         * way the physical memory size can be determined server-side. */
 
                         n = strjoina(field, "Scale");
                         r = sd_bus_message_append(m, "(sv)", n, "u", UINT32_SCALE_FROM_PERMYRIAD(r));
@@ -728,7 +728,10 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
                 return 1;
         }
 
-        if (cgroup_io_limit_type_from_string(field) >= 0 || STR_IN_SET(field, "BlockIOReadBandwidth", "BlockIOWriteBandwidth")) {
+        if (cgroup_io_limit_type_from_string(field) >= 0 ||
+            STR_IN_SET(field, "BlockIOReadBandwidth",
+                              "BlockIOWriteBandwidth")) {
+
                 if (isempty(eq))
                         r = sd_bus_message_append(m, "(sv)", field, "a(st)", 0);
                 else {
@@ -1005,6 +1008,11 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
         if (streq(field, "NFTSet"))
                 return bus_append_nft_set(m, field, eq);
 
+        if (streq(field, "ManagedOOMMemoryPressureDurationSec"))
+                /* While infinity is disallowed in unit file, infinity is allowed in D-Bus API which
+                 * means use the default memory pressure duration from oomd.conf. */
+                return bus_append_parse_sec_rename(m, field, isempty(eq) ? "infinity" : eq);
+
         return 0;
 }
 
@@ -1037,6 +1045,9 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
                               "SyslogIdentifier",
                               "ProtectSystem",
                               "ProtectHome",
+                              "PrivateTmpEx",
+                              "PrivateUsersEx",
+                              "ProtectControlGroupsEx",
                               "SELinuxContext",
                               "RootImage",
                               "RootVerity",
@@ -1050,7 +1061,8 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
                               "LogNamespace",
                               "RootImagePolicy",
                               "MountImagePolicy",
-                              "ExtensionImagePolicy"))
+                              "ExtensionImagePolicy",
+                              "PrivatePIDs"))
                 return bus_append_string(m, field, eq);
 
         if (STR_IN_SET(field, "IgnoreSIGPIPE",
@@ -1075,6 +1087,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
                               "ProtectClock",
                               "ProtectControlGroups",
                               "MountAPIVFS",
+                              "BindLogSockets",
                               "CPUSchedulingResetOnFork",
                               "LockPersonality",
                               "ProtectHostname",
@@ -1303,6 +1316,49 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
                         r = sd_bus_message_append(m, "(sv)", field, "as", 0);
                 else
                         r = sd_bus_message_append(m, "(sv)", field, "as", 1, eq);
+                if (r < 0)
+                        return bus_log_create_error(r);
+
+                return 1;
+        }
+
+        if (streq(field, "ImportCredentialEx")) {
+                r = sd_bus_message_open_container(m, 'r', "sv");
+                if (r < 0)
+                        return bus_log_create_error(r);
+
+                r = sd_bus_message_append_basic(m, 's', field);
+                if (r < 0)
+                        return bus_log_create_error(r);
+
+                r = sd_bus_message_open_container(m, 'v', "a(ss)");
+                if (r < 0)
+                        return bus_log_create_error(r);
+
+                if (isempty(eq))
+                        r = sd_bus_message_append(m, "a(ss)", 0);
+                else {
+                         _cleanup_free_ char *word = NULL;
+                        const char *p = eq;
+
+                        r = extract_first_word(&p, &word, ":", EXTRACT_DONT_COALESCE_SEPARATORS);
+                        if (r == -ENOMEM)
+                                return log_oom();
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to parse %s= parameter: %s", field, eq);
+                        if (r == 0)
+                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Missing argument to %s=.", field);
+
+                        r = sd_bus_message_append(m, "a(ss)", 1, word, p);
+                }
+                if (r < 0)
+                        return bus_log_create_error(r);
+
+                r = sd_bus_message_close_container(m);
+                if (r < 0)
+                        return bus_log_create_error(r);
+
+                r = sd_bus_message_close_container(m);
                 if (r < 0)
                         return bus_log_create_error(r);
 
@@ -2072,7 +2128,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
         }
 
         if (STR_IN_SET(field, "StateDirectory", "RuntimeDirectory", "CacheDirectory", "LogsDirectory")) {
-                _cleanup_strv_free_ char **symlinks = NULL, **sources = NULL;
+                _cleanup_strv_free_ char **symlinks = NULL, **symlinks_ro = NULL, **sources = NULL, **sources_ro = NULL;
                 const char *p = eq;
 
                 /* Adding new directories is supported from both *DirectorySymlink methods and the
@@ -2080,7 +2136,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
                  * tuple use the new method, else use the old one. */
 
                 for (;;) {
-                        _cleanup_free_ char *tuple = NULL, *source = NULL, *destination = NULL;
+                        _cleanup_free_ char *tuple = NULL, *source = NULL, *dest = NULL, *flags = NULL;
 
                         r = extract_first_word(&p, &tuple, NULL, EXTRACT_UNQUOTE);
                         if (r < 0)
@@ -2089,20 +2145,31 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
                                 break;
 
                         const char *t = tuple;
-                        r = extract_many_words(&t, ":", EXTRACT_UNQUOTE|EXTRACT_DONT_COALESCE_SEPARATORS, &source, &destination);
+                        r = extract_many_words(&t, ":", EXTRACT_UNQUOTE|EXTRACT_DONT_COALESCE_SEPARATORS, &source, &dest, &flags);
                         if (r <= 0)
                                 return log_error_errno(r ?: SYNTHETIC_ERRNO(EINVAL), "Failed to parse argument: %m");
 
                         path_simplify(source);
 
-                        if (isempty(destination)) {
+                        if (isempty(dest) && isempty(flags)) {
                                 r = strv_consume(&sources, TAKE_PTR(source));
                                 if (r < 0)
                                         return bus_log_create_error(r);
+                        } else if (isempty(flags)) {
+                                path_simplify(dest);
+                                r = strv_consume_pair(&symlinks, TAKE_PTR(source), TAKE_PTR(dest));
+                                if (r < 0)
+                                        return log_oom();
                         } else {
-                                path_simplify(destination);
+                                ExecDirectoryFlags exec_directory_flags = exec_directory_flags_from_string(flags);
+                                if (exec_directory_flags < 0 || (exec_directory_flags & ~_EXEC_DIRECTORY_FLAGS_PUBLIC) != 0)
+                                        return log_error_errno(r, "Failed to parse flags: %s", flags);
 
-                                r = strv_consume_pair(&symlinks, TAKE_PTR(source), TAKE_PTR(destination));
+                                if (!isempty(dest)) {
+                                        path_simplify(dest);
+                                        r = strv_consume_pair(&symlinks_ro, TAKE_PTR(source), TAKE_PTR(dest));
+                                } else
+                                        r = strv_consume(&sources_ro, TAKE_PTR(source));
                                 if (r < 0)
                                         return log_oom();
                         }
@@ -2137,7 +2204,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
                 /* For State and Runtime directories we support an optional destination parameter, which
                  * will be used to create a symlink to the source. But it is new so we cannot change the
                  * old DBUS signatures, so append a new message type. */
-                if (!strv_isempty(symlinks)) {
+                if (!strv_isempty(symlinks) || !strv_isempty(symlinks_ro) || !strv_isempty(sources_ro)) {
                         const char *symlink_field;
 
                         r = sd_bus_message_open_container(m, SD_BUS_TYPE_STRUCT, "sv");
@@ -2169,6 +2236,18 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
 
                         STRV_FOREACH_PAIR(source, destination, symlinks) {
                                 r = sd_bus_message_append(m, "(sst)", *source, *destination, UINT64_C(0));
+                                if (r < 0)
+                                        return bus_log_create_error(r);
+                        }
+
+                        STRV_FOREACH_PAIR(source, destination, symlinks_ro) {
+                                r = sd_bus_message_append(m, "(sst)", *source, *destination, (uint64_t) EXEC_DIRECTORY_READ_ONLY);
+                                if (r < 0)
+                                        return bus_log_create_error(r);
+                        }
+
+                        STRV_FOREACH(source, sources_ro) {
+                                r = sd_bus_message_append(m, "(sst)", *source, "", (uint64_t) EXEC_DIRECTORY_READ_ONLY);
                                 if (r < 0)
                                         return bus_log_create_error(r);
                         }
@@ -2374,15 +2453,13 @@ static int bus_append_service_property(sd_bus_message *m, const char *field, con
                         if (r >= 0) {
                                 assert(r >= 0 && r < 256);
 
-                                status = reallocarray(status, n_status + 1, sizeof(int));
-                                if (!status)
+                                if (!GREEDY_REALLOC(status, n_status + 1))
                                         return log_oom();
 
                                 status[n_status++] = r;
 
                         } else if ((r = signal_from_string(word)) >= 0) {
-                                signal = reallocarray(signal, n_signal + 1, sizeof(int));
-                                if (!signal)
+                                if (!GREEDY_REALLOC(signal, n_signal + 1))
                                         return log_oom();
 
                                 signal[n_signal++] = r;
@@ -2547,7 +2624,8 @@ static int bus_append_timer_property(sd_bus_message *m, const char *field, const
                               "Persistent",
                               "OnTimezoneChange",
                               "OnClockChange",
-                              "FixedRandomDelay"))
+                              "FixedRandomDelay",
+                              "DeferReactivation"))
                 return bus_append_parse_boolean(m, field, eq);
 
         if (STR_IN_SET(field, "AccuracySec",
@@ -3025,21 +3103,12 @@ int unit_freezer_thaw(UnitFreezer *f) {
         return unit_freezer_action(f, false);
 }
 
-int unit_freezer_new_freeze(const char *name, UnitFreezer **ret) {
-        _cleanup_(unit_freezer_freep) UnitFreezer *f = NULL;
-        int r;
+ExecDirectoryFlags exec_directory_flags_from_string(const char *s) {
+        if (isempty(s))
+                return 0;
 
-        assert(name);
-        assert(ret);
+        if (streq(s, "ro"))
+                return EXEC_DIRECTORY_READ_ONLY;
 
-        r = unit_freezer_new(name, &f);
-        if (r < 0)
-                return r;
-
-        r = unit_freezer_freeze(f);
-        if (r < 0)
-                return r;
-
-        *ret = TAKE_PTR(f);
-        return 0;
+        return _EXEC_DIRECTORY_FLAGS_INVALID;
 }

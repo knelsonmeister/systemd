@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "alloc-util.h"
+#include "ansi-color.h"
 #include "build.h"
 #include "extract-word.h"
 #include "macro.h"
@@ -42,6 +43,12 @@ const char* const systemd_features =
         " +IMA"
 #else
         " -IMA"
+#endif
+
+#if ENABLE_IPE
+        " +IPE"
+#else
+        " -IPE"
 #endif
 
 #if ENABLE_SMACK
@@ -220,6 +227,12 @@ const char* const systemd_features =
         " -BPF_FRAMEWORK"
 #endif
 
+#if HAVE_VMLINUX_H
+        " +BTF"
+#else
+        " -BTF"
+#endif
+
 #if HAVE_XKBCOMMON
         " +XKBCOMMON"
 #else
@@ -246,7 +259,7 @@ const char* const systemd_features =
 
         ;
 
-static char *systemd_features_with_color(void) {
+static char* systemd_features_with_color(void) {
         const char *p = systemd_features;
         _cleanup_free_ char *ret = NULL;
         int r;

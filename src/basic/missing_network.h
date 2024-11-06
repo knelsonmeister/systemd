@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
+#include <netinet/in.h>
+
 /* linux/in6.h or netinet/in.h */
 #ifndef IPV6_UNICAST_IF
 #define IPV6_UNICAST_IF 76
@@ -11,14 +13,14 @@
 #define IPV6_TRANSPARENT 75
 #endif
 
+/* linux/in.h or netinet/in.h */
+#ifndef IPPROTO_MPTCP
+#define IPPROTO_MPTCP 262
+#endif
+
 /* Not exposed but defined at include/net/ip.h */
 #ifndef IPV4_MIN_MTU
 #define IPV4_MIN_MTU 68
-#endif
-
-/* linux/ipv6.h */
-#ifndef IPV6_MIN_MTU
-#define IPV6_MIN_MTU 1280
 #endif
 
 /* Note that LOOPBACK_IFINDEX is currently not exposed by the

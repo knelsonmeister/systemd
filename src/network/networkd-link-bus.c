@@ -665,22 +665,16 @@ int bus_link_method_reconfigure(sd_bus_message *message, void *userdata, sd_bus_
         if (r == 0)
                 return 1; /* Polkit will call us back */
 
-        r = link_reconfigure(l, /* force = */ true);
-        if (r < 0)
-                return r;
-        if (r > 0) {
-                link_set_state(l, LINK_STATE_INITIALIZED);
-                r = link_save_and_clean_full(l, /* also_save_manager = */ true);
-                if (r < 0)
-                        return r;
-        }
+        r = link_reconfigure_full(l, LINK_RECONFIGURE_UNCONDITIONALLY | LINK_RECONFIGURE_CLEANLY, message, /* counter = */ NULL);
+        if (r != 0)
+                return r; /* Will reply later when r > 0. */
 
         return sd_bus_reply_method_return(message, NULL);
 }
 
 int bus_link_method_describe(sd_bus_message *message, void *userdata, sd_bus_error *error) {
         _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL;
-        _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
         _cleanup_free_ char *text = NULL;
         Link *link = ASSERT_PTR(userdata);
         int r;
@@ -691,7 +685,7 @@ int bus_link_method_describe(sd_bus_message *message, void *userdata, sd_bus_err
         if (r < 0)
                 return log_link_error_errno(link, r, "Failed to build JSON data: %m");
 
-        r = json_variant_format(v, 0, &text);
+        r = sd_json_variant_format(v, 0, &text);
         if (r < 0)
                 return log_link_error_errno(link, r, "Failed to format JSON data: %m");
 
@@ -802,7 +796,7 @@ static const sd_bus_vtable link_vtable[] = {
         SD_BUS_VTABLE_END
 };
 
-char *link_bus_path(Link *link) {
+char* link_bus_path(Link *link) {
         _cleanup_free_ char *ifindex = NULL;
         char *p;
         int r;

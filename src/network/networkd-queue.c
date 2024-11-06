@@ -58,7 +58,11 @@ static void request_hash_func(const Request *req, struct siphash *state) {
 
         siphash24_compress_typesafe(req->type, state);
 
-        if (!IN_SET(req->type, REQUEST_TYPE_NEXTHOP, REQUEST_TYPE_ROUTE)) {
+        if (!IN_SET(req->type,
+                    REQUEST_TYPE_NEXTHOP,
+                    REQUEST_TYPE_ROUTE,
+                    REQUEST_TYPE_ROUTING_POLICY_RULE)) {
+
                 siphash24_compress_boolean(req->link, state);
                 if (req->link)
                         siphash24_compress_typesafe(req->link->ifindex, state);
@@ -81,7 +85,11 @@ static int request_compare_func(const struct Request *a, const struct Request *b
         if (r != 0)
                 return r;
 
-        if (!IN_SET(a->type, REQUEST_TYPE_NEXTHOP, REQUEST_TYPE_ROUTE)) {
+        if (!IN_SET(a->type,
+                    REQUEST_TYPE_NEXTHOP,
+                    REQUEST_TYPE_ROUTE,
+                    REQUEST_TYPE_ROUTING_POLICY_RULE)) {
+
                 r = CMP(!!a->link, !!b->link);
                 if (r != 0)
                         return r;
@@ -134,6 +142,15 @@ static int request_new(
         assert(manager);
         assert(process);
 
+        /* Note, requests will be processed only when the manager is in MANAGER_RUNNING. If a new operation
+         * is requested when the manager is in MANAGER_TERMINATING or MANAGER_RESTARTING, the request will be
+         * successfully queued but will never be processed. Then, here why we refuse new requests when the
+         * manager is in MANAGER_STOPPED? This is because we cannot call link_ref() in that case, as this may
+         * be called during link_free(), that means the reference counter of the link is already 0 and
+         * calling link_ref() below triggers assertion. */
+        if (manager->state == MANAGER_STOPPED)
+                return -EBUSY;
+
         req = new(Request, 1);
         if (!req)
                 return -ENOMEM;
@@ -185,6 +202,7 @@ int netdev_queue_request(
         int r;
 
         assert(netdev);
+        assert(netdev->manager);
 
         r = request_new(netdev->manager, NULL, REQUEST_TYPE_NETDEV_INDEPENDENT,
                         netdev, (mfree_func_t) netdev_unref,
@@ -212,6 +230,23 @@ int link_queue_request_full(
         assert(link);
 
         return request_new(link->manager, link, type,
+                           userdata, free_func, hash_func, compare_func,
+                           process, counter, netlink_handler, ret);
+}
+
+int manager_queue_request_full(
+                Manager *manager,
+                RequestType type,
+                void *userdata,
+                mfree_func_t free_func,
+                hash_func_t hash_func,
+                compare_func_t compare_func,
+                request_process_func_t process,
+                unsigned *counter,
+                request_netlink_handler_t netlink_handler,
+                Request **ret) {
+
+        return request_new(manager, NULL, type,
                            userdata, free_func, hash_func, compare_func,
                            process, counter, netlink_handler, ret);
 }
@@ -399,6 +434,12 @@ int remove_request_add(
         assert(userdata);
         assert(netlink);
         assert(message);
+
+        /* Unlike request_new(), remove requests will be also processed when the manager is in
+         * MANAGER_TERMINATING or MANAGER_RESTARTING. When the manager is in MANAGER_STOPPED, we cannot
+         * queue new remove requests anymore with the same reason explained in request_new(). */
+        if (manager->state == MANAGER_STOPPED)
+                return 0;
 
         req = new(RemoveRequest, 1);
         if (!req)

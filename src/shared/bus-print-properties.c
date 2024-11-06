@@ -109,6 +109,12 @@ static int bus_print_property(const char *name, const char *expected_value, sd_b
 
                         bus_print_property_value(name, expected_value, flags, FORMAT_TIMESTAMP(u));
 
+                /* Managed OOM pressure default implies "unset" and use the default set in oomd.conf. Without
+                 * this condition, we will print "infinity" which implies there is no limit on memory
+                 * pressure duration and is incorrect. */
+                else if (streq(name, "ManagedOOMMemoryPressureDurationUSec") && u == USEC_INFINITY)
+                        bus_print_property_value(name, expected_value, flags, "[not set]");
+
                 else if (strstr(name, "USec"))
                         bus_print_property_value(name, expected_value, flags, FORMAT_TIMESPAN(u, 0));
 
@@ -363,8 +369,10 @@ int bus_message_print_all_properties(
                 if (!name_with_equal)
                         return log_oom();
 
-                if (!filter || strv_contains(filter, name) ||
+                if (!filter ||
+                    strv_contains(filter, name) ||
                     (expected_value = strv_find_startswith(filter, name_with_equal))) {
+
                         r = sd_bus_message_peek_type(m, NULL, &contents);
                         if (r < 0)
                                 return r;

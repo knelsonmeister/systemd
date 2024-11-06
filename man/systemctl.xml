@@ -294,7 +294,8 @@ Jan 12 10:46:45 example.com bluetoothd[8900]: gatt-time-server: Input/output err
             <literal>inactive</literal> or <literal>maintenance</literal> is a white circle ("○"),
             <literal>active</literal> is a green dot ("●"), <literal>deactivating</literal> is a white dot,
             <literal>failed</literal> or <literal>error</literal> is a red cross ("×"), and
-            <literal>reloading</literal> is a green clockwise circle arrow ("↻").</para>
+            <literal>reloading</literal> or <literal>refreshing</literal> is a green clockwise circle arrow
+            ("↻").</para>
 
             <para>The "Loaded:" line in the output will show <literal>loaded</literal> if the unit has been
             loaded into memory. Other possible values for "Loaded:" include: <literal>error</literal> if
@@ -975,6 +976,11 @@ Jan 12 10:46:45 example.com bluetoothd[8900]: gatt-time-server: Input/output err
             <command>disable</command> and <command>enable</command> and is useful to reset the symlinks a unit file is
             enabled with to the defaults configured in its [Install] section. This command expects
             a unit name only, it does not accept paths to unit files.</para>
+
+            <para>This command implicitly reloads the system manager configuration after completing the operation.
+            Note that this command does not implicitly restart the units that are being disabled. If this is
+            desired, either combine this command with the <option>--now</option> switch, or invoke
+            the <command>try-restart</command> command with appropriate arguments later.</para>
 
             <xi:include href="version-info.xml" xpointer="v238"/>
           </listitem>
@@ -2286,17 +2292,15 @@ Jan 12 10:46:45 example.com bluetoothd[8900]: gatt-time-server: Input/output err
         <listitem>
           <para>When system shutdown or sleep state is requested, this option controls checking of inhibitor
           locks. It takes one of <literal>auto</literal>, <literal>yes</literal> or
-          <literal>no</literal>. Defaults to <literal>auto</literal>, which will behave like
-          <literal>yes</literal> for interactive invocations (i.e. from a TTY) and <literal>no</literal> for
-          non-interactive invocations. <literal>yes</literal> lets the request respect inhibitor locks.
-          <literal>no</literal> lets the request ignore inhibitor locks.</para>
+          <literal>no</literal>. Defaults to <literal>auto</literal>, which means logind will perform the
+          check and respect active inhibitor locks, but systemctl will only do a client-side check for
+          interactive invocations (i.e. from a TTY), so that a more friendly and informative error can be
+          returned to users. <literal>no</literal> disables both the systemctl and logind checks.</para>
 
           <para>Applications can establish inhibitor locks to prevent certain important operations (such as
           CD burning) from being interrupted by system shutdown or sleep. Any user may take these locks and
           privileged users may override these locks. If any locks are taken, shutdown and sleep state
-          requests will normally fail (unless privileged). However, if <literal>no</literal> is specified or
-          <literal>auto</literal> is specified on a non-interactive requests, the operation will be
-          attempted. If locks are present, the operation may require additional privileges.</para>
+          requests will normally fail (unless explicitly overridden with <literal>no</literal>).</para>
 
           <para>Option <option>--force</option> provides another way to override inhibitors.</para>
 
@@ -2450,26 +2454,6 @@ Jan 12 10:46:45 example.com bluetoothd[8900]: gatt-time-server: Input/output err
       </varlistentry>
 
       <varlistentry>
-        <term><option>--no-ask-password</option></term>
-
-        <listitem>
-          <para>When used with <command>start</command> and related
-          commands, disables asking for passwords. Background services
-          may require input of a password or passphrase string, for
-          example to unlock system hard disks or cryptographic
-          certificates. Unless this option is specified and the
-          command is invoked from a terminal,
-          <command>systemctl</command> will query the user on the
-          terminal for the necessary secrets. Use this option to
-          switch this behavior off. In this case, the password must be
-          supplied by some other means (for example graphical password
-          agents) or the service might fail. This also disables
-          querying the user for authentication for privileged
-          operations.</para>
-        </listitem>
-      </varlistentry>
-
-      <varlistentry>
         <term><option>--kill-whom=</option></term>
 
         <listitem>
@@ -2586,11 +2570,9 @@ Jan 12 10:46:45 example.com bluetoothd[8900]: gatt-time-server: Input/output err
         <term><option>--now</option></term>
 
         <listitem>
-          <para>When used with <command>enable</command>, the units
-          will also be started. When used with <command>disable</command> or
-          <command>mask</command>, the units will also be stopped. The start
-          or stop operation is only carried out when the respective enable or
-          disable operation has been successful.</para>
+          <para>When used with <command>enable</command>, <command>disable</command>, <command>mask</command>,
+          or <command>reenable</command>, also start/stop/try-restart the units after the specified
+          unit file operations succeed.</para>
 
           <xi:include href="version-info.xml" xpointer="v220"/>
         </listitem>
@@ -2865,7 +2847,9 @@ Jan 12 10:46:45 example.com bluetoothd[8900]: gatt-time-server: Input/output err
           which should adhere to the syntax documented in <citerefentry
           project='man-pages'><refentrytitle>systemd.time</refentrytitle><manvolnum>7</manvolnum></citerefentry>
           section "PARSING TIMESTAMPS". Specially, if <literal>show</literal> is given, the currently scheduled
-          action will be shown, which can be canceled by passing an empty string or <literal>cancel</literal>.</para>
+          action will be shown, which can be canceled by passing an empty string or <literal>cancel</literal>.
+          <literal>auto</literal> will schedule the action according to maintenance window or one minute in
+          the future.</para>
 
           <xi:include href="version-info.xml" xpointer="v254"/>
         </listitem>
@@ -2896,6 +2880,7 @@ EOF
       <xi:include href="user-system-options.xml" xpointer="machine" />
       <xi:include href="user-system-options.xml" xpointer="capsule" />
 
+      <xi:include href="standard-options.xml" xpointer="no-ask-password" />
       <xi:include href="standard-options.xml" xpointer="no-pager" />
       <xi:include href="standard-options.xml" xpointer="legend" />
       <xi:include href="standard-options.xml" xpointer="help" />

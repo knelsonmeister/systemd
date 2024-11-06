@@ -81,7 +81,7 @@ static int dump_fdstore(sd_bus *bus, const char *arg) {
         if (r < 0)
                 return r;
 
-        if (FLAGS_SET(arg_json_format_flags, JSON_FORMAT_OFF) && table_isempty(table))
+        if (table_isempty(table) && !sd_json_format_enabled(arg_json_format_flags))
                 log_info("No file descriptors in fdstore of '%s'.", unit);
         else {
                 r = table_print_with_pager(table, arg_json_format_flags, arg_pager_flags, /* show_header= */true);
@@ -98,7 +98,7 @@ int verb_fdstore(int argc, char *argv[], void *userdata) {
 
         r = acquire_bus(&bus, NULL);
         if (r < 0)
-                return bus_log_connect_error(r, arg_transport);
+                return bus_log_connect_error(r, arg_transport, arg_runtime_scope);
 
         STRV_FOREACH(arg, strv_skip(argv, 1)) {
                 r = dump_fdstore(bus, *arg);

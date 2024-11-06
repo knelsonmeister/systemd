@@ -4,6 +4,7 @@
 #include <linux/if.h>
 #include <linux/if_arp.h>
 #include <linux/if_bridge.h>
+#include <linux/ipv6.h>
 
 #include "missing_network.h"
 #include "netif-util.h"
@@ -190,10 +191,6 @@ static int link_configure_fill_message(
                         return r;
                 break;
         case REQUEST_TYPE_SET_LINK_BOND:
-                r = sd_netlink_message_set_flags(req, NLM_F_REQUEST | NLM_F_ACK);
-                if (r < 0)
-                        return r;
-
                 r = sd_netlink_message_open_container(req, IFLA_LINKINFO);
                 if (r < 0)
                         return r;

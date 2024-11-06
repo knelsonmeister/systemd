@@ -24,7 +24,7 @@
 #include "event-util.h"
 #include "fd-util.h"
 #include "fileio.h"
-#include "format-util.h"
+#include "format-ifname.h"
 #include "fs-util.h"
 #include "glyph-util.h"
 #include "logarithm.h"
@@ -252,6 +252,8 @@ static void link_free_engines(Link *link) {
 static Link *link_free(Link *link) {
         assert(link);
 
+        (void) sysctl_clear_link_shadows(link);
+
         link_ntp_settings_clear(link);
         link_dns_settings_clear(link);
 
@@ -286,6 +288,7 @@ static Link *link_free(Link *link) {
         network_unref(link->network);
 
         sd_event_source_disable_unref(link->carrier_lost_timer);
+        sd_event_source_disable_unref(link->ipv6_mtu_wait_synced_event_source);
 
         return mfree(link);
 }
@@ -373,11 +376,11 @@ int link_stop_engines(Link *link, bool may_keep_dhcp) {
         assert(link->manager);
         assert(link->manager->event);
 
-        bool keep_dhcp = may_keep_dhcp &&
-                         link->network &&
-                         !link->network->dhcp_send_decline && /* IPv4 ACD for the DHCPv4 address is running. */
-                         (link->manager->restarting ||
-                          FLAGS_SET(link->network->keep_configuration, KEEP_CONFIGURATION_DHCP_ON_STOP));
+        bool keep_dhcp =
+                may_keep_dhcp &&
+                link->network &&
+                (link->manager->state == MANAGER_RESTARTING ||
+                 FLAGS_SET(link->network->keep_configuration, KEEP_CONFIGURATION_DHCP_ON_STOP));
 
         if (!keep_dhcp) {
                 r = sd_dhcp_client_stop(link->dhcp_client);
@@ -427,8 +430,6 @@ int link_stop_engines(Link *link, bool may_keep_dhcp) {
 }
 
 void link_enter_failed(Link *link) {
-        int r;
-
         assert(link);
 
         if (IN_SET(link->state, LINK_STATE_FAILED, LINK_STATE_LINGER))
@@ -444,13 +445,8 @@ void link_enter_failed(Link *link) {
         }
 
         log_link_info(link, "Trying to reconfigure the interface.");
-        r = link_reconfigure(link, /* force = */ true);
-        if (r < 0) {
-                log_link_warning_errno(link, r, "Failed to reconfigure interface: %m");
-                goto stop;
-        }
-
-        return;
+        if (link_reconfigure(link, LINK_RECONFIGURE_UNCONDITIONALLY) > 0)
+                return;
 
 stop:
         (void) link_stop_engines(link, /* may_keep_dhcp = */ false);
@@ -644,15 +640,23 @@ static int link_request_static_configs(Link *link) {
         return 0;
 }
 
-static int link_request_stacked_netdevs(Link *link) {
+int link_request_stacked_netdevs(Link *link, NetDevLocalAddressType type) {
         NetDev *netdev;
         int r;
 
         assert(link);
 
+        if (!IN_SET(link->state, LINK_STATE_CONFIGURING, LINK_STATE_CONFIGURED))
+                return 0;
+
+        assert(link->network);
+
         link->stacked_netdevs_created = false;
 
         HASHMAP_FOREACH(netdev, link->network->stacked_netdevs) {
+                if (!netdev_needs_reconfigure(netdev, type))
+                        continue;
+
                 r = link_request_stacked_netdev(link, netdev);
                 if (r < 0)
                         return r;
@@ -780,6 +784,10 @@ int link_ipv6ll_gained(Link *link) {
         if (r < 0)
                 return r;
 
+        r = link_request_stacked_netdevs(link, NETDEV_LOCAL_ADDRESS_IPV6LL);
+        if (r < 0)
+                return r;
+
         link_check_ready(link);
         return 0;
 }
@@ -821,9 +829,6 @@ static int link_handle_bound_by_list(Link *link) {
         assert(link);
 
         /* Update up or down state of interfaces which depend on this interface's carrier state. */
-
-        if (hashmap_isempty(link->bound_by_links))
-                return 0;
 
         HASHMAP_FOREACH(l, link->bound_by_links) {
                 r = link_handle_bound_to_list(l);
@@ -1003,7 +1008,7 @@ static int link_drop_requests(Link *link) {
 
                 /* If the request is already called, but its reply is not received, then we need to
                  * drop the configuration (e.g. address) here. Note, if the configuration is known,
-                 * it will be handled later by link_drop_foreign_addresses() or so. */
+                 * it will be handled later by link_drop_unmanaged_addresses() or so. */
                 if (req->waiting_reply && link->state != LINK_STATE_LINGER)
                         switch (req->type) {
                         case REQUEST_TYPE_ADDRESS: {
@@ -1081,33 +1086,23 @@ static Link *link_drop(Link *link) {
         return link_unref(link);
 }
 
-static int link_drop_foreign_config(Link *link) {
+static int link_drop_unmanaged_config(Link *link) {
         int r;
 
         assert(link);
+        assert(link->state == LINK_STATE_CONFIGURING);
         assert(link->manager);
 
-        /* Drop foreign config, but ignore unmanaged, loopback, or critical interfaces. We do not want
-         * to remove loopback address or addresses used for root NFS. */
-
-        if (IN_SET(link->state, LINK_STATE_UNMANAGED, LINK_STATE_PENDING, LINK_STATE_INITIALIZED))
-                return 0;
-        if (FLAGS_SET(link->flags, IFF_LOOPBACK))
-                return 0;
-        if (link->network->keep_configuration == KEEP_CONFIGURATION_YES)
-                return 0;
-
-        r = link_drop_foreign_routes(link);
-
-        RET_GATHER(r, link_drop_foreign_nexthops(link));
-        RET_GATHER(r, link_drop_foreign_addresses(link));
-        RET_GATHER(r, link_drop_foreign_neighbors(link));
-        RET_GATHER(r, manager_drop_foreign_routing_policy_rules(link->manager));
+        r = link_drop_unmanaged_routes(link);
+        RET_GATHER(r, link_drop_unmanaged_nexthops(link));
+        RET_GATHER(r, link_drop_unmanaged_addresses(link));
+        RET_GATHER(r, link_drop_unmanaged_neighbors(link));
+        RET_GATHER(r, link_drop_unmanaged_routing_policy_rules(link));
 
         return r;
 }
 
-static int link_drop_managed_config(Link *link) {
+static int link_drop_static_config(Link *link) {
         int r;
 
         assert(link);
@@ -1122,15 +1117,26 @@ static int link_drop_managed_config(Link *link) {
         return r;
 }
 
-static void link_foreignize_config(Link *link) {
-        assert(link);
-        assert(link->manager);
+static int link_drop_dynamic_config(Link *link, Network *network) {
+        int r;
 
-        link_foreignize_routes(link);
-        link_foreignize_nexthops(link);
-        link_foreignize_addresses(link);
-        link_foreignize_neighbors(link);
-        link_foreignize_routing_policy_rules(link);
+        assert(link);
+        assert(network);
+
+        /* Drop unnecessary dynamic configurations gracefully, e.g. drop DHCP lease in the case that
+         * previously DHCP=yes and now DHCP=no, but keep DHCP lease when DHCP setting is unchanged. */
+
+        r = link_drop_ndisc_config(link, network);
+        RET_GATHER(r, link_drop_radv_config(link, network));
+        RET_GATHER(r, link_drop_dhcp4_config(link, network));
+        RET_GATHER(r, link_drop_dhcp6_config(link, network));
+        RET_GATHER(r, link_drop_dhcp_pd_config(link, network));
+        RET_GATHER(r, link_drop_ipv4ll_config(link, network));
+        link->dhcp_server = sd_dhcp_server_unref(link->dhcp_server);
+        link->lldp_rx = sd_lldp_rx_unref(link->lldp_rx); /* TODO: keep the received neighbors. */
+        link->lldp_tx = sd_lldp_tx_unref(link->lldp_tx);
+
+        return r;
 }
 
 static int link_configure(Link *link) {
@@ -1195,7 +1201,7 @@ static int link_configure(Link *link) {
         if (r < 0)
                 return r;
 
-        r = link_request_stacked_netdevs(link);
+        r = link_request_stacked_netdevs(link, _NETDEV_LOCAL_ADDRESS_TYPE_INVALID);
         if (r < 0)
                 return r;
 
@@ -1247,7 +1253,7 @@ static int link_configure(Link *link) {
         if (r < 0)
                 return r;
 
-        r = link_drop_foreign_config(link);
+        r = link_drop_unmanaged_config(link);
         if (r < 0)
                 return r;
 
@@ -1301,9 +1307,9 @@ static int link_get_network(Link *link, Network **ret) {
                 }
 
                 log_link_full(link, warn ? LOG_WARNING : LOG_DEBUG,
-                              "found matching network '%s'%s.",
-                              network->filename,
-                              warn ? ", based on potentially unpredictable interface name" : "");
+                              "Found matching .network file%s: %s",
+                              warn ? ", based on potentially unpredictable interface name" : "",
+                              network->filename);
 
                 if (network->unmanaged)
                         return -ENOENT;
@@ -1312,77 +1318,99 @@ static int link_get_network(Link *link, Network **ret) {
                 return 0;
         }
 
-        return -ENOENT;
+        return log_link_debug_errno(link, SYNTHETIC_ERRNO(ENOENT), "No matching .network found.");
 }
 
-int link_reconfigure_impl(Link *link, bool force) {
+static void link_enter_unmanaged(Link *link) {
+        assert(link);
+
+        if (link->state == LINK_STATE_UNMANAGED)
+                return;
+
+        log_link_full(link, link->state == LINK_STATE_INITIALIZED ? LOG_DEBUG : LOG_INFO,
+                      "Unmanaging interface.");
+
+        (void) link_stop_engines(link, /* may_keep_dhcp = */ false);
+        (void) link_drop_requests(link);
+        (void) link_drop_static_config(link);
+
+        /* The bound_to map depends on .network file, hence it needs to be freed. But, do not free the
+         * bound_by map. Otherwise, if a link enters unmanaged state below, then its carrier state will
+         * not propagated to other interfaces anymore. Moreover, it is not necessary to recreate the
+         * map here, as it depends on .network files assigned to other links. */
+        link_free_bound_to_list(link);
+        link_free_engines(link);
+
+        link->network = network_unref(link->network);
+        link_set_state(link, LINK_STATE_UNMANAGED);
+}
+
+int link_reconfigure_impl(Link *link, LinkReconfigurationFlag flags) {
         Network *network = NULL;
-        NetDev *netdev = NULL;
         int r;
 
         assert(link);
+        assert(link->manager);
+
+        link_assign_netdev(link);
+
+        if (link->manager->state != MANAGER_RUNNING)
+                return 0;
 
         if (IN_SET(link->state, LINK_STATE_PENDING, LINK_STATE_LINGER))
                 return 0;
 
-        r = netdev_get(link->manager, link->ifname, &netdev);
-        if (r < 0 && r != -ENOENT)
-                return r;
-
         r = link_get_network(link, &network);
-        if (r < 0 && r != -ENOENT)
-                return r;
-
-        if (link->state != LINK_STATE_UNMANAGED && !network)
-                /* If link is in initialized state, then link->network is also NULL. */
-                force = true;
-
-        if (link->network == network && !force)
+        if (r == -ENOENT) {
+                link_enter_unmanaged(link);
                 return 0;
-
-        if (network) {
-                _cleanup_free_ char *joined = strv_join(network->dropins, ", ");
-
-                if (link->state == LINK_STATE_INITIALIZED)
-                        log_link_info(link, "Configuring with %s%s%s%s.",
-                                      network->filename,
-                                      isempty(joined) ? "" : " (dropins: ",
-                                      joined,
-                                      isempty(joined) ? "" : ")");
-                else
-                        log_link_info(link, "Reconfiguring with %s%s%s%s.",
-                                      network->filename,
-                                      isempty(joined) ? "" : " (dropins: ",
-                                      joined,
-                                      isempty(joined) ? "" : ")");
-        } else
-                log_link_full(link, link->state == LINK_STATE_INITIALIZED ? LOG_DEBUG : LOG_INFO,
-                              "Unmanaging interface.");
-
-        /* Dropping old .network file */
-        r = link_stop_engines(link, false);
+        }
         if (r < 0)
                 return r;
+
+        if (link->network == network && !FLAGS_SET(flags, LINK_RECONFIGURE_UNCONDITIONALLY))
+                return 0;
+
+        _cleanup_free_ char *joined = strv_join(network->dropins, ", ");
+        if (link->network)
+                log_link_info(link, "Reconfiguring with %s%s%s%s.",
+                              network->filename,
+                              isempty(joined) ? "" : " (dropins: ",
+                              joined,
+                              isempty(joined) ? "" : ")");
+        else
+                log_link_info(link, "Configuring with %s%s%s%s.",
+                              network->filename,
+                              isempty(joined) ? "" : " (dropins: ",
+                              joined,
+                              isempty(joined) ? "" : ")");
+
+        /* Dropping old .network file */
+
+        if (FLAGS_SET(flags, LINK_RECONFIGURE_CLEANLY)) {
+                /* Remove all static configurations. Note, dynamic configurations are dropped by
+                 * link_stop_engines(), and foreign configurations will be removed later by
+                 * link_configure() -> link_drop_unmanaged_config(). */
+                r = link_drop_static_config(link);
+                if (r < 0)
+                        return r;
+
+                /* Stop DHCP client and friends, and drop dynamic configurations like DHCP address. */
+                r = link_stop_engines(link, /* may_keep_dhcp = */ false);
+                if (r < 0)
+                        return r;
+
+                /* Free DHCP client and friends. */
+                link_free_engines(link);
+        } else {
+                r = link_drop_dynamic_config(link, network);
+                if (r < 0)
+                        return r;
+        }
 
         r = link_drop_requests(link);
         if (r < 0)
                 return r;
-
-        if (network && !force && network->keep_configuration != KEEP_CONFIGURATION_YES)
-                /* When a new/updated .network file is assigned, first make all configs (addresses,
-                 * routes, and so on) foreign, and then drop unnecessary configs later by
-                 * link_drop_foreign_config() in link_configure().
-                 * Note, when KeepConfiguration=yes, link_drop_foreign_config() does nothing. Hence,
-                 * here we need to drop the configs such as addresses, routes, and so on configured by
-                 * the previously assigned .network file. */
-                link_foreignize_config(link);
-        else {
-                /* Remove all managed configs. Note, foreign configs are removed in later by
-                 * link_configure() -> link_drop_foreign_config() if the link is managed by us. */
-                r = link_drop_managed_config(link);
-                if (r < 0)
-                        return r;
-        }
 
         /* The bound_to map depends on .network file, hence it needs to be freed. But, do not free the
          * bound_by map. Otherwise, if a link enters unmanaged state below, then its carrier state will
@@ -1390,16 +1418,7 @@ int link_reconfigure_impl(Link *link, bool force) {
          * map here, as it depends on .network files assigned to other links. */
         link_free_bound_to_list(link);
 
-        link_free_engines(link);
         link->network = network_unref(link->network);
-
-        netdev_unref(link->netdev);
-        link->netdev = netdev_ref(netdev);
-
-        if (!network) {
-                link_set_state(link, LINK_STATE_UNMANAGED);
-                return 0;
-        }
 
         /* Then, apply new .network file */
         link->network = network_ref(network);
@@ -1416,16 +1435,55 @@ int link_reconfigure_impl(Link *link, bool force) {
         return 1;
 }
 
-static int link_reconfigure_handler_internal(sd_netlink *rtnl, sd_netlink_message *m, Link *link, bool force) {
+typedef struct LinkReconfigurationData {
+        Link *link;
+        LinkReconfigurationFlag flags;
+        sd_bus_message *message;
+        unsigned *counter;
+} LinkReconfigurationData;
+
+static LinkReconfigurationData* link_reconfiguration_data_free(LinkReconfigurationData *data) {
+        if (!data)
+                return NULL;
+
+        link_unref(data->link);
+        sd_bus_message_unref(data->message);
+
+        return mfree(data);
+}
+
+DEFINE_TRIVIAL_CLEANUP_FUNC(LinkReconfigurationData*, link_reconfiguration_data_free);
+
+static void link_reconfiguration_data_destroy_callback(LinkReconfigurationData *data) {
         int r;
 
-        assert(link);
+        assert(data);
+
+        if (data->message) {
+                if (data->counter) {
+                        assert(*data->counter > 0);
+                        (*data->counter)--;
+                }
+
+                if (!data->counter || *data->counter <= 0) {
+                        r = sd_bus_reply_method_return(data->message, NULL);
+                        if (r < 0)
+                                log_warning_errno(r, "Failed to reply for DBus method, ignoring: %m");
+                }
+        }
+
+        link_reconfiguration_data_free(data);
+}
+
+static int link_reconfigure_handler(sd_netlink *rtnl, sd_netlink_message *m, LinkReconfigurationData *data) {
+        Link *link = ASSERT_PTR(ASSERT_PTR(data)->link);
+        int r;
 
         r = link_getlink_handler_internal(rtnl, m, link, "Failed to update link state");
         if (r <= 0)
                 return r;
 
-        r = link_reconfigure_impl(link, force);
+        r = link_reconfigure_impl(link, data->flags);
         if (r < 0) {
                 link_enter_failed(link);
                 return 0;
@@ -1434,104 +1492,57 @@ static int link_reconfigure_handler_internal(sd_netlink *rtnl, sd_netlink_messag
         return r;
 }
 
-static int link_reconfigure_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) {
-        return link_reconfigure_handler_internal(rtnl, m, link, /* force = */ false);
-}
-
-static int link_force_reconfigure_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) {
-        return link_reconfigure_handler_internal(rtnl, m, link, /* force = */ true);
-}
-
-int link_reconfigure(Link *link, bool force) {
-        int r;
-
-        assert(link);
-
-        /* When link in pending or initialized state, then link_configure() will be called. To prevent
-         * the function from being called multiple times simultaneously, refuse to reconfigure the
-         * interface in these cases. */
-        if (IN_SET(link->state, LINK_STATE_PENDING, LINK_STATE_INITIALIZED, LINK_STATE_LINGER))
-                return 0; /* 0 means no-op. */
-
-        r = link_call_getlink(link, force ? link_force_reconfigure_handler : link_reconfigure_handler);
-        if (r < 0)
-                return r;
-
-        return 1; /* 1 means the interface will be reconfigured. */
-}
-
-typedef struct ReconfigureData {
-        Link *link;
-        Manager *manager;
-        sd_bus_message *message;
-} ReconfigureData;
-
-static void reconfigure_data_destroy_callback(ReconfigureData *data) {
-        int r;
-
-        assert(data);
-        assert(data->link);
-        assert(data->manager);
-        assert(data->manager->reloading > 0);
-        assert(data->message);
-
-        link_unref(data->link);
-
-        data->manager->reloading--;
-        if (data->manager->reloading <= 0) {
-                r = sd_bus_reply_method_return(data->message, NULL);
-                if (r < 0)
-                        log_warning_errno(r, "Failed to send reply for 'Reload' DBus method, ignoring: %m");
-        }
-
-        sd_bus_message_unref(data->message);
-        free(data);
-}
-
-static int reconfigure_handler_on_bus_method_reload(sd_netlink *rtnl, sd_netlink_message *m, ReconfigureData *data) {
-        assert(data);
-        assert(data->link);
-        return link_reconfigure_handler_internal(rtnl, m, data->link, /* force = */ false);
-}
-
-int link_reconfigure_on_bus_method_reload(Link *link, sd_bus_message *message) {
+int link_reconfigure_full(Link *link, LinkReconfigurationFlag flags, sd_bus_message *message, unsigned *counter) {
         _cleanup_(sd_netlink_message_unrefp) sd_netlink_message *req = NULL;
-        _cleanup_free_ ReconfigureData *data = NULL;
+        _cleanup_(link_reconfiguration_data_freep) LinkReconfigurationData *data = NULL;
         int r;
 
         assert(link);
         assert(link->manager);
         assert(link->manager->rtnl);
-        assert(message);
 
-        /* See comments in link_reconfigure() above. */
+        /* When the link is in the pending or initialized state, link_reconfigure_impl() will be called later
+         * by link_initialized() or link_initialized_and_synced(). To prevent the function from being called
+         * multiple times simultaneously, let's refuse to reconfigure the interface here in such cases. */
         if (IN_SET(link->state, LINK_STATE_PENDING, LINK_STATE_INITIALIZED, LINK_STATE_LINGER))
-                return 0;
+                return 0; /* 0 means no-op. */
+
+        data = new(LinkReconfigurationData, 1);
+        if (!data) {
+                r = -ENOMEM;
+                goto failed;
+        }
+
+        *data = (LinkReconfigurationData) {
+                .link = link_ref(link),
+                .flags = flags,
+                .message = sd_bus_message_ref(message), /* message may be NULL, but _ref() works fine. */
+                .counter = counter,
+        };
 
         r = sd_rtnl_message_new_link(link->manager->rtnl, &req, RTM_GETLINK, link->ifindex);
         if (r < 0)
-                return r;
-
-        data = new(ReconfigureData, 1);
-        if (!data)
-                return -ENOMEM;
+                goto failed;
 
         r = netlink_call_async(link->manager->rtnl, NULL, req,
-                               reconfigure_handler_on_bus_method_reload,
-                               reconfigure_data_destroy_callback, data);
+                               link_reconfigure_handler,
+                               link_reconfiguration_data_destroy_callback, data);
         if (r < 0)
-                return r;
-
-        *data = (ReconfigureData) {
-                .link = link_ref(link),
-                .manager = link->manager,
-                .message = sd_bus_message_ref(message),
-        };
-
-        link->manager->reloading++;
+                goto failed;
 
         TAKE_PTR(data);
-        return 0;
+        if (counter)
+                (*counter)++;
+
+        if (link->state == LINK_STATE_FAILED)
+                link_set_state(link, LINK_STATE_INITIALIZED);
+
+        return 1; /* 1 means the interface will be reconfigured, and bus method will be replied later. */
+
+failed:
+        log_link_warning_errno(link, r, "Failed to reconfigure interface: %m");
+        link_enter_failed(link);
+        return r;
 }
 
 static int link_initialized_and_synced(Link *link) {
@@ -1539,12 +1550,6 @@ static int link_initialized_and_synced(Link *link) {
 
         assert(link);
         assert(link->manager);
-
-        if (link->manager->test_mode) {
-                log_link_debug(link, "Running in test mode, refusing to enter initialized state.");
-                link_set_state(link, LINK_STATE_UNMANAGED);
-                return 0;
-        }
 
         if (link->state == LINK_STATE_PENDING) {
                 log_link_debug(link, "Link state is up-to-date");
@@ -1559,7 +1564,7 @@ static int link_initialized_and_synced(Link *link) {
                         return r;
         }
 
-        return link_reconfigure_impl(link, /* force = */ false);
+        return link_reconfigure_impl(link, /* flags = */ 0);
 }
 
 static int link_initialized_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) {
@@ -1603,7 +1608,7 @@ static int link_initialized(Link *link, sd_device *device) {
                 log_link_warning_errno(link, r, "Failed to manage SR-IOV PF and VF ports, ignoring: %m");
 
         if (link->state != LINK_STATE_PENDING)
-                return link_reconfigure(link, /* force = */ false);
+                return link_reconfigure(link, /* flags = */ 0);
 
         log_link_debug(link, "udev initialized link");
 
@@ -1615,7 +1620,7 @@ static int link_initialized(Link *link, sd_device *device) {
         return link_call_getlink(link, link_initialized_handler);
 }
 
-static int link_check_initialized(Link *link) {
+int link_check_initialized(Link *link) {
         _cleanup_(sd_device_unrefp) sd_device *device = NULL;
         int r;
 
@@ -1705,7 +1710,7 @@ int manager_udev_process_link(Manager *m, sd_device *device, sd_device_action_t 
 }
 
 static int link_carrier_gained(Link *link) {
-        bool force_reconfigure;
+        LinkReconfigurationFlag flags = 0;
         int r;
 
         assert(link);
@@ -1731,11 +1736,12 @@ static int link_carrier_gained(Link *link) {
          * already assigned to the interface (in that case, the .network file does not have the SSID=
          * setting in the [Match] section), and the interface is already being configured. Of course,
          * there may exist another .network file with higher priority and a matching SSID= setting. But
-         * in that case, link_reconfigure_impl() can handle that without the force_reconfigure flag.
+         * in that case, link_reconfigure_impl() can handle that without any flags.
          *
          * For non-wireless interfaces, we have no way to detect the connected network change. So,
-         * setting force_reconfigure = false. Note, both ssid and previous_ssid are NULL in that case. */
-        force_reconfigure = link->previous_ssid && !streq_ptr(link->previous_ssid, link->ssid);
+         * we do not set any flags here. Note, both ssid and previous_ssid are NULL in that case. */
+        if (link->previous_ssid && !streq_ptr(link->previous_ssid, link->ssid))
+                flags |= LINK_RECONFIGURE_UNCONDITIONALLY | LINK_RECONFIGURE_CLEANLY;
         link->previous_ssid = mfree(link->previous_ssid);
 
         /* AP and P2P-GO interfaces may have a new SSID - update the link properties in case a new .network
@@ -1750,7 +1756,7 @@ static int link_carrier_gained(Link *link) {
         /* At this stage, both wlan and link information should be up-to-date. Hence, it is not necessary to
          * call RTM_GETLINK, NL80211_CMD_GET_INTERFACE, or NL80211_CMD_GET_STATION commands, and simply call
          * link_reconfigure_impl(). Note, link_reconfigure_impl() returns 1 when the link is reconfigured. */
-        r = link_reconfigure_impl(link, force_reconfigure);
+        r = link_reconfigure_impl(link, flags);
         if (r != 0)
                 return r;
 
@@ -1787,7 +1793,7 @@ static int link_carrier_lost_impl(Link *link) {
                 return ret;
 
         RET_GATHER(ret, link_stop_engines(link, false));
-        RET_GATHER(ret, link_drop_managed_config(link));
+        RET_GATHER(ret, link_drop_static_config(link));
 
         return ret;
 }
@@ -1859,8 +1865,6 @@ static int link_carrier_lost(Link *link) {
 }
 
 static int link_admin_state_up(Link *link) {
-        int r;
-
         assert(link);
 
         /* This is called every time an interface admin state changes to up;
@@ -1876,9 +1880,7 @@ static int link_admin_state_up(Link *link) {
 
         /* We set the ipv6 mtu after the device mtu, but the kernel resets
          * ipv6 mtu on NETDEV_UP, so we need to reset it. */
-        r = link_set_ipv6_mtu(link, LOG_INFO);
-        if (r < 0)
-                log_link_warning_errno(link, r, "Cannot set IPv6 MTU, ignoring: %m");
+        (void) link_set_ipv6_mtu(link, LOG_INFO);
 
         return 0;
 }
@@ -2429,12 +2431,9 @@ static int link_update_mtu(Link *link, sd_netlink_message *message) {
 
         link->mtu = mtu;
 
-        if (IN_SET(link->state, LINK_STATE_CONFIGURING, LINK_STATE_CONFIGURED)) {
+        if (IN_SET(link->state, LINK_STATE_CONFIGURING, LINK_STATE_CONFIGURED))
                 /* The kernel resets IPv6 MTU after changing device MTU. So, we need to re-set IPv6 MTU again. */
-                r = link_set_ipv6_mtu(link, LOG_INFO);
-                if (r < 0)
-                        log_link_warning_errno(link, r, "Failed to set IPv6 MTU, ignoring: %m");
-        }
+                (void) link_set_ipv6_mtu_async(link);
 
         if (link->dhcp_client) {
                 r = sd_dhcp_client_set_mtu(link->dhcp_client, link->mtu);
@@ -2796,6 +2795,7 @@ int manager_rtnl_process_link(sd_netlink *rtnl, sd_netlink_message *message, Man
                         r = netdev_set_ifindex(netdev, message);
                         if (r < 0) {
                                 log_netdev_warning_errno(netdev, r, "Could not process new link message for netdev, ignoring: %m");
+                                netdev_enter_failed(netdev);
                                 return 0;
                         }
                 }
@@ -2815,6 +2815,16 @@ int manager_rtnl_process_link(sd_netlink *rtnl, sd_netlink_message *message, Man
                                 return 0;
                         }
 
+                        if (link->manager->test_mode) {
+                                log_link_debug(link, "Running in test mode, refusing to enter initialized state.");
+                                link_set_state(link, LINK_STATE_UNMANAGED);
+                                return 0;
+                        }
+
+                        /* Do not enter initialized state if we are enumerating. */
+                        if (manager->enumerating)
+                                return 0;
+
                         r = link_check_initialized(link);
                         if (r < 0) {
                                 log_link_warning_errno(link, r, "Failed to check link is initialized: %m");
@@ -2828,13 +2838,24 @@ int manager_rtnl_process_link(sd_netlink *rtnl, sd_netlink_message *message, Man
                                 link_enter_failed(link);
                                 return 0;
                         }
-                        if (r > 0) {
-                                r = link_reconfigure_impl(link, /* force = */ false);
-                                if (r < 0) {
-                                        log_link_warning_errno(link, r, "Failed to reconfigure interface: %m");
-                                        link_enter_failed(link);
-                                        return 0;
-                                }
+                        if (r == 0)
+                                return 0;
+
+                        if (link->manager->test_mode) {
+                                log_link_debug(link, "Running in test mode, refusing to configure interface.");
+                                link_set_state(link, LINK_STATE_UNMANAGED);
+                                return 0;
+                        }
+
+                        /* Do not configure interface if we are enumerating. */
+                        if (manager->enumerating)
+                                return 0;
+
+                        r = link_reconfigure_impl(link, /* flags = */ 0);
+                        if (r < 0) {
+                                log_link_warning_errno(link, r, "Failed to reconfigure interface: %m");
+                                link_enter_failed(link);
+                                return 0;
                         }
                 }
                 break;

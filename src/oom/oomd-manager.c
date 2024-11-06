@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include "sd-daemon.h"
+#include "sd-json.h"
 
 #include "bus-log-control-api.h"
 #include "bus-util.h"
@@ -9,6 +10,7 @@
 #include "fd-util.h"
 #include "fileio.h"
 #include "format-util.h"
+#include "json-util.h"
 #include "memory-util.h"
 #include "memstream-util.h"
 #include "oomd-manager-bus.h"
@@ -22,6 +24,7 @@ typedef struct ManagedOOMMessage {
         char *path;
         char *property;
         uint32_t limit;
+        usec_t duration;
 } ManagedOOMMessage;
 
 static void managed_oom_message_destroy(ManagedOOMMessage *message) {
@@ -32,36 +35,40 @@ static void managed_oom_message_destroy(ManagedOOMMessage *message) {
 
 static JSON_DISPATCH_ENUM_DEFINE(dispatch_managed_oom_mode, ManagedOOMMode, managed_oom_mode_from_string);
 
-static int process_managed_oom_message(Manager *m, uid_t uid, JsonVariant *parameters) {
-        JsonVariant *c, *cgroups;
+static int process_managed_oom_message(Manager *m, uid_t uid, sd_json_variant *parameters) {
+        sd_json_variant *c, *cgroups;
         int r;
 
-        static const JsonDispatch dispatch_table[] = {
-                { "mode",     JSON_VARIANT_STRING,        dispatch_managed_oom_mode, offsetof(ManagedOOMMessage, mode),     JSON_MANDATORY },
-                { "path",     JSON_VARIANT_STRING,        json_dispatch_string,      offsetof(ManagedOOMMessage, path),     JSON_MANDATORY },
-                { "property", JSON_VARIANT_STRING,        json_dispatch_string,      offsetof(ManagedOOMMessage, property), JSON_MANDATORY },
-                { "limit",    _JSON_VARIANT_TYPE_INVALID, json_dispatch_uint32,      offsetof(ManagedOOMMessage, limit),    0              },
+        static const sd_json_dispatch_field dispatch_table[] = {
+                { "mode",     SD_JSON_VARIANT_STRING,        dispatch_managed_oom_mode, offsetof(ManagedOOMMessage, mode),     SD_JSON_MANDATORY },
+                { "path",     SD_JSON_VARIANT_STRING,        sd_json_dispatch_string,   offsetof(ManagedOOMMessage, path),     SD_JSON_MANDATORY },
+                { "property", SD_JSON_VARIANT_STRING,        sd_json_dispatch_string,   offsetof(ManagedOOMMessage, property), SD_JSON_MANDATORY },
+                { "limit",    _SD_JSON_VARIANT_TYPE_INVALID, sd_json_dispatch_uint32,   offsetof(ManagedOOMMessage, limit),    0                 },
+                { "duration", _SD_JSON_VARIANT_TYPE_INVALID, sd_json_dispatch_uint64,   offsetof(ManagedOOMMessage, duration), 0                 },
                 {},
         };
 
         assert(m);
         assert(parameters);
 
-        cgroups = json_variant_by_key(parameters, "cgroups");
+        cgroups = sd_json_variant_by_key(parameters, "cgroups");
         if (!cgroups)
                 return -EINVAL;
 
         /* Skip malformed elements and keep processing in case the others are good */
         JSON_VARIANT_ARRAY_FOREACH(c, cgroups) {
-                _cleanup_(managed_oom_message_destroy) ManagedOOMMessage message = {};
+                _cleanup_(managed_oom_message_destroy) ManagedOOMMessage message = {
+                        .duration = USEC_INFINITY,
+                };
                 OomdCGroupContext *ctx;
                 Hashmap *monitor_hm;
                 loadavg_t limit;
+                usec_t duration;
 
-                if (!json_variant_is_object(c))
+                if (!sd_json_variant_is_object(c))
                         continue;
 
-                r = json_dispatch(c, dispatch_table, 0, &message);
+                r = sd_json_dispatch(c, dispatch_table, 0, &message);
                 if (r == -ENOMEM)
                         return r;
                 if (r < 0)
@@ -102,6 +109,11 @@ static int process_managed_oom_message(Manager *m, uid_t uid, JsonVariant *param
                                 continue;
                 }
 
+                if (streq(message.property, "ManagedOOMMemoryPressure") && message.duration != USEC_INFINITY)
+                        duration = message.duration;
+                else
+                        duration = m->default_mem_pressure_duration_usec;
+
                 r = oomd_insert_cgroup_context(NULL, monitor_hm, message.path);
                 if (r == -ENOMEM)
                         return r;
@@ -111,8 +123,10 @@ static int process_managed_oom_message(Manager *m, uid_t uid, JsonVariant *param
                 /* Always update the limit in case it was changed. For non-memory pressure detection the value is
                  * ignored so always updating it here is not a problem. */
                 ctx = hashmap_get(monitor_hm, empty_to_root(message.path));
-                if (ctx)
+                if (ctx) {
                         ctx->mem_pressure_limit = limit;
+                        ctx->mem_pressure_duration_usec = duration;
+                }
         }
 
         /* Toggle wake-ups for "ManagedOOMSwap" if entries are present. */
@@ -125,15 +139,15 @@ static int process_managed_oom_message(Manager *m, uid_t uid, JsonVariant *param
 }
 
 static int process_managed_oom_request(
-                Varlink *link,
-                JsonVariant *parameters,
-                VarlinkMethodFlags flags,
+                sd_varlink *link,
+                sd_json_variant *parameters,
+                sd_varlink_method_flags_t flags,
                 void *userdata) {
         Manager *m = ASSERT_PTR(userdata);
         uid_t uid;
         int r;
 
-        r = varlink_get_peer_uid(link, &uid);
+        r = sd_varlink_get_peer_uid(link, &uid);
         if (r < 0)
                 return log_error_errno(r, "Failed to get varlink peer uid: %m");
 
@@ -141,10 +155,10 @@ static int process_managed_oom_request(
 }
 
 static int process_managed_oom_reply(
-                Varlink *link,
-                JsonVariant *parameters,
+                sd_varlink *link,
+                sd_json_variant *parameters,
                 const char *error_id,
-                VarlinkReplyFlags flags,
+                sd_varlink_reply_flags_t flags,
                 void *userdata) {
         Manager *m = ASSERT_PTR(userdata);
         uid_t uid;
@@ -156,7 +170,7 @@ static int process_managed_oom_reply(
                 goto finish;
         }
 
-        r = varlink_get_peer_uid(link, &uid);
+        r = sd_varlink_get_peer_uid(link, &uid);
         if (r < 0) {
                 log_error_errno(r, "Failed to get varlink peer uid: %m");
                 goto finish;
@@ -165,8 +179,8 @@ static int process_managed_oom_reply(
         r = process_managed_oom_message(m, uid, parameters);
 
 finish:
-        if (!FLAGS_SET(flags, VARLINK_REPLY_CONTINUES))
-                m->varlink_client = varlink_close_unref(link);
+        if (!FLAGS_SET(flags, SD_VARLINK_REPLY_CONTINUES))
+                m->varlink_client = sd_varlink_close_unref(link);
 
         return r;
 }
@@ -306,29 +320,29 @@ static int update_monitored_cgroup_contexts_candidates(Hashmap *monitored_cgroup
 }
 
 static int acquire_managed_oom_connect(Manager *m) {
-        _cleanup_(varlink_close_unrefp) Varlink *link = NULL;
+        _cleanup_(sd_varlink_close_unrefp) sd_varlink *link = NULL;
         int r;
 
         assert(m);
         assert(m->event);
 
-        r = varlink_connect_address(&link, VARLINK_ADDR_PATH_MANAGED_OOM_SYSTEM);
+        r = sd_varlink_connect_address(&link, VARLINK_ADDR_PATH_MANAGED_OOM_SYSTEM);
         if (r < 0)
                 return log_error_errno(r, "Failed to connect to " VARLINK_ADDR_PATH_MANAGED_OOM_SYSTEM ": %m");
 
-        (void) varlink_set_userdata(link, m);
-        (void) varlink_set_description(link, "oomd");
-        (void) varlink_set_relative_timeout(link, USEC_INFINITY);
+        (void) sd_varlink_set_userdata(link, m);
+        (void) sd_varlink_set_description(link, "oomd");
+        (void) sd_varlink_set_relative_timeout(link, USEC_INFINITY);
 
-        r = varlink_attach_event(link, m->event, SD_EVENT_PRIORITY_NORMAL);
+        r = sd_varlink_attach_event(link, m->event, SD_EVENT_PRIORITY_NORMAL);
         if (r < 0)
                 return log_error_errno(r, "Failed to attach varlink connection to event loop: %m");
 
-        r = varlink_bind_reply(link, process_managed_oom_reply);
+        r = sd_varlink_bind_reply(link, process_managed_oom_reply);
         if (r < 0)
                 return log_error_errno(r, "Failed to bind reply callback: %m");
 
-        r = varlink_observe(link, "io.systemd.ManagedOOM.SubscribeManagedOOMCGroups", NULL);
+        r = sd_varlink_observe(link, "io.systemd.ManagedOOM.SubscribeManagedOOMCGroups", NULL);
         if (r < 0)
                 return log_error_errno(r, "Failed to observe varlink call: %m");
 
@@ -338,17 +352,12 @@ static int acquire_managed_oom_connect(Manager *m) {
 
 static int monitor_swap_contexts_handler(sd_event_source *s, uint64_t usec, void *userdata) {
         Manager *m = ASSERT_PTR(userdata);
-        usec_t usec_now;
         int r;
 
         assert(s);
         assert(!hashmap_isempty(m->monitored_swap_cgroup_contexts));
 
         /* Reset timer */
-        r = sd_event_now(sd_event_source_get_event(s), CLOCK_MONOTONIC, &usec_now);
-        if (r < 0)
-                return log_error_errno(r, "Failed to reset event timer: %m");
-
         r = sd_event_source_set_time_relative(s, SWAP_INTERVAL_USEC);
         if (r < 0)
                 return log_error_errno(r, "Failed to set relative time for timer: %m");
@@ -475,7 +484,7 @@ static int monitor_memory_pressure_contexts_handler(sd_event_source *s, uint64_t
                         m->mem_pressure_post_action_delay_start = 0;
         }
 
-        r = oomd_pressure_above(m->monitored_mem_pressure_cgroup_contexts, m->default_mem_pressure_duration_usec, &targets);
+        r = oomd_pressure_above(m->monitored_mem_pressure_cgroup_contexts, &targets);
         if (r == -ENOMEM)
                 return log_oom();
         if (r < 0)
@@ -497,7 +506,7 @@ static int monitor_memory_pressure_contexts_handler(sd_event_source *s, uint64_t
                                   t->path,
                                   LOADAVG_INT_SIDE(t->memory_pressure.avg10), LOADAVG_DECIMAL_SIDE(t->memory_pressure.avg10),
                                   LOADAVG_INT_SIDE(t->mem_pressure_limit), LOADAVG_DECIMAL_SIDE(t->mem_pressure_limit),
-                                  FORMAT_TIMESPAN(m->default_mem_pressure_duration_usec, USEC_PER_SEC));
+                                  FORMAT_TIMESPAN(t->mem_pressure_duration_usec, USEC_PER_SEC));
 
                         r = update_monitored_cgroup_contexts_candidates(
                                         m->monitored_mem_pressure_cgroup_contexts, &m->monitored_mem_pressure_cgroup_contexts_candidates);
@@ -529,7 +538,7 @@ static int monitor_memory_pressure_contexts_handler(sd_event_source *s, uint64_t
                                                    selected, t->path,
                                                    LOADAVG_INT_SIDE(t->memory_pressure.avg10), LOADAVG_DECIMAL_SIDE(t->memory_pressure.avg10),
                                                    LOADAVG_INT_SIDE(t->mem_pressure_limit), LOADAVG_DECIMAL_SIDE(t->mem_pressure_limit),
-                                                   FORMAT_TIMESPAN(m->default_mem_pressure_duration_usec, USEC_PER_SEC));
+                                                   FORMAT_TIMESPAN(t->mem_pressure_duration_usec, USEC_PER_SEC));
 
                                         /* send dbus signal */
                                         (void) sd_bus_emit_signal(m->bus,
@@ -623,8 +632,8 @@ static int monitor_memory_pressure_contexts(Manager *m) {
 Manager* manager_free(Manager *m) {
         assert(m);
 
-        varlink_server_unref(m->varlink_server);
-        varlink_close_unref(m->varlink_client);
+        sd_varlink_server_unref(m->varlink_server);
+        sd_varlink_close_unref(m->varlink_client);
         sd_event_source_unref(m->swap_context_event_source);
         sd_event_source_unref(m->mem_pressure_context_event_source);
         sd_event_unref(m->event);
@@ -655,11 +664,7 @@ int manager_new(Manager **ret) {
 
         (void) sd_event_set_watchdog(m->event, true);
 
-        r = sd_event_add_signal(m->event, NULL, SIGINT, NULL, NULL);
-        if (r < 0)
-                return r;
-
-        r = sd_event_add_signal(m->event, NULL, SIGTERM, NULL, NULL);
+        r = sd_event_set_signal_exit(m->event, true);
         if (r < 0)
                 return r;
 
@@ -709,34 +714,34 @@ static int manager_connect_bus(Manager *m) {
 }
 
 static int manager_varlink_init(Manager *m, int fd) {
-        _cleanup_(varlink_server_unrefp) VarlinkServer *s = NULL;
+        _cleanup_(sd_varlink_server_unrefp) sd_varlink_server *s = NULL;
         int r;
 
         assert(m);
         assert(!m->varlink_server);
 
-        r = varlink_server_new(&s, VARLINK_SERVER_ACCOUNT_UID|VARLINK_SERVER_INHERIT_USERDATA);
+        r = sd_varlink_server_new(&s, SD_VARLINK_SERVER_ACCOUNT_UID|SD_VARLINK_SERVER_INHERIT_USERDATA);
         if (r < 0)
                 return log_error_errno(r, "Failed to allocate varlink server object: %m");
 
-        varlink_server_set_userdata(s, m);
+        sd_varlink_server_set_userdata(s, m);
 
-        r = varlink_server_add_interface(s, &vl_interface_io_systemd_oom);
+        r = sd_varlink_server_add_interface(s, &vl_interface_io_systemd_oom);
         if (r < 0)
                 return log_error_errno(r, "Failed to add oom interface to varlink server: %m");
 
-        r = varlink_server_bind_method(s, "io.systemd.oom.ReportManagedOOMCGroups", process_managed_oom_request);
+        r = sd_varlink_server_bind_method(s, "io.systemd.oom.ReportManagedOOMCGroups", process_managed_oom_request);
         if (r < 0)
                 return log_error_errno(r, "Failed to register varlink method: %m");
 
         if (fd < 0)
-                r = varlink_server_listen_address(s, VARLINK_ADDR_PATH_MANAGED_OOM_USER, 0666);
+                r = sd_varlink_server_listen_address(s, VARLINK_ADDR_PATH_MANAGED_OOM_USER, 0666);
         else
-                r = varlink_server_listen_fd(s, fd);
+                r = sd_varlink_server_listen_fd(s, fd);
         if (r < 0)
                 return log_error_errno(r, "Failed to bind to varlink socket: %m");
 
-        r = varlink_server_attach_event(s, m->event, SD_EVENT_PRIORITY_NORMAL);
+        r = sd_varlink_server_attach_event(s, m->event, SD_EVENT_PRIORITY_NORMAL);
         if (r < 0)
                 return log_error_errno(r, "Failed to attach varlink connection to event loop: %m");
 
@@ -777,7 +782,7 @@ int manager_start(
         if (r < 0)
                 return r;
 
-        m->default_mem_pressure_duration_usec = mem_pressure_usec ?: DEFAULT_MEM_PRESSURE_DURATION_USEC;
+        m->default_mem_pressure_duration_usec = mem_pressure_usec;
 
         r = manager_connect_bus(m);
         if (r < 0)
@@ -804,11 +809,19 @@ int manager_start(
 
 int manager_get_dump_string(Manager *m, char **ret) {
         _cleanup_(memstream_done) MemStream ms = {};
-        OomdCGroupContext *c;
+        _cleanup_free_ OomdCGroupContext **sorted = NULL;
+        size_t n;
         FILE *f;
+        int r;
 
         assert(m);
         assert(ret);
+
+        /* Always reread memory/swap info here. Otherwise it may be outdated if swap monitoring is off.
+         * Let's make sure to always report up-to-date data. */
+        r = oomd_system_context_acquire("/proc/meminfo", &m->system_context);
+        if (r < 0)
+                log_debug_errno(r, "Failed to acquire system context, ignoring: %m");
 
         f = memstream_init(&ms);
         if (!f)
@@ -826,13 +839,22 @@ int manager_get_dump_string(Manager *m, char **ret) {
                 FORMAT_TIMESPAN(m->default_mem_pressure_duration_usec, USEC_PER_SEC));
         oomd_dump_system_context(&m->system_context, f, "\t");
 
+        r = hashmap_dump_sorted(m->monitored_swap_cgroup_contexts, (void***) &sorted, &n);
+        if (r < 0)
+                return r;
+
         fprintf(f, "Swap Monitored CGroups:\n");
-        HASHMAP_FOREACH(c, m->monitored_swap_cgroup_contexts)
-                oomd_dump_swap_cgroup_context(c, f, "\t");
+        FOREACH_ARRAY(c, sorted, n)
+                oomd_dump_swap_cgroup_context(*c, f, "\t");
+
+        sorted = mfree(sorted);
+        r = hashmap_dump_sorted(m->monitored_mem_pressure_cgroup_contexts, (void***) &sorted, &n);
+        if (r < 0)
+                return r;
 
         fprintf(f, "Memory Pressure Monitored CGroups:\n");
-        HASHMAP_FOREACH(c, m->monitored_mem_pressure_cgroup_contexts)
-                oomd_dump_memory_pressure_cgroup_context(c, f, "\t");
+        FOREACH_ARRAY(c, sorted, n)
+                oomd_dump_memory_pressure_cgroup_context(*c, f, "\t");
 
         return memstream_finalize(&ms, ret, NULL);
 }
