@@ -653,10 +653,12 @@ Depends: ${shlibs:Depends},
 Recommends: ${dlopen:Recommends},
 Suggests: ${dlopen:Suggests},
 Conflicts: systemd (<< 256-2~),
-Description: Provides the systemd-repart utility
+Description: Provides the systemd-repart and systemd-sbsign utilities
  systemd-repart is a configuration-driven system partitioning tool. It follows
  the Discoverable Partitions Specification and provides support for encryption
  and dm-verity among other things.
+ .
+ systemd-sbsign is an EFI binary signing tool.
 
 Package: systemd-cryptsetup
 Build-Profiles: <!stage1>

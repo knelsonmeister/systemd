@@ -3,7 +3,7 @@ etc/binfmt.d/
 etc/credstore/
 etc/credstore.encrypted/
 etc/kernel/install.d/
-<pkg.systemd.upstream> etc/profile.d/70-systemd-shell-extra.sh
+etc/profile.d/70-systemd-shell-extra.sh
 etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf
 etc/systemd/journald.conf
 etc/systemd/logind.conf
@@ -60,7 +60,6 @@ usr/lib/kernel/install.conf
 usr/lib/kernel/install.d/50-depmod.install
 usr/lib/kernel/install.d/90-loaderentry.install
 usr/lib/kernel/install.d/90-uki-copy.install
-<pkg.systemd.upstream> usr/lib/kernel/uki.conf
 usr/lib/modprobe.d/systemd.conf
 <!stage1> usr/lib/pcrlock.d/
 [alpha amd64 arm64 ia64 loong64 mips64el ppc64 ppc64el riscv64 s390x sparc64] usr/lib/sysctl.d/50-pid-max.conf
@@ -81,7 +80,7 @@ usr/lib/systemd/network/80-wifi-adhoc.network
 usr/lib/systemd/network/80-wifi-ap.network.example
 usr/lib/systemd/network/80-wifi-station.network.example
 usr/lib/systemd/network/89-ethernet.network.example
-<pkg.systemd.upstream> usr/lib/systemd/profile.d/70-systemd-shell-extra.sh
+usr/lib/systemd/profile.d/70-systemd-shell-extra.sh
 usr/lib/systemd/resolv.conf
 usr/lib/systemd/ssh_config.d/20-systemd-ssh-proxy.conf
 usr/lib/systemd/system/autovt@.service
@@ -416,9 +415,9 @@ usr/lib/systemd/user/xdg-desktop-autostart.target
 usr/lib/sysusers.d/basic.conf
 usr/lib/sysusers.d/systemd-journal.conf
 usr/lib/sysusers.d/systemd-network.conf
-<pkg.systemd.upstream> usr/lib/tmpfiles.d/20-systemd-shell-extra.conf
+usr/lib/tmpfiles.d/20-systemd-shell-extra.conf
 usr/lib/tmpfiles.d/20-systemd-ssh-generator.conf
-<pkg.systemd.upstream> usr/lib/tmpfiles.d/20-systemd-stub.conf
+usr/lib/tmpfiles.d/20-systemd-stub.conf
 usr/lib/tmpfiles.d/credstore.conf
 usr/lib/tmpfiles.d/home.conf
 usr/lib/tmpfiles.d/journal-nocow.conf
