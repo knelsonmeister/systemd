@@ -38,8 +38,7 @@ Copyright: 2012 Jean-Philippe Aumasson <jeanphilippe.aumasson@gmail.com>
            2012 Daniel J. Bernstein <djb@cr.yp.to>
 License: CC0-1.0
 
-Files: src/shared/linux/*
-       src/basic/linux/*
+Files: src/basic/linux/*
 Copyright: 2004-2009 Red Hat, Inc.
            2011-2014 PLUMgrid
            2001-2003 Sistina Software (UK) Limited.
