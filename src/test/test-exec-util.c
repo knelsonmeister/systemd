@@ -402,7 +402,9 @@ TEST(error_catching) {
         if (access(name, X_OK) < 0 && ERRNO_IS_PRIVILEGE(errno))
                 return;
 
-        r = execute_directories(dirs, DEFAULT_TIMEOUT_USEC, NULL, NULL, NULL, NULL, EXEC_DIR_NONE);
+        r = execute_directories(dirs, DEFAULT_TIMEOUT_USEC,
+                                /* callbacks = */ NULL, /* callback_args = */ NULL,
+                                /* argv = */ NULL, /* envp = */ NULL, /* flags = */ 0);
 
         /* we should exit with the error code of the first script that failed */
         assert_se(r == 42);
@@ -429,27 +431,19 @@ TEST(exec_command_flags_from_strv) {
 }
 
 TEST(exec_command_flags_to_strv) {
-        _cleanup_strv_free_ char **opts = NULL, **empty_opts = NULL, **invalid_opts = NULL;
-        ExecCommandFlags flags = 0;
-        int r;
+        _cleanup_strv_free_ char **opts = NULL;
 
-        flags |= (EXEC_COMMAND_AMBIENT_MAGIC|EXEC_COMMAND_NO_ENV_EXPAND|EXEC_COMMAND_IGNORE_FAILURE);
-
-        r = exec_command_flags_to_strv(flags, &opts);
-
-        assert_se(r == 0);
+        ASSERT_OK(exec_command_flags_to_strv(EXEC_COMMAND_AMBIENT_MAGIC|EXEC_COMMAND_NO_ENV_EXPAND|EXEC_COMMAND_IGNORE_FAILURE, &opts));
         assert_se(strv_equal(opts, STRV_MAKE("ignore-failure", "ambient", "no-env-expand")));
 
-        r = exec_command_flags_to_strv(0, &empty_opts);
+        opts = strv_free(opts);
 
-        assert_se(r == 0);
-        assert_se(strv_equal(empty_opts, STRV_MAKE_EMPTY));
+        ASSERT_OK(exec_command_flags_to_strv(0, &opts));
+        assert_se(strv_isempty(opts));
 
-        flags = _EXEC_COMMAND_FLAGS_INVALID;
+        opts = strv_free(opts);
 
-        r = exec_command_flags_to_strv(flags, &invalid_opts);
-
-        assert_se(r == -EINVAL);
+        ASSERT_ERROR(exec_command_flags_to_strv(1U << 20, &opts), EINVAL);
 }
 
 DEFINE_TEST_MAIN(LOG_DEBUG);

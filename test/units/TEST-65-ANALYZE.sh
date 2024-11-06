@@ -31,6 +31,8 @@ systemd-analyze plot --json=short --no-legend >/dev/null || :
 systemd-analyze plot --json=off --no-legend >/dev/null || :
 systemd-analyze plot --table >/dev/null || :
 systemd-analyze plot --table --no-legend >/dev/null || :
+systemd-analyze plot --scale-svg=1.0 >/dev/null || :
+systemd-analyze plot --scale-svg=1.0 --detailed >/dev/null || :
 (! systemd-analyze plot --global)
 # legacy/deprecated options (moved to systemctl, but still usable from analyze)
 systemd-analyze log-level
@@ -105,6 +107,15 @@ systemd-analyze capability cap_chown CAP_KILL
 systemd-analyze capability 0 1 {30..32}
 (! systemd-analyze capability cap_chown CAP_KILL "hello*")
 (! systemd-analyze capability --global)
+systemd-analyze capability -m 0000000000003c00
+(! systemd-analyze capability -m 8000000000000000)
+cap="$(systemd-analyze capability -m 0000000000003c00)"
+[[ $cap != *cap_linux_immutable* ]]
+[[ $cap == *cap_net_bind_service* ]]
+[[ $cap == *cap_net_broadcast* ]]
+[[ $cap == *cap_net_admin* ]]
+[[ $cap == *cap_net_raw* ]]
+[[ $cap != *cap_ipc_lock* ]]
 # condition
 mkdir -p /run/systemd/system
 UNIT_NAME="analyze-condition-$RANDOM.service"
@@ -161,6 +172,12 @@ systemd-analyze calendar --base-time=yesterday --iterations=5 '*-* *:*:*'
 systemd-analyze timestamp now
 systemd-analyze timestamp -- -1
 systemd-analyze timestamp yesterday now tomorrow
+systemd-analyze timestamp 'Fri 2012-11-23 23:02:15'
+systemd-analyze timestamp 'Fri 2012-11-23 23:02:15 UTC'
+for i in $(timedatectl list-timezones); do
+    [[ -e "/usr/share/zoneinfo/$i" ]] || continue
+    systemd-analyze timestamp "Fri 2012-11-23 23:02:15 $i"
+done
 (! systemd-analyze timestamp yesterday never tomorrow)
 (! systemd-analyze timestamp 1)
 (! systemd-analyze timestamp '*-2-29 0:0:0')
@@ -369,6 +386,29 @@ EOF
 systemd-analyze verify /tmp/multi-exec-start.service
 echo 'ExecStart=command-should-not-exist' >>/tmp/multi-exec-start.service
 (! systemd-analyze verify /tmp/multi-exec-start.service)
+
+# Prevent regression from #20233 where systemd-analyze will return nonzero exit codes on warnings
+
+# Unit file with warning "Unknown key name 'foo' in section 'Unit', ignoring"
+cat <<EOF >/tmp/testwarnings.service
+[Unit]
+Foo=Bar
+
+[Service]
+ExecStart=echo hello
+EOF
+
+# yes/no/one should all return nonzero exit status for warnings in unit file
+(! systemd-analyze verify --recursive-errors=yes /tmp/testwarnings.service)
+
+(! systemd-analyze verify --recursive-errors=no /tmp/testwarnings.service)
+
+(! systemd-analyze verify --recursive-errors=one /tmp/testwarnings.service)
+
+# zero exit status since no errors and only warnings
+systemd-analyze verify /tmp/testwarnings.service
+
+rm /tmp/testwarnings.service
 
 # Added an additional "INVALID_ID" id to the .json to verify that nothing breaks when input is malformed
 # The PrivateNetwork id description and weight was changed to verify that 'security' is actually reading in
@@ -946,6 +986,20 @@ systemd-analyze architectures x86
 systemd-analyze architectures x86-64
 systemd-analyze architectures native
 systemd-analyze architectures uname
+
+systemd-analyze smbios11
+systemd-analyze smbios11 -q
+
+systemd-analyze condition --instance=tmp --unit=systemd-growfs@.service
+systemd-analyze verify --instance=tmp --man=no systemd-growfs@.service
+systemd-analyze security --instance=tmp systemd-growfs@.service
+
+systemd-analyze has-tpm2 ||:
+if systemd-analyze has-tpm2 -q ; then
+    echo "have tpm2"
+else
+    echo "have no tpm2"
+fi
 
 systemd-analyze log-level info
 

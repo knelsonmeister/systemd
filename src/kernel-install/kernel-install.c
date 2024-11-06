@@ -41,7 +41,7 @@ static char *arg_esp_path = NULL;
 static char *arg_xbootldr_path = NULL;
 static int arg_make_entry_directory = -1; /* tristate */
 static PagerFlags arg_pager_flags = 0;
-static JsonFormatFlags arg_json_format_flags = JSON_FORMAT_OFF;
+static sd_json_format_flags_t arg_json_format_flags = SD_JSON_FORMAT_OFF;
 static char *arg_root = NULL;
 static char *arg_image = NULL;
 static ImagePolicy *arg_image_policy = NULL;
@@ -404,15 +404,16 @@ static int context_set_path_strv(Context *c, char* const* strv, const char *sour
 
 static int context_set_plugins(Context *c, const char *s, const char *source) {
         _cleanup_strv_free_ char **v = NULL;
+        int r;
 
         assert(c);
 
         if (c->plugins || !s)
                 return 0;
 
-        v = strv_split(s, NULL);
-        if (!v)
-                return log_oom();
+        r = strv_split_full(&v, s, NULL, EXTRACT_UNQUOTE);
+        if (r < 0)
+                return log_error_errno(r, "Failed to parse plugin paths from %s: %m", source);
 
         return context_set_path_strv(c, v, source, "plugins", &c->plugins);
 }
@@ -1109,7 +1110,7 @@ static int kernel_from_version(const char *version, char **ret_kernel) {
         if (!vmlinuz)
                 return log_oom();
 
-        r = laccess(vmlinuz, F_OK);
+        r = access_nofollow(vmlinuz, F_OK);
         if (r == -ENOENT)
                 return log_error_errno(r, "Kernel image not installed to '%s', requiring manual kernel image path specification.", vmlinuz);
         if (r < 0)
@@ -1369,7 +1370,7 @@ static int verb_inspect(int argc, char *argv[], void *userdata) {
         if (r < 0)
                 return table_log_add_error(r);
 
-        if (arg_json_format_flags & JSON_FORMAT_OFF) {
+        if (!sd_json_format_enabled(arg_json_format_flags)) {
                 r = table_add_many(t,
                                    TABLE_FIELD, "Plugin Arguments",
                                    TABLE_STRV, strv_skip(c->argv, 1));

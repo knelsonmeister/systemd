@@ -5,6 +5,7 @@
 #if HAVE_QRENCODE
 #include <qrencode.h>
 
+#include "ansi-color.h"
 #include "dlfcn-util.h"
 #include "locale-util.h"
 #include "log.h"
@@ -18,8 +19,8 @@
 
 static void *qrcode_dl = NULL;
 
-static DLSYM_FUNCTION(QRcode_encodeString);
-static DLSYM_FUNCTION(QRcode_free);
+static DLSYM_PROTOTYPE(QRcode_encodeString) = NULL;
+static DLSYM_PROTOTYPE(QRcode_free) = NULL;
 
 int dlopen_qrencode(void) {
         int r;
@@ -52,7 +53,7 @@ static void print_border(FILE *output, unsigned width, unsigned row, unsigned co
                 if (fd < 0)
                         return (void)log_debug_errno(errno, "Failed to get file descriptor from the file stream: %m");
 
-                r = set_terminal_cursor_position(fd, row, column);
+                r = terminal_set_cursor_position(fd, row, column);
                 if (r < 0)
                         log_warning_errno(r, "Failed to move terminal cursor position, ignoring: %m");
 
@@ -64,7 +65,7 @@ static void print_border(FILE *output, unsigned width, unsigned row, unsigned co
                                 fputs(UNICODE_FULL_BLOCK, output);
 
                         fputs(ANSI_NORMAL "\n", output);
-                        r = set_terminal_cursor_position(fd, row + 1, column);
+                        r = terminal_set_cursor_position(fd, row + 1, column);
                         if (r < 0)
                                 log_warning_errno(r, "Failed to move terminal cursor position, ignoring: %m");
                 }
@@ -96,7 +97,7 @@ static void write_qrcode(FILE *output, QRcode *qr, unsigned int row, unsigned in
                 if (fd < 0)
                         return (void)log_debug_errno(errno, "Failed to get file descriptor from the file stream: %m");
 
-                r = set_terminal_cursor_position(fd, row + move_down, column);
+                r = terminal_set_cursor_position(fd, row + move_down, column);
                 if (r < 0)
                         log_warning_errno(r, "Failed to move terminal cursor position, ignoring: %m");
 
@@ -127,7 +128,7 @@ static void write_qrcode(FILE *output, QRcode *qr, unsigned int row, unsigned in
 
                         for (unsigned x = 0; x < 4; x++)
                                 fputs(UNICODE_FULL_BLOCK, output);
-                        r = set_terminal_cursor_position(fd, row + move_down, column);
+                        r = terminal_set_cursor_position(fd, row + move_down, column);
                         if (r < 0)
                                 log_warning_errno(r, "Failed to move terminal cursor position, ignoring: %m");
                         move_down += 1;
@@ -172,41 +173,54 @@ static void write_qrcode(FILE *output, QRcode *qr, unsigned int row, unsigned in
         fflush(output);
 }
 
-int print_qrcode_full(FILE *out, const char *header, const char *string, unsigned row, unsigned column, unsigned tty_width, unsigned tty_height) {
-        QRcode* qr;
+DEFINE_TRIVIAL_CLEANUP_FUNC_FULL(QRcode*, sym_QRcode_free, NULL);
+
+int print_qrcode_full(
+                FILE *out,
+                const char *header,
+                const char *string,
+                unsigned row,
+                unsigned column,
+                unsigned tty_width,
+                unsigned tty_height,
+                bool check_tty) {
+
         int r;
 
         /* If this is not a UTF-8 system or ANSI colors aren't supported/disabled don't print any QR
          * codes */
-        if (!is_locale_utf8() || !colors_enabled())
-                return -EOPNOTSUPP;
+        if (!is_locale_utf8())
+                return log_debug_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Not an UTF-8 system, cannot print qrcode");
+        if (check_tty && !colors_enabled())
+                return log_debug_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Colors are disabled, cannot print qrcode");
 
         r = dlopen_qrencode();
         if (r < 0)
                 return r;
 
-        qr = sym_QRcode_encodeString(string, 0, QR_ECLEVEL_L, QR_MODE_8, 1);
+        _cleanup_(sym_QRcode_freep) QRcode *qr =
+                sym_QRcode_encodeString(string, 0, QR_ECLEVEL_L, QR_MODE_8, 1);
         if (!qr)
-                return -ENOMEM;
+                return log_oom_debug();
 
         if (row != UINT_MAX && column != UINT_MAX) {
-                int fd;
                 unsigned qr_code_width, qr_code_height;
-                fd = fileno(out);
+
+                int fd = fileno(out);
                 if (fd < 0)
                         return log_debug_errno(errno, "Failed to get file descriptor from the file stream: %m");
-                qr_code_width = qr_code_height = qr->width + 8;
 
+                qr_code_width = qr_code_height = qr->width + 8;
                 if (column + qr_code_width > tty_width)
                         column = tty_width - qr_code_width;
 
                 /* Terminal characters are twice as high as they are wide so it's qr_code_height / 2,
-                * our QR code prints an extra new line, so we have -1 as well */
+                 * our QR code prints an extra new line, so we have -1 as well */
                 if (row + qr_code_height > tty_height)
                         row = tty_height - (qr_code_height / 2 ) - 1;
 
                 if (header) {
-                        r = set_terminal_cursor_position(fd, row - 2, tty_width - qr_code_width - 2);
+                        r = terminal_set_cursor_position(fd, row - 2, tty_width - qr_code_width - 2);
                         if (r < 0)
                                 log_warning_errno(r, "Failed to move terminal cursor position, ignoring: %m");
 
@@ -217,10 +231,8 @@ int print_qrcode_full(FILE *out, const char *header, const char *string, unsigne
                         fprintf(out, "\n%s:\n\n", header);
 
         write_qrcode(out, qr, row, column);
-
         fputc('\n', out);
 
-        sym_QRcode_free(qr);
         return 0;
 }
 #endif

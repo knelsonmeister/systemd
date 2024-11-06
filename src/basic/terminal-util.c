@@ -21,25 +21,31 @@
 #include <unistd.h>
 
 #include "alloc-util.h"
+#include "ansi-color.h"
+#include "chase.h"
 #include "constants.h"
 #include "devnum-util.h"
 #include "env-util.h"
 #include "fd-util.h"
 #include "fileio.h"
 #include "fs-util.h"
+#include "glyph-util.h"
 #include "hexdecoct.h"
 #include "inotify-util.h"
 #include "io-util.h"
 #include "log.h"
 #include "macro.h"
+#include "missing_magic.h"
 #include "namespace-util.h"
 #include "parse-util.h"
 #include "path-util.h"
 #include "proc-cmdline.h"
 #include "process-util.h"
+#include "signal-util.h"
 #include "socket-util.h"
 #include "stat-util.h"
 #include "stdio-util.h"
+#include "string-table.h"
 #include "string-util.h"
 #include "strv.h"
 #include "terminal-util.h"
@@ -51,13 +57,19 @@ static volatile unsigned cached_lines = 0;
 
 static volatile int cached_on_tty = -1;
 static volatile int cached_on_dev_null = -1;
-static volatile int cached_color_mode = _COLOR_INVALID;
+static volatile int cached_color_mode = _COLOR_MODE_INVALID;
 static volatile int cached_underline_enabled = -1;
 
 bool isatty_safe(int fd) {
         assert(fd >= 0);
 
         if (isatty(fd))
+                return true;
+
+        /* Linux/glibc returns EIO for hung up TTY on isatty(). Which is wrong, the thing doesn't stop being
+         * a TTY after all, just because it is temporarily hung up. Let's work around this here, until this
+         * is fixed in glibc. See: https://sourceware.org/bugzilla/show_bug.cgi?id=32103 */
+        if (errno == EIO)
                 return true;
 
         /* Be resilient if we're working on stdio, since they're set up by parent process. */
@@ -74,7 +86,7 @@ int chvt(int vt) {
 
         fd = open_terminal("/dev/tty0", O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
         if (fd < 0)
-                return -errno;
+                return fd;
 
         if (vt <= 0) {
                 int tiocl[2] = {
@@ -135,7 +147,7 @@ int read_one_char(FILE *f, char *ret, usec_t t, bool *need_nl) {
                 }
         }
 
-        if (t != USEC_INFINITY && fd > 0) {
+        if (t != USEC_INFINITY && fd >= 0) {
                 /* Let's wait the specified amount of time for input. When we have no fd we skip this, under
                  * the assumption that this is an fmemopen() stream or so where waiting doesn't make sense
                  * anyway, as the data is either already in the stream or cannot possible be placed there
@@ -244,95 +256,73 @@ int ask_string(char **ret, const char *text, ...) {
         return 0;
 }
 
-int reset_terminal_fd(int fd, bool switch_to_text) {
-        struct termios termios;
-        int r;
+bool any_key_to_proceed(void) {
+        char key = 0;
+        bool need_nl = true;
 
-        /* Set terminal to some sane defaults */
+        /*
+         * Insert a new line here as well as to when the user inputs, as this is also used during the
+         * boot up sequence when status messages may be interleaved with the current program output.
+         * This ensures that the status messages aren't appended on the same line as this message.
+         */
+        puts("-- Press any key to proceed --");
 
-        assert(fd >= 0);
+        (void) read_one_char(stdin, &key, USEC_INFINITY, &need_nl);
 
-        if (!isatty_safe(fd))
-                return log_debug_errno(errno, "Asked to reset a terminal that actually isn't a terminal: %m");
+        if (need_nl)
+                putchar('\n');
 
-        /* We leave locked terminal attributes untouched, so that Plymouth may set whatever it wants to set,
-         * and we don't interfere with that. */
-
-        /* Disable exclusive mode, just in case */
-        if (ioctl(fd, TIOCNXCL) < 0)
-                log_debug_errno(errno, "TIOCNXCL ioctl failed on TTY, ignoring: %m");
-
-        /* Switch to text mode */
-        if (switch_to_text)
-                if (ioctl(fd, KDSETMODE, KD_TEXT) < 0)
-                        log_debug_errno(errno, "KDSETMODE ioctl for switching to text mode failed on TTY, ignoring: %m");
-
-
-        /* Set default keyboard mode */
-        r = vt_reset_keyboard(fd);
-        if (r < 0)
-                log_debug_errno(r, "Failed to reset VT keyboard, ignoring: %m");
-
-        if (tcgetattr(fd, &termios) < 0) {
-                r = log_debug_errno(errno, "Failed to get terminal parameters: %m");
-                goto finish;
-        }
-
-        /* We only reset the stuff that matters to the software. How
-         * hardware is set up we don't touch assuming that somebody
-         * else will do that for us */
-
-        termios.c_iflag &= ~(IGNBRK | BRKINT | ISTRIP | INLCR | IGNCR | IUCLC);
-        termios.c_iflag |= ICRNL | IMAXBEL | IUTF8;
-        termios.c_oflag |= ONLCR | OPOST;
-        termios.c_cflag |= CREAD;
-        termios.c_lflag = ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE;
-
-        termios.c_cc[VINTR]    =   03;  /* ^C */
-        termios.c_cc[VQUIT]    =  034;  /* ^\ */
-        termios.c_cc[VERASE]   = 0177;
-        termios.c_cc[VKILL]    =  025;  /* ^X */
-        termios.c_cc[VEOF]     =   04;  /* ^D */
-        termios.c_cc[VSTART]   =  021;  /* ^Q */
-        termios.c_cc[VSTOP]    =  023;  /* ^S */
-        termios.c_cc[VSUSP]    =  032;  /* ^Z */
-        termios.c_cc[VLNEXT]   =  026;  /* ^V */
-        termios.c_cc[VWERASE]  =  027;  /* ^W */
-        termios.c_cc[VREPRINT] =  022;  /* ^R */
-        termios.c_cc[VEOL]     =    0;
-        termios.c_cc[VEOL2]    =    0;
-
-        termios.c_cc[VTIME]  = 0;
-        termios.c_cc[VMIN]   = 1;
-
-        r = RET_NERRNO(tcsetattr(fd, TCSANOW, &termios));
-        if (r < 0)
-                log_debug_errno(r, "Failed to set terminal parameters: %m");
-
-finish:
-        /* Just in case, flush all crap out */
-        (void) tcflush(fd, TCIOFLUSH);
-
-        return r;
+        return key != 'q';
 }
 
-int reset_terminal(const char *name) {
-        _cleanup_close_ int fd = -EBADF;
+int show_menu(char **x, unsigned n_columns, unsigned width, unsigned percentage) {
+        unsigned break_lines, break_modulo;
+        size_t n, per_column, i, j;
 
-        /* We open the terminal with O_NONBLOCK here, to ensure we
-         * don't block on carrier if this is a terminal with carrier
-         * configured. */
+        assert(n_columns > 0);
 
-        fd = open_terminal(name, O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
-        if (fd < 0)
-                return fd;
+        n = strv_length(x);
+        per_column = DIV_ROUND_UP(n, n_columns);
 
-        return reset_terminal_fd(fd, true);
+        break_lines = lines();
+        if (break_lines > 2)
+                break_lines--;
+
+        /* The first page gets two extra lines, since we want to show
+         * a title */
+        break_modulo = break_lines;
+        if (break_modulo > 3)
+                break_modulo -= 3;
+
+        for (i = 0; i < per_column; i++) {
+
+                for (j = 0; j < n_columns; j++) {
+                        _cleanup_free_ char *e = NULL;
+
+                        if (j * per_column + i >= n)
+                                break;
+
+                        e = ellipsize(x[j * per_column + i], width, percentage);
+                        if (!e)
+                                return log_oom();
+
+                        printf("%4zu) %-*s", j * per_column + i + 1, (int) width, e);
+                }
+
+                putchar('\n');
+
+                /* on the first screen we reserve 2 extra lines for the title */
+                if (i % break_lines == break_modulo) {
+                        if (!any_key_to_proceed())
+                                return 0;
+                }
+        }
+
+        return 0;
 }
 
 int open_terminal(const char *name, int mode) {
         _cleanup_close_ int fd = -EBADF;
-        unsigned c = 0;
 
         /*
          * If a TTY is in the process of being closed opening it might cause EIO. This is horribly awful, but
@@ -342,10 +332,9 @@ int open_terminal(const char *name, int mode) {
          * https://bugs.launchpad.net/ubuntu/+source/linux/+bug/554172/comments/245
          */
 
-        if (mode & O_CREAT)
-                return -EINVAL;
+        assert((mode & (O_CREAT|O_PATH|O_DIRECTORY|O_TMPFILE)) == 0);
 
-        for (;;) {
+        for (unsigned c = 0;; c++) {
                 fd = open(name, mode, 0);
                 if (fd >= 0)
                         break;
@@ -355,14 +344,13 @@ int open_terminal(const char *name, int mode) {
 
                 /* Max 1s in total */
                 if (c >= 20)
-                        return -errno;
+                        return -EIO;
 
                 (void) usleep_safe(50 * USEC_PER_MSEC);
-                c++;
         }
 
         if (!isatty_safe(fd))
-                return negative_errno();
+                return -ENOTTY;
 
         return TAKE_FD(fd);
 }
@@ -402,11 +390,6 @@ int acquire_terminal(
         }
 
         for (;;) {
-                struct sigaction sa_old, sa_new = {
-                        .sa_handler = SIG_IGN,
-                        .sa_flags = SA_RESTART,
-                };
-
                 if (notify >= 0) {
                         r = flush_fd(notify);
                         if (r < 0)
@@ -420,13 +403,14 @@ int acquire_terminal(
                         return fd;
 
                 /* Temporarily ignore SIGHUP, so that we don't get SIGHUP'ed if we already own the tty. */
-                assert_se(sigaction(SIGHUP, &sa_new, &sa_old) == 0);
+                struct sigaction sa_old;
+                assert_se(sigaction(SIGHUP, &sigaction_ignore, &sa_old) >= 0);
 
                 /* First, try to get the tty */
                 r = RET_NERRNO(ioctl(fd, TIOCSCTTY, (flags & ~ACQUIRE_TERMINAL_PERMISSIVE) == ACQUIRE_TERMINAL_FORCE));
 
                 /* Reset signal handler to old value */
-                assert_se(sigaction(SIGHUP, &sa_old, NULL) == 0);
+                assert_se(sigaction(SIGHUP, &sa_old, NULL) >= 0);
 
                 /* Success? Exit the loop now! */
                 if (r >= 0)
@@ -495,13 +479,7 @@ int acquire_terminal(
 }
 
 int release_terminal(void) {
-        static const struct sigaction sa_new = {
-                .sa_handler = SIG_IGN,
-                .sa_flags = SA_RESTART,
-        };
-
         _cleanup_close_ int fd = -EBADF;
-        struct sigaction sa_old;
         int r;
 
         fd = open("/dev/tty", O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
@@ -510,11 +488,12 @@ int release_terminal(void) {
 
         /* Temporarily ignore SIGHUP, so that we don't get SIGHUP'ed
          * by our own TIOCNOTTY */
-        assert_se(sigaction(SIGHUP, &sa_new, &sa_old) == 0);
+        struct sigaction sa_old;
+        assert_se(sigaction(SIGHUP, &sigaction_ignore, &sa_old) >= 0);
 
         r = RET_NERRNO(ioctl(fd, TIOCNOTTY));
 
-        assert_se(sigaction(SIGHUP, &sa_old, NULL) == 0);
+        assert_se(sigaction(SIGHUP, &sa_old, NULL) >= 0);
 
         return r;
 }
@@ -524,70 +503,222 @@ int terminal_vhangup_fd(int fd) {
         return RET_NERRNO(ioctl(fd, TIOCVHANGUP));
 }
 
-int terminal_vhangup(const char *name) {
+int terminal_vhangup(const char *tty) {
         _cleanup_close_ int fd = -EBADF;
 
-        fd = open_terminal(name, O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
+        assert(tty);
+
+        fd = open_terminal(tty, O_RDWR|O_NOCTTY|O_CLOEXEC);
         if (fd < 0)
                 return fd;
 
         return terminal_vhangup_fd(fd);
 }
 
-int vt_disallocate(const char *name) {
-        const char *e;
-        int r;
+int vt_disallocate(const char *tty_path) {
+        assert(tty_path);
 
-        /* Deallocate the VT if possible. If not possible
-         * (i.e. because it is the active one), at least clear it
-         * entirely (including the scrollback buffer). */
+        /* Deallocate the VT if possible. If not possible (i.e. because it is the active one), at least clear
+         * it entirely (including the scrollback buffer). */
 
-        e = path_startswith(name, "/dev/");
-        if (!e)
-                return -EINVAL;
-
-        if (tty_is_vc(name)) {
-                _cleanup_close_ int fd = -EBADF;
-                unsigned u;
-                const char *n;
-
-                n = startswith(e, "tty");
-                if (!n)
-                        return -EINVAL;
-
-                r = safe_atou(n, &u);
-                if (r < 0)
-                        return r;
-
-                if (u <= 0)
-                        return -EINVAL;
-
-                /* Try to deallocate */
-                fd = open_terminal("/dev/tty0", O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
+        int ttynr = vtnr_from_tty(tty_path);
+        if (ttynr > 0) {
+                _cleanup_close_ int fd = open_terminal("/dev/tty0", O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
                 if (fd < 0)
                         return fd;
 
-                r = ioctl(fd, VT_DISALLOCATE, u);
-                if (r >= 0)
+                /* Try to deallocate */
+                if (ioctl(fd, VT_DISALLOCATE, ttynr) >= 0)
                         return 0;
                 if (errno != EBUSY)
                         return -errno;
         }
 
-        /* So this is not a VT (in which case we cannot deallocate it),
-         * or we failed to deallocate. Let's at least clear the screen. */
+        /* So this is not a VT (in which case we cannot deallocate it), or we failed to deallocate. Let's at
+         * least clear the screen. */
 
-        _cleanup_close_ int fd2 = open_terminal(name, O_RDWR|O_NOCTTY|O_CLOEXEC);
+        _cleanup_close_ int fd2 = open_terminal(tty_path, O_WRONLY|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
         if (fd2 < 0)
                 return fd2;
 
-        (void) loop_write(fd2,
-                          "\033[r"   /* clear scrolling region */
-                          "\033[H"   /* move home */
-                          "\033[3J"  /* clear screen including scrollback, requires Linux 2.6.40 */
-                          "\033c",   /* reset to initial state */
-                          SIZE_MAX);
-        return 0;
+        return loop_write_full(fd2,
+                               "\033[r"   /* clear scrolling region */
+                               "\033[H"   /* move home */
+                               "\033[3J"  /* clear screen including scrollback, requires Linux 2.6.40 */
+                               "\033c",   /* reset to initial state */
+                               SIZE_MAX,
+                               100 * USEC_PER_MSEC);
+}
+
+static int vt_default_utf8(void) {
+        _cleanup_free_ char *b = NULL;
+        int r;
+
+        /* Read the default VT UTF8 setting from the kernel */
+
+        r = read_one_line_file("/sys/module/vt/parameters/default_utf8", &b);
+        if (r < 0)
+                return r;
+
+        return parse_boolean(b);
+}
+
+static int vt_reset_keyboard(int fd) {
+        int r, kb;
+
+        assert(fd >= 0);
+
+        /* If we can't read the default, then default to Unicode. It's 2024 after all. */
+        r = vt_default_utf8();
+        if (r < 0)
+                log_debug_errno(r, "Failed to determine kernel VT UTF-8 mode, assuming enabled: %m");
+
+        kb = vt_default_utf8() != 0 ? K_UNICODE : K_XLATE;
+        return RET_NERRNO(ioctl(fd, KDSKBMODE, kb));
+}
+
+static int terminal_reset_ioctl(int fd, bool switch_to_text) {
+        struct termios termios;
+        int r;
+
+        /* Set terminal to some sane defaults */
+
+        assert(fd >= 0);
+
+        /* We leave locked terminal attributes untouched, so that Plymouth may set whatever it wants to set,
+         * and we don't interfere with that. */
+
+        /* Disable exclusive mode, just in case */
+        if (ioctl(fd, TIOCNXCL) < 0)
+                log_debug_errno(errno, "TIOCNXCL ioctl failed on TTY, ignoring: %m");
+
+        /* Switch to text mode */
+        if (switch_to_text)
+                if (ioctl(fd, KDSETMODE, KD_TEXT) < 0)
+                        log_debug_errno(errno, "KDSETMODE ioctl for switching to text mode failed on TTY, ignoring: %m");
+
+        /* Set default keyboard mode */
+        r = vt_reset_keyboard(fd);
+        if (r < 0)
+                log_debug_errno(r, "Failed to reset VT keyboard, ignoring: %m");
+
+        if (tcgetattr(fd, &termios) < 0) {
+                r = log_debug_errno(errno, "Failed to get terminal parameters: %m");
+                goto finish;
+        }
+
+        /* We only reset the stuff that matters to the software. How
+         * hardware is set up we don't touch assuming that somebody
+         * else will do that for us */
+
+        termios.c_iflag &= ~(IGNBRK | BRKINT | ISTRIP | INLCR | IGNCR | IUCLC);
+        termios.c_iflag |= ICRNL | IMAXBEL | IUTF8;
+        termios.c_oflag |= ONLCR | OPOST;
+        termios.c_cflag |= CREAD;
+        termios.c_lflag = ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE;
+
+        termios.c_cc[VINTR]    =   03;  /* ^C */
+        termios.c_cc[VQUIT]    =  034;  /* ^\ */
+        termios.c_cc[VERASE]   = 0177;
+        termios.c_cc[VKILL]    =  025;  /* ^X */
+        termios.c_cc[VEOF]     =   04;  /* ^D */
+        termios.c_cc[VSTART]   =  021;  /* ^Q */
+        termios.c_cc[VSTOP]    =  023;  /* ^S */
+        termios.c_cc[VSUSP]    =  032;  /* ^Z */
+        termios.c_cc[VLNEXT]   =  026;  /* ^V */
+        termios.c_cc[VWERASE]  =  027;  /* ^W */
+        termios.c_cc[VREPRINT] =  022;  /* ^R */
+        termios.c_cc[VEOL]     =    0;
+        termios.c_cc[VEOL2]    =    0;
+
+        termios.c_cc[VTIME]  = 0;
+        termios.c_cc[VMIN]   = 1;
+
+        r = RET_NERRNO(tcsetattr(fd, TCSANOW, &termios));
+        if (r < 0)
+                log_debug_errno(r, "Failed to set terminal parameters: %m");
+
+finish:
+        /* Just in case, flush all crap out */
+        (void) tcflush(fd, TCIOFLUSH);
+
+        return r;
+}
+
+static int terminal_reset_ansi_seq(int fd) {
+        int r, k;
+
+        assert(fd >= 0);
+
+        if (getenv_terminal_is_dumb())
+                return 0;
+
+        r = fd_nonblock(fd, true);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to set terminal to non-blocking mode: %m");
+
+        k = loop_write_full(fd,
+                            "\033[!p"      /* soft terminal reset */
+                            "\033]104\007" /* reset colors */
+                            "\033[?7h",    /* enable line-wrapping */
+                            SIZE_MAX,
+                            100 * USEC_PER_MSEC);
+        if (k < 0)
+                log_debug_errno(k, "Failed to reset terminal through ANSI sequences: %m");
+
+        if (r > 0) {
+                r = fd_nonblock(fd, false);
+                if (r < 0)
+                        log_debug_errno(r, "Failed to set terminal back to blocking mode: %m");
+        }
+
+        return k < 0 ? k : r;
+}
+
+void reset_dev_console_fd(int fd, bool switch_to_text) {
+        int r;
+
+        assert(fd >= 0);
+
+        _cleanup_close_ int lock_fd = lock_dev_console();
+        if (lock_fd < 0)
+                log_debug_errno(lock_fd, "Failed to lock /dev/console, ignoring: %m");
+
+        r = terminal_reset_ioctl(fd, switch_to_text);
+        if (r < 0)
+                log_warning_errno(r, "Failed to reset /dev/console, ignoring: %m");
+
+        unsigned rows, cols;
+        r = proc_cmdline_tty_size("/dev/console", &rows, &cols);
+        if (r < 0)
+                log_warning_errno(r, "Failed to get /dev/console size, ignoring: %m");
+        else if (r > 0) {
+                r = terminal_set_size_fd(fd, NULL, rows, cols);
+                if (r < 0)
+                        log_warning_errno(r, "Failed to set configured terminal size on /dev/console, ignoring: %m");
+        } else
+                (void) terminal_fix_size(fd, fd);
+
+        r = terminal_reset_ansi_seq(fd);
+        if (r < 0)
+                log_warning_errno(r, "Failed to reset /dev/console using ANSI sequences, ignoring: %m");
+}
+
+int lock_dev_console(void) {
+        _cleanup_close_ int fd = -EBADF;
+        int r;
+
+        /* NB: We do not use O_NOFOLLOW here, because some container managers might place a symlink to some
+         * pty in /dev/console, in which case it should be fine to lock the target TTY. */
+        fd = open_terminal("/dev/console", O_RDONLY|O_CLOEXEC|O_NOCTTY);
+        if (fd < 0)
+                return fd;
+
+        r = lock_generic(fd, LOCK_BSD, LOCK_EX);
+        if (r < 0)
+                return r;
+
+        return TAKE_FD(fd);
 }
 
 int make_console_stdio(void) {
@@ -606,20 +737,7 @@ int make_console_stdio(void) {
                         return log_error_errno(r, "Failed to make /dev/null stdin/stdout/stderr: %m");
 
         } else {
-                unsigned rows, cols;
-
-                r = reset_terminal_fd(fd, /* switch_to_text= */ true);
-                if (r < 0)
-                        log_warning_errno(r, "Failed to reset terminal, ignoring: %m");
-
-                r = proc_cmdline_tty_size("/dev/console", &rows, &cols);
-                if (r < 0)
-                        log_warning_errno(r, "Failed to get terminal size, ignoring: %m");
-                else {
-                        r = terminal_set_size_fd(fd, NULL, rows, cols);
-                        if (r < 0)
-                                log_warning_errno(r, "Failed to set terminal size, ignoring: %m");
-                }
+                reset_dev_console_fd(fd, /* switch_to_text= */ true);
 
                 r = rearrange_stdio(fd, fd, fd); /* This invalidates 'fd' both on success and on failure. */
                 if (r < 0)
@@ -665,25 +783,38 @@ int vtnr_from_tty(const char *tty) {
         return i;
 }
 
- int resolve_dev_console(char **ret) {
-        _cleanup_free_ char *active = NULL;
-        char *tty;
+int resolve_dev_console(char **ret) {
         int r;
 
         assert(ret);
 
-        /* Resolve where /dev/console is pointing to, if /sys is actually ours (i.e. not read-only-mounted which is a
-         * sign for container setups) */
+        /* Resolve where /dev/console is pointing to. If /dev/console is a symlink (like in container
+         * managers), we'll just resolve the symlink. If it's a real device node, we'll use if
+         * /sys/class/tty/tty0/active, but only if /sys/ is actually ours (i.e. not read-only-mounted which
+         * is a sign for container setups). */
 
-        if (path_is_read_only_fs("/sys") > 0)
+        _cleanup_free_ char *chased = NULL;
+        r = chase("/dev/console", /* root= */ NULL, /* chase_flags= */ 0,  &chased, /* ret_fd= */ NULL);
+        if (r < 0)
+                return r;
+        if (!path_equal(chased, "/dev/console")) {
+                *ret = TAKE_PTR(chased);
+                return 0;
+        }
+
+        r = path_is_read_only_fs("/sys");
+        if (r < 0)
+                return r;
+        if (r > 0)
                 return -ENOMEDIUM;
 
+        _cleanup_free_ char *active = NULL;
         r = read_one_line_file("/sys/class/tty/console/active", &active);
         if (r < 0)
                 return r;
 
         /* If multiple log outputs are configured the last one is what /dev/console points to */
-        tty = strrchr(active, ' ');
+        const char *tty = strrchr(active, ' ');
         if (tty)
                 tty++;
         else
@@ -791,7 +922,7 @@ bool tty_is_vc_resolve(const char *tty) {
         return tty_is_vc(tty);
 }
 
-const char *default_term_for_tty(const char *tty) {
+const char* default_term_for_tty(const char *tty) {
         return tty && tty_is_vc_resolve(tty) ? "linux" : "vt220";
 }
 
@@ -805,28 +936,39 @@ int fd_columns(int fd) {
                 return -errno;
 
         if (ws.ws_col <= 0)
-                return -EIO;
+                return -ENODATA; /* some tty types come up with invalid row/column initially, return a recognizable error for that */
 
         return ws.ws_col;
 }
 
+int getenv_columns(void) {
+        int r;
+
+        const char *e = getenv("COLUMNS");
+        if (!e)
+                return -ENXIO;
+
+        unsigned c;
+        r = safe_atou_bounded(e, 1, USHRT_MAX, &c);
+        if (r < 0)
+                return r;
+
+        return (int) c;
+}
+
 unsigned columns(void) {
-        const char *e;
-        int c;
 
         if (cached_columns > 0)
                 return cached_columns;
 
-        c = 0;
-        e = getenv("COLUMNS");
-        if (e)
-                (void) safe_atoi(e, &c);
-
-        if (c <= 0 || c > USHRT_MAX) {
+        int c = getenv_columns();
+        if (c < 0) {
                 c = fd_columns(STDOUT_FILENO);
-                if (c <= 0)
+                if (c < 0)
                         c = 80;
         }
+
+        assert(c > 0);
 
         cached_columns = c;
         return cached_columns;
@@ -842,7 +984,7 @@ int fd_lines(int fd) {
                 return -errno;
 
         if (ws.ws_row <= 0)
-                return -EIO;
+                return -ENODATA; /* some tty types come up with invalid row/column initially, return a recognizable error for that */
 
         return ws.ws_row;
 }
@@ -872,13 +1014,18 @@ unsigned lines(void) {
 int terminal_set_size_fd(int fd, const char *ident, unsigned rows, unsigned cols) {
         struct winsize ws;
 
+        assert(fd >= 0);
+
+        if (!ident)
+                ident = "TTY";
+
         if (rows == UINT_MAX && cols == UINT_MAX)
                 return 0;
 
         if (ioctl(fd, TIOCGWINSZ, &ws) < 0)
                 return log_debug_errno(errno,
                                        "TIOCGWINSZ ioctl for getting %s size failed, not setting terminal size: %m",
-                                       ident ?: "TTY");
+                                       ident);
 
         if (rows == UINT_MAX)
                 rows = ws.ws_row;
@@ -897,7 +1044,7 @@ int terminal_set_size_fd(int fd, const char *ident, unsigned rows, unsigned cols
         ws.ws_col = cols;
 
         if (ioctl(fd, TIOCSWINSZ, &ws) < 0)
-                return log_debug_errno(errno, "TIOCSWINSZ ioctl for setting %s size failed: %m", ident ?: "TTY");
+                return log_debug_errno(errno, "TIOCSWINSZ ioctl for setting %s size failed: %m", ident);
 
         return 0;
 }
@@ -913,8 +1060,11 @@ int proc_cmdline_tty_size(const char *tty, unsigned *ret_rows, unsigned *ret_col
                 return 0;
 
         tty = skip_dev_prefix(tty);
+        if (path_startswith(tty, "pts/"))
+                return -EMEDIUMTYPE;
         if (!in_charset(tty, ALPHANUMERICAL))
-                return log_debug_errno(SYNTHETIC_ERRNO(EINVAL), "%s contains non-alphanumeric characters", tty);
+                return log_debug_errno(SYNTHETIC_ERRNO(EINVAL),
+                                       "TTY name '%s' contains non-alphanumeric characters, not searching kernel cmdline for size.", tty);
 
         rowskey = strjoin("systemd.tty.rows.", tty);
         if (!rowskey)
@@ -947,7 +1097,7 @@ int proc_cmdline_tty_size(const char *tty, unsigned *ret_rows, unsigned *ret_col
         if (ret_cols)
                 *ret_cols = cols;
 
-        return 0;
+        return rows != UINT_MAX || cols != UINT_MAX;
 }
 
 /* intended to be used as a SIGWINCH sighandler */
@@ -960,7 +1110,7 @@ void reset_terminal_feature_caches(void) {
         cached_columns = 0;
         cached_lines = 0;
 
-        cached_color_mode = _COLOR_INVALID;
+        cached_color_mode = _COLOR_MODE_INVALID;
         cached_underline_enabled = -1;
         cached_on_tty = -1;
         cached_on_dev_null = -1;
@@ -976,8 +1126,8 @@ bool on_tty(void) {
 
         if (cached_on_tty < 0)
                 cached_on_tty =
-                        isatty(STDOUT_FILENO) > 0 &&
-                        isatty(STDERR_FILENO) > 0;
+                        isatty_safe(STDOUT_FILENO) &&
+                        isatty_safe(STDERR_FILENO);
 
         return cached_on_tty;
 }
@@ -1014,11 +1164,11 @@ int getttyname_harder(int fd, char **ret) {
         return 0;
 }
 
-int get_ctty_devnr(pid_t pid, dev_t *d) {
-        int r;
+int get_ctty_devnr(pid_t pid, dev_t *ret) {
         _cleanup_free_ char *line = NULL;
-        const char *p;
         unsigned long ttynr;
+        const char *p;
+        int r;
 
         assert(pid >= 0);
 
@@ -1045,8 +1195,8 @@ int get_ctty_devnr(pid_t pid, dev_t *d) {
         if (devnum_is_zero(ttynr))
                 return -ENXIO;
 
-        if (d)
-                *d = (dev_t) ttynr;
+        if (ret)
+                *ret = (dev_t) ttynr;
 
         return 0;
 }
@@ -1143,16 +1293,16 @@ int ptsname_malloc(int fd, char **ret) {
         }
 }
 
-int openpt_allocate(int flags, char **ret_slave) {
+int openpt_allocate(int flags, char **ret_peer_path) {
         _cleanup_close_ int fd = -EBADF;
-        _cleanup_free_ char *p = NULL;
         int r;
 
         fd = posix_openpt(flags|O_NOCTTY|O_CLOEXEC);
         if (fd < 0)
                 return -errno;
 
-        if (ret_slave) {
+        _cleanup_free_ char *p = NULL;
+        if (ret_peer_path) {
                 r = ptsname_malloc(fd, &p);
                 if (r < 0)
                         return r;
@@ -1164,20 +1314,22 @@ int openpt_allocate(int flags, char **ret_slave) {
         if (unlockpt(fd) < 0)
                 return -errno;
 
-        if (ret_slave)
-                *ret_slave = TAKE_PTR(p);
+        if (ret_peer_path)
+                *ret_peer_path = TAKE_PTR(p);
 
         return TAKE_FD(fd);
 }
 
 static int ptsname_namespace(int pty, char **ret) {
-        int no = -1, r;
+        int no = -1;
+
+        assert(pty >= 0);
+        assert(ret);
 
         /* Like ptsname(), but doesn't assume that the path is
          * accessible in the local namespace. */
 
-        r = ioctl(pty, TIOCGPTN, &no);
-        if (r < 0)
+        if (ioctl(pty, TIOCGPTN, &no) < 0)
                 return -errno;
 
         if (no < 0)
@@ -1189,10 +1341,9 @@ static int ptsname_namespace(int pty, char **ret) {
         return 0;
 }
 
-int openpt_allocate_in_namespace(pid_t pid, int flags, char **ret_slave) {
+int openpt_allocate_in_namespace(pid_t pid, int flags, char **ret_peer_path) {
         _cleanup_close_ int pidnsfd = -EBADF, mntnsfd = -EBADF, usernsfd = -EBADF, rootfd = -EBADF, fd = -EBADF;
         _cleanup_close_pair_ int pair[2] = EBADF_PAIR;
-        pid_t child;
         int r;
 
         assert(pid > 0);
@@ -1201,17 +1352,27 @@ int openpt_allocate_in_namespace(pid_t pid, int flags, char **ret_slave) {
         if (r < 0)
                 return r;
 
-        if (socketpair(AF_UNIX, SOCK_DGRAM, 0, pair) < 0)
+        if (socketpair(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0, pair) < 0)
                 return -errno;
 
-        r = namespace_fork("(sd-openptns)", "(sd-openpt)", NULL, 0, FORK_RESET_SIGNALS|FORK_DEATHSIG_SIGKILL,
-                           pidnsfd, mntnsfd, -1, usernsfd, rootfd, &child);
+        r = namespace_fork(
+                        "(sd-openptns)",
+                        "(sd-openpt)",
+                        /* except_fds= */ NULL,
+                        /* n_except_fds= */ 0,
+                        FORK_RESET_SIGNALS|FORK_DEATHSIG_SIGKILL|FORK_WAIT,
+                        pidnsfd,
+                        mntnsfd,
+                        /* netns_fd= */ -EBADF,
+                        usernsfd,
+                        rootfd,
+                        /* ret_pid= */ NULL);
         if (r < 0)
                 return r;
         if (r == 0) {
                 pair[0] = safe_close(pair[0]);
 
-                fd = openpt_allocate(flags, NULL);
+                fd = openpt_allocate(flags, /* ret_peer_path= */ NULL);
                 if (fd < 0)
                         _exit(EXIT_FAILURE);
 
@@ -1223,18 +1384,12 @@ int openpt_allocate_in_namespace(pid_t pid, int flags, char **ret_slave) {
 
         pair[1] = safe_close(pair[1]);
 
-        r = wait_for_terminate_and_check("(sd-openptns)", child, 0);
-        if (r < 0)
-                return r;
-        if (r != EXIT_SUCCESS)
-                return -EIO;
-
         fd = receive_one_fd(pair[0], 0);
         if (fd < 0)
                 return fd;
 
-        if (ret_slave) {
-                r = ptsname_namespace(fd, ret_slave);
+        if (ret_peer_path) {
+                r = ptsname_namespace(fd, ret_peer_path);
                 if (r < 0)
                         return r;
         }
@@ -1245,42 +1400,46 @@ int openpt_allocate_in_namespace(pid_t pid, int flags, char **ret_slave) {
 int open_terminal_in_namespace(pid_t pid, const char *name, int mode) {
         _cleanup_close_ int pidnsfd = -EBADF, mntnsfd = -EBADF, usernsfd = -EBADF, rootfd = -EBADF;
         _cleanup_close_pair_ int pair[2] = EBADF_PAIR;
-        pid_t child;
         int r;
 
-        r = namespace_open(pid, &pidnsfd, &mntnsfd, /* ret_netns_fd = */ NULL, &usernsfd, &rootfd);
+        assert(pid > 0);
+        assert(name);
+
+        r = namespace_open(pid, &pidnsfd, &mntnsfd, /* ret_netns_fd= */ NULL, &usernsfd, &rootfd);
         if (r < 0)
                 return r;
 
-        if (socketpair(AF_UNIX, SOCK_DGRAM, 0, pair) < 0)
+        if (socketpair(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0, pair) < 0)
                 return -errno;
 
-        r = namespace_fork("(sd-terminalns)", "(sd-terminal)", NULL, 0, FORK_RESET_SIGNALS|FORK_DEATHSIG_SIGKILL,
-                           pidnsfd, mntnsfd, -1, usernsfd, rootfd, &child);
+        r = namespace_fork(
+                        "(sd-terminalns)",
+                        "(sd-terminal)",
+                        /* except_fds= */ NULL,
+                        /* n_except_fds= */ 0,
+                        FORK_RESET_SIGNALS|FORK_DEATHSIG_SIGKILL|FORK_WAIT,
+                        pidnsfd,
+                        mntnsfd,
+                        /* netnsd_fd= */ -EBADF,
+                        usernsfd,
+                        rootfd,
+                        /* ret_pid= */ NULL);
         if (r < 0)
                 return r;
         if (r == 0) {
-                int master;
-
                 pair[0] = safe_close(pair[0]);
 
-                master = open_terminal(name, mode|O_NOCTTY|O_CLOEXEC);
-                if (master < 0)
+                int pty_fd = open_terminal(name, mode|O_NOCTTY|O_CLOEXEC);
+                if (pty_fd < 0)
                         _exit(EXIT_FAILURE);
 
-                if (send_one_fd(pair[1], master, 0) < 0)
+                if (send_one_fd(pair[1], pty_fd, 0) < 0)
                         _exit(EXIT_FAILURE);
 
                 _exit(EXIT_SUCCESS);
         }
 
         pair[1] = safe_close(pair[1]);
-
-        r = wait_for_terminate_and_check("(sd-terminalns)", child, 0);
-        if (r < 0)
-                return r;
-        if (r != EXIT_SUCCESS)
-                return -EIO;
 
         return receive_one_fd(pair[0], 0);
 }
@@ -1316,69 +1475,68 @@ bool terminal_is_dumb(void) {
         return getenv_terminal_is_dumb();
 }
 
+static const char* const color_mode_table[_COLOR_MODE_MAX] = {
+        [COLOR_OFF]   = "off",
+        [COLOR_16]    = "16",
+        [COLOR_256]   = "256",
+        [COLOR_24BIT] = "24bit",
+};
+
+DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(color_mode, ColorMode, COLOR_24BIT);
+
 static ColorMode parse_systemd_colors(void) {
         const char *e;
-        int r;
 
         e = getenv("SYSTEMD_COLORS");
         if (!e)
-                return _COLOR_INVALID;
-        if (streq(e, "16"))
-                return COLOR_16;
-        if (streq(e, "256"))
-                return COLOR_256;
-        r = parse_boolean(e);
-        if (r >= 0)
-                return r > 0 ? COLOR_ON : COLOR_OFF;
-        return _COLOR_INVALID;
+                return _COLOR_MODE_INVALID;
+
+        ColorMode m = color_mode_from_string(e);
+        if (m < 0)
+                return log_debug_errno(m, "Failed to parse $SYSTEMD_COLORS value '%s', ignoring: %m", e);
+
+        return m;
+}
+
+static ColorMode get_color_mode_impl(void) {
+        /* Returns the mode used to choose output colors. The possible modes are COLOR_OFF for no colors,
+         * COLOR_16 for only the base 16 ANSI colors, COLOR_256 for more colors, and COLOR_24BIT for
+         * unrestricted color output. */
+
+        /* First, we check $SYSTEMD_COLORS, which is the explicit way to change the mode. */
+        ColorMode m = parse_systemd_colors();
+        if (m >= 0)
+                return m;
+
+        /* Next, check for the presence of $NO_COLOR; value is ignored. */
+        if (getenv("NO_COLOR"))
+                return COLOR_OFF;
+
+        /* If the above didn't work, we turn colors off unless we are on a TTY. And if we are on a TTY we
+         * turn it off if $TERM is set to "dumb". There's one special tweak though: if we are PID 1 then we
+         * do not check whether we are connected to a TTY, because we don't keep /dev/console open
+         * continuously due to fear of SAK, and hence things are a bit weird. */
+        if (getpid_cached() == 1 ? getenv_terminal_is_dumb() : terminal_is_dumb())
+                return COLOR_OFF;
+
+        /* We failed to figure out any reason to *disable* colors. Let's see how many colors we shall use. */
+        if (STRPTR_IN_SET(getenv("COLORTERM"),
+                          "truecolor",
+                          "24bit"))
+                return COLOR_24BIT;
+
+        /* Note that the Linux console can only display 16 colors. We still enable 256 color mode
+         * even for PID1 output though (which typically goes to the Linux console), since the Linux
+         * console is able to parse the 256 color sequences and automatically map them to the closest
+         * color in the 16 color palette (since kernel 3.16). Doing 256 colors is nice for people who
+         * invoke systemd in a container or via a serial link or such, and use a true 256 color
+         * terminal to do so. */
+        return COLOR_256;
 }
 
 ColorMode get_color_mode(void) {
-
-        /* Returns the mode used to choose output colors. The possible modes are COLOR_OFF for no colors,
-         * COLOR_16 for only the base 16 ANSI colors, COLOR_256 for more colors and COLOR_ON for unrestricted
-         * color output. For that we check $SYSTEMD_COLORS first (which is the explicit way to
-         * change the mode). If that didn't work we turn colors off unless we are on a TTY. And if we are on a TTY
-         * we turn it off if $TERM is set to "dumb". There's one special tweak though: if we are PID 1 then we do not
-         * check whether we are connected to a TTY, because we don't keep /dev/console open continuously due to fear
-         * of SAK, and hence things are a bit weird. */
-        ColorMode m;
-
-        if (cached_color_mode < 0) {
-                m = parse_systemd_colors();
-                if (m >= 0)
-                        cached_color_mode = m;
-                else if (getenv("NO_COLOR"))
-                        /* We only check for the presence of the variable; value is ignored. */
-                        cached_color_mode = COLOR_OFF;
-
-                else if (getpid_cached() == 1) {
-                        /* PID1 outputs to the console without holding it open all the time.
-                         *
-                         * Note that the Linux console can only display 16 colors. We still enable 256 color
-                         * mode even for PID1 output though (which typically goes to the Linux console),
-                         * since the Linux console is able to parse the 256 color sequences and automatically
-                         * map them to the closest color in the 16 color palette (since kernel 3.16). Doing
-                         * 256 colors is nice for people who invoke systemd in a container or via a serial
-                         * link or such, and use a true 256 color terminal to do so. */
-                        if (getenv_terminal_is_dumb())
-                                cached_color_mode = COLOR_OFF;
-                } else {
-                        if (terminal_is_dumb())
-                                cached_color_mode = COLOR_OFF;
-                }
-
-                if (cached_color_mode < 0) {
-                        /* We failed to figure out any reason to *disable* colors.
-                         * Let's see how many colors we shall use. */
-                        if (STRPTR_IN_SET(getenv("COLORTERM"),
-                                          "truecolor",
-                                          "24bit"))
-                                cached_color_mode = COLOR_24BIT;
-                        else
-                                cached_color_mode = COLOR_256;
-                }
-        }
+        if (cached_color_mode < 0)
+                cached_color_mode = get_color_mode_impl();
 
         return cached_color_mode;
 }
@@ -1422,28 +1580,6 @@ bool underline_enabled(void) {
         return cached_underline_enabled;
 }
 
-int vt_default_utf8(void) {
-        _cleanup_free_ char *b = NULL;
-        int r;
-
-        /* Read the default VT UTF8 setting from the kernel */
-
-        r = read_one_line_file("/sys/module/vt/parameters/default_utf8", &b);
-        if (r < 0)
-                return r;
-
-        return parse_boolean(b);
-}
-
-int vt_reset_keyboard(int fd) {
-        int kb;
-
-        /* If we can't read the default, then default to unicode. It's 2017 after all. */
-        kb = vt_default_utf8() != 0 ? K_UNICODE : K_XLATE;
-
-        return RET_NERRNO(ioctl(fd, KDSKBMODE, kb));
-}
-
 int vt_restore(int fd) {
 
         static const struct vt_mode mode = {
@@ -1455,7 +1591,7 @@ int vt_restore(int fd) {
         assert(fd >= 0);
 
         if (!isatty_safe(fd))
-                return log_debug_errno(errno, "Asked to restore the VT for an fd that does not refer to a terminal: %m");
+                return log_debug_errno(SYNTHETIC_ERRNO(ENOTTY), "Asked to restore the VT for an fd that does not refer to a terminal: %m");
 
         if (ioctl(fd, KDSETMODE, KD_TEXT) < 0)
                 RET_GATHER(ret, log_debug_errno(errno, "Failed to set VT to text mode, ignoring: %m"));
@@ -1482,7 +1618,7 @@ int vt_release(int fd, bool restore) {
          * VT-switching modes. */
 
         if (!isatty_safe(fd))
-                return log_debug_errno(errno, "Asked to release the VT for an fd that does not refer to a terminal: %m");
+                return log_debug_errno(SYNTHETIC_ERRNO(ENOTTY), "Asked to release the VT for an fd that does not refer to a terminal: %m");
 
         if (ioctl(fd, VT_RELDISP, 1) < 0)
                 return -errno;
@@ -1531,49 +1667,47 @@ void get_log_colors(int priority, const char **on, const char **off, const char 
         }
 }
 
-int set_terminal_cursor_position(int fd, unsigned int row, unsigned int column) {
-        int r;
-        char cursor_position[STRLEN("\x1B[") + DECIMAL_STR_MAX(int) * 2 + STRLEN(";H") + 1];
-
+int terminal_set_cursor_position(int fd, unsigned row, unsigned column) {
         assert(fd >= 0);
 
+        char cursor_position[STRLEN("\x1B[" ";" "H") + DECIMAL_STR_MAX(unsigned) * 2 + 1];
         xsprintf(cursor_position, "\x1B[%u;%uH", row, column);
 
-        r = loop_write(fd, cursor_position, SIZE_MAX);
-        if (r < 0)
-                return log_warning_errno(r, "Failed to set cursor position, ignoring: %m");
-
-        return 0;
+        return loop_write(fd, cursor_position, SIZE_MAX);
 }
 
-int terminal_reset_ansi_seq(int fd) {
-        int r, k;
+int terminal_reset_defensive(int fd, bool switch_to_text) {
+        int r = 0;
 
         assert(fd >= 0);
 
-        if (getenv_terminal_is_dumb())
-                return 0;
+        /* Resets the terminal comprehensively, but defensively. i.e. both resets the tty via ioctl()s and
+         * via ANSI sequences, but avoids the latter in case we are talking to a pty. That's a safety measure
+         * because ptys might be connected to shell pipelines where we cannot expect such ansi sequences to
+         * work. Given that ptys are generally short-lived (and not recycled) this restriction shouldn't hurt
+         * much.
+         *
+         * The specified fd should be open for *writing*! */
 
-        r = fd_nonblock(fd, true);
-        if (r < 0)
-                return log_debug_errno(r, "Failed to set terminal to non-blocking mode: %m");
+        if (!isatty_safe(fd))
+                return -ENOTTY;
 
-        k = loop_write_full(fd,
-                            "\033[!p"      /* soft terminal reset */
-                            "\033]104\007" /* reset colors */
-                            "\033[?7h",    /* enable line-wrapping */
-                            SIZE_MAX,
-                            50 * USEC_PER_MSEC);
-        if (k < 0)
-                log_debug_errno(k, "Failed to write to terminal: %m");
+        RET_GATHER(r, terminal_reset_ioctl(fd, switch_to_text));
 
-        if (r > 0) {
-                r = fd_nonblock(fd, false);
-                if (r < 0)
-                        log_debug_errno(r, "Failed to set terminal back to blocking mode: %m");
-        }
+        if (terminal_is_pty_fd(fd) == 0)
+                RET_GATHER(r, terminal_reset_ansi_seq(fd));
 
-        return k < 0 ? k : r;
+        return r;
+}
+
+int terminal_reset_defensive_locked(int fd, bool switch_to_text) {
+        assert(fd >= 0);
+
+        _cleanup_close_ int lock_fd = lock_dev_console();
+        if (lock_fd < 0)
+                log_debug_errno(lock_fd, "Failed to acquire lock for /dev/console, ignoring: %m");
+
+        return terminal_reset_defensive(fd, switch_to_text);
 }
 
 void termios_disable_echo(struct termios *termios) {
@@ -1582,6 +1716,37 @@ void termios_disable_echo(struct termios *termios) {
         termios->c_lflag &= ~(ICANON|ECHO);
         termios->c_cc[VMIN] = 1;
         termios->c_cc[VTIME] = 0;
+}
+
+static int terminal_verify_same(int input_fd, int output_fd) {
+        assert(input_fd >= 0);
+        assert(output_fd >= 0);
+
+        /* Validates that the specified fds reference the same TTY */
+
+        if (input_fd != output_fd) {
+                struct stat sti;
+                if (fstat(input_fd, &sti) < 0)
+                        return -errno;
+
+                if (!S_ISCHR(sti.st_mode)) /* TTYs are character devices */
+                        return -ENOTTY;
+
+                struct stat sto;
+                if (fstat(output_fd, &sto) < 0)
+                        return -errno;
+
+                if (!S_ISCHR(sto.st_mode))
+                        return -ENOTTY;
+
+                if (sti.st_rdev != sto.st_rdev)
+                        return -ENOLINK;
+        }
+
+        if (!isatty_safe(input_fd)) /* The check above was just for char device, but now let's ensure it's actually a tty */
+                return -ENOTTY;
+
+        return 0;
 }
 
 typedef enum BackgroundColorState {
@@ -1609,7 +1774,8 @@ typedef struct BackgroundColorContext {
 static int scan_background_color_response(
                 BackgroundColorContext *context,
                 const char *buf,
-                size_t size) {
+                size_t size,
+                size_t *ret_processed) {
 
         assert(context);
         assert(buf || size == 0);
@@ -1685,8 +1851,12 @@ static int scan_background_color_response(
 
                 case BACKGROUND_BLUE:
                         if (c == '\x07') {
-                                if (context->blue_bits > 0)
+                                if (context->blue_bits > 0) {
+                                        if (ret_processed)
+                                                *ret_processed = i + 1;
+
                                         return 1; /* success! */
+                                }
 
                                 context->state = BACKGROUND_TEXT;
                         } else if (c == '\x1b')
@@ -1703,8 +1873,12 @@ static int scan_background_color_response(
                         break;
 
                 case BACKGROUND_STRING_TERMINATOR:
-                        if (c == '\\')
+                        if (c == '\\') {
+                                if (ret_processed)
+                                        *ret_processed = i + 1;
+
                                 return 1; /* success! */
+                        }
 
                         context->state = c == ']' ? BACKGROUND_ESCAPE : BACKGROUND_TEXT;
                         break;
@@ -1719,6 +1893,9 @@ static int scan_background_color_response(
                 }
         }
 
+        if (ret_processed)
+                *ret_processed = size;
+
         return 0; /* all good, but not enough data yet */
 }
 
@@ -1732,8 +1909,9 @@ int get_default_background_color(double *ret_red, double *ret_green, double *ret
         if (!colors_enabled())
                 return -EOPNOTSUPP;
 
-        if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))
-                return -EOPNOTSUPP;
+        r = terminal_verify_same(STDIN_FILENO, STDOUT_FILENO);
+        if (r < 0)
+                return r;
 
         if (streq_ptr(getenv("TERM"), "linux")) {
                 /* Linux console is black */
@@ -1748,47 +1926,57 @@ int get_default_background_color(double *ret_red, double *ret_green, double *ret
         struct termios new_termios = old_termios;
         termios_disable_echo(&new_termios);
 
-        if (tcsetattr(STDOUT_FILENO, TCSADRAIN, &new_termios) < 0)
+        if (tcsetattr(STDIN_FILENO, TCSADRAIN, &new_termios) < 0)
                 return -errno;
 
-        r = loop_write(STDOUT_FILENO, "\x1B]11;?\x07", SIZE_MAX);
+        r = loop_write(STDOUT_FILENO, ANSI_OSC "11;?" ANSI_ST, SIZE_MAX);
         if (r < 0)
                 goto finish;
 
-        usec_t end = usec_add(now(CLOCK_MONOTONIC), 100 * USEC_PER_MSEC);
-        char buf[256];
+        usec_t end = usec_add(now(CLOCK_MONOTONIC), 333 * USEC_PER_MSEC);
+        char buf[STRLEN(ANSI_OSC "11;rgb:0/0/0" ANSI_ST)]; /* shortest possible reply */
         size_t buf_full = 0;
         BackgroundColorContext context = {};
 
-        for (;;) {
-                usec_t n = now(CLOCK_MONOTONIC);
+        for (bool first = true;; first = false) {
+                if (buf_full == 0) {
+                        usec_t n = now(CLOCK_MONOTONIC);
 
-                if (n >= end) {
-                        r = -EOPNOTSUPP;
-                        goto finish;
+                        if (n >= end) {
+                                r = -EOPNOTSUPP;
+                                goto finish;
+                        }
+
+                        r = fd_wait_for_event(STDIN_FILENO, POLLIN, usec_sub_unsigned(end, n));
+                        if (r < 0)
+                                goto finish;
+                        if (r == 0) {
+                                r = -EOPNOTSUPP;
+                                goto finish;
+                        }
+
+                        /* On the first try, read multiple characters, i.e. the shortest valid
+                         * reply. Afterwards read byte-wise, since we don't want to read too much, and
+                         * unnecessarily drop too many characters from the input queue. */
+                        ssize_t l = read(STDIN_FILENO, buf, first ? sizeof(buf) : 1);
+                        if (l < 0) {
+                                r = -errno;
+                                goto finish;
+                        }
+
+                        assert((size_t) l <= sizeof(buf));
+                        buf_full = l;
                 }
 
-                r = fd_wait_for_event(STDIN_FILENO, POLLIN, usec_sub_unsigned(end, n));
+                size_t processed;
+                r = scan_background_color_response(&context, buf, buf_full, &processed);
                 if (r < 0)
                         goto finish;
-                if (r == 0) {
-                        r = -EOPNOTSUPP;
-                        goto finish;
-                }
 
-                ssize_t l;
-                l = read(STDIN_FILENO, buf, sizeof(buf) - buf_full);
-                if (l < 0) {
-                        r = -errno;
-                        goto finish;
-                }
+                assert(processed <= buf_full);
+                buf_full -= processed;
+                memmove(buf, buf + processed, buf_full);
 
-                buf_full += l;
-                assert(buf_full <= sizeof(buf));
-
-                r = scan_background_color_response(&context, buf, buf_full);
-                if (r < 0)
-                        goto finish;
                 if (r > 0) {
                         assert(context.red_bits > 0);
                         *ret_red = (double) context.red / ((UINT64_C(1) << context.red_bits) - 1);
@@ -1802,6 +1990,354 @@ int get_default_background_color(double *ret_red, double *ret_green, double *ret
         }
 
 finish:
-        (void) tcsetattr(STDOUT_FILENO, TCSADRAIN, &old_termios);
+        RET_GATHER(r, RET_NERRNO(tcsetattr(STDIN_FILENO, TCSADRAIN, &old_termios)));
         return r;
+}
+
+typedef enum CursorPositionState {
+        CURSOR_TEXT,
+        CURSOR_ESCAPE,
+        CURSOR_ROW,
+        CURSOR_COLUMN,
+} CursorPositionState;
+
+typedef struct CursorPositionContext {
+        CursorPositionState state;
+        unsigned row, column;
+} CursorPositionContext;
+
+static int scan_cursor_position_response(
+                CursorPositionContext *context,
+                const char *buf,
+                size_t size,
+                size_t *ret_processed) {
+
+        assert(context);
+        assert(buf || size == 0);
+
+        for (size_t i = 0; i < size; i++) {
+                char c = buf[i];
+
+                switch (context->state) {
+
+                case CURSOR_TEXT:
+                        context->state = c == '\x1B' ? CURSOR_ESCAPE : CURSOR_TEXT;
+                        break;
+
+                case CURSOR_ESCAPE:
+                        context->state = c == '[' ? CURSOR_ROW : CURSOR_TEXT;
+                        break;
+
+                case CURSOR_ROW:
+                        if (c == ';')
+                                context->state = context->row > 0 ? CURSOR_COLUMN : CURSOR_TEXT;
+                        else {
+                                int d = undecchar(c);
+
+                                /* We read a decimal character, let's suffix it to the number we so far read,
+                                 * but let's do an overflow check first. */
+                                if (d < 0 || context->row > (UINT_MAX-d)/10)
+                                        context->state = CURSOR_TEXT;
+                                else
+                                        context->row = context->row * 10 + d;
+                        }
+                        break;
+
+                case CURSOR_COLUMN:
+                        if (c == 'R') {
+                                if (context->column > 0) {
+                                        if (ret_processed)
+                                                *ret_processed = i + 1;
+
+                                        return 1; /* success! */
+                                }
+
+                                context->state = CURSOR_TEXT;
+                        } else {
+                                int d = undecchar(c);
+
+                                /* As above, add the decimal charatcer to our column number */
+                                if (d < 0 || context->column > (UINT_MAX-d)/10)
+                                        context->state = CURSOR_TEXT;
+                                else
+                                        context->column = context->column * 10 + d;
+                        }
+
+                        break;
+                }
+
+                /* Reset any positions we might have picked up */
+                if (IN_SET(context->state, CURSOR_TEXT, CURSOR_ESCAPE))
+                        context->row = context->column = 0;
+        }
+
+        if (ret_processed)
+                *ret_processed = size;
+
+        return 0; /* all good, but not enough data yet */
+}
+
+int terminal_get_size_by_dsr(
+                int input_fd,
+                int output_fd,
+                unsigned *ret_rows,
+                unsigned *ret_columns) {
+
+        assert(input_fd >= 0);
+        assert(output_fd >= 0);
+
+        int r;
+
+        /* Tries to determine the terminal dimension by means of ANSI sequences rather than TIOCGWINSZ
+         * ioctl(). Why bother with this? The ioctl() information is often incorrect on serial terminals
+         * (since there's no handshake or protocol to determine the right dimensions in RS232), but since the
+         * ANSI sequences are interpreted by the final terminal instead of an intermediary tty driver they
+         * should be more accurate.
+         *
+         * Unfortunately there's no direct ANSI sequence to query terminal dimensions. But we can hack around
+         * it: we position the cursor briefly at an absolute location very far down and very far to the
+         * right, and then read back where we actually ended up. Because cursor locations are capped at the
+         * terminal width/height we should then see the right values. In order to not risk integer overflows
+         * in terminal applications we'll use INT16_MAX-1 as location to jump to — hopefully a value that is
+         * large enough for any real-life terminals, but small enough to not overflow anything or be
+         * recognized as a "niche" value. (Note that the dimension fields in "struct winsize" are 16bit only,
+         * too). */
+
+        if (terminal_is_dumb())
+                return -EOPNOTSUPP;
+
+        r = terminal_verify_same(input_fd, output_fd);
+        if (r < 0)
+                return log_debug_errno(r, "Called with distinct input/output fds: %m");
+
+        struct termios old_termios;
+        if (tcgetattr(input_fd, &old_termios) < 0)
+                return log_debug_errno(errno, "Failed to to get terminal settings: %m");
+
+        struct termios new_termios = old_termios;
+        termios_disable_echo(&new_termios);
+
+        if (tcsetattr(input_fd, TCSADRAIN, &new_termios) < 0)
+                return log_debug_errno(errno, "Failed to to set new terminal settings: %m");
+
+        unsigned saved_row = 0, saved_column = 0;
+
+        r = loop_write(output_fd,
+                       "\x1B[6n"           /* Request cursor position (DSR/CPR) */
+                       "\x1B[32766;32766H" /* Position cursor really far to the right and to the bottom, but let's stay within the 16bit signed range */
+                       "\x1B[6n",          /* Request cursor position again */
+                       SIZE_MAX);
+        if (r < 0)
+                goto finish;
+
+        usec_t end = usec_add(now(CLOCK_MONOTONIC), 333 * USEC_PER_MSEC);
+        char buf[STRLEN("\x1B[1;1R")]; /* The shortest valid reply possible */
+        size_t buf_full = 0;
+        CursorPositionContext context = {};
+
+        for (bool first = true;; first = false) {
+                if (buf_full == 0) {
+                        usec_t n = now(CLOCK_MONOTONIC);
+
+                        if (n >= end) {
+                                r = -EOPNOTSUPP;
+                                goto finish;
+                        }
+
+                        r = fd_wait_for_event(input_fd, POLLIN, usec_sub_unsigned(end, n));
+                        if (r < 0)
+                                goto finish;
+                        if (r == 0) {
+                                r = -EOPNOTSUPP;
+                                goto finish;
+                        }
+
+                        /* On the first try, read multiple characters, i.e. the shortest valid
+                         * reply. Afterwards read byte-wise, since we don't want to read too much, and
+                         * unnecessarily drop too many characters from the input queue. */
+                        ssize_t l = read(input_fd, buf, first ? sizeof(buf) : 1);
+                        if (l < 0) {
+                                r = -errno;
+                                goto finish;
+                        }
+
+                        assert((size_t) l <= sizeof(buf));
+                        buf_full = l;
+                }
+
+                size_t processed;
+                r = scan_cursor_position_response(&context, buf, buf_full, &processed);
+                if (r < 0)
+                        goto finish;
+
+                assert(processed <= buf_full);
+                buf_full -= processed;
+                memmove(buf, buf + processed, buf_full);
+
+                if (r > 0) {
+                        if (saved_row == 0) {
+                                assert(saved_column == 0);
+
+                                /* First sequence, this is the cursor position before we set it somewhere
+                                 * into the void at the bottom right. Let's save where we are so that we can
+                                 * return later. */
+
+                                /* Superficial validity checks */
+                                if (context.row <= 0 || context.column <= 0 || context.row >= 32766 || context.column >= 32766) {
+                                        r = -ENODATA;
+                                        goto finish;
+                                }
+
+                                saved_row = context.row;
+                                saved_column = context.column;
+
+                                /* Reset state */
+                                context = (CursorPositionContext) {};
+                        } else {
+                                /* Second sequence, this is the cursor position after we set it somewhere
+                                 * into the void at the bottom right. */
+
+                                /* Superficial validity checks (no particular reason to check for < 4, it's
+                                 * just a way to look for unreasonably small values) */
+                                if (context.row < 4 || context.column < 4 || context.row >= 32766 || context.column >= 32766) {
+                                        r = -ENODATA;
+                                        goto finish;
+                                }
+
+                                if (ret_rows)
+                                        *ret_rows = context.row;
+                                if (ret_columns)
+                                        *ret_columns = context.column;
+
+                                r = 0;
+                                goto finish;
+                        }
+                }
+        }
+
+finish:
+        /* Restore cursor position */
+        if (saved_row > 0 && saved_column > 0)
+                RET_GATHER(r, terminal_set_cursor_position(output_fd, saved_row, saved_column));
+
+        RET_GATHER(r, RET_NERRNO(tcsetattr(input_fd, TCSADRAIN, &old_termios)));
+        return r;
+}
+
+int terminal_fix_size(int input_fd, int output_fd) {
+        unsigned rows, columns;
+        int r;
+
+        /* Tries to update the current terminal dimensions to the ones reported via ANSI sequences */
+
+        r = terminal_verify_same(input_fd, output_fd);
+        if (r < 0)
+                return r;
+
+        struct winsize ws = {};
+        if (ioctl(output_fd, TIOCGWINSZ, &ws) < 0)
+                return log_debug_errno(errno, "Failed to query terminal dimensions, ignoring: %m");
+
+        r = terminal_get_size_by_dsr(input_fd, output_fd, &rows, &columns);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to acquire terminal dimensions via ANSI sequences, not adjusting terminal dimensions: %m");
+
+        if (ws.ws_row == rows && ws.ws_col == columns) {
+                log_debug("Terminal dimensions reported via ANSI sequences match currently set terminal dimensions, not changing.");
+                return 0;
+        }
+
+        ws.ws_col = columns;
+        ws.ws_row = rows;
+
+        if (ioctl(output_fd, TIOCSWINSZ, &ws) < 0)
+                return log_debug_errno(errno, "Failed to update terminal dimensions, ignoring: %m");
+
+        log_debug("Fixed terminal dimensions to %ux%u based on ANSI sequence information.", columns, rows);
+        return 1;
+}
+
+int terminal_is_pty_fd(int fd) {
+        int r;
+
+        assert(fd >= 0);
+
+        /* Returns true if we are looking at a pty, i.e. if it's backed by the /dev/pts/ file system */
+
+        if (!isatty_safe(fd))
+                return false;
+
+        r = is_fs_type_at(fd, NULL, DEVPTS_SUPER_MAGIC);
+        if (r != 0)
+                return r;
+
+        /* The ptmx device is weird, it exists twice, once inside and once outside devpts. To detect the
+         * latter case, let's fire off an ioctl() that only works on ptmx devices. */
+
+        int v;
+        if (ioctl(fd, TIOCGPKT, &v) < 0) {
+                if (ERRNO_IS_NOT_SUPPORTED(errno))
+                        return false;
+
+                return -errno;
+        }
+
+        return true;
+}
+
+int pty_open_peer_racefree(int fd, int mode) {
+        assert(fd >= 0);
+
+        /* Opens the peer PTY using the new race-free TIOCGPTPEER ioctl() (kernel 4.13).
+         *
+         * This is safe to be called on TTYs from other namespaces. */
+
+        assert((mode & (O_CREAT|O_PATH|O_DIRECTORY|O_TMPFILE)) == 0);
+
+        /* This replicates the EIO retry logic of open_terminal() in a modified way. */
+        for (unsigned c = 0;; c++) {
+                int peer_fd = ioctl(fd, TIOCGPTPEER, mode);
+                if (peer_fd >= 0)
+                        return peer_fd;
+
+                if (ERRNO_IS_NOT_SUPPORTED(errno) || errno == EINVAL) /* new ioctl() is not supported, return a clear error */
+                        return -EOPNOTSUPP;
+
+                if (errno != EIO)
+                        return -errno;
+
+                /* Max 1s in total */
+                if (c >= 20)
+                        return -EIO;
+
+                (void) usleep_safe(50 * USEC_PER_MSEC);
+        }
+}
+
+int pty_open_peer(int fd, int mode) {
+        int r;
+
+        assert(fd >= 0);
+
+        /* Opens the peer PTY using the new race-free TIOCGPTPEER ioctl() (kernel 4.13) if it is
+         * available. Otherwise falls back to the POSIX ptsname() + open() logic.
+         *
+         * Because of the fallback path this is not safe to be called on PTYs from other namespaces. (Because
+         * we open the peer PTY name there via a path in the file system.) */
+
+        // TODO: Remove fallback path once baseline is updated to >= 4.13, i.e. systemd v258
+
+        int peer_fd = pty_open_peer_racefree(fd, mode);
+        if (peer_fd >= 0)
+                return peer_fd;
+        if (!ERRNO_IS_NEG_NOT_SUPPORTED(peer_fd))
+                return peer_fd;
+
+        /* The racy fallback path */
+        _cleanup_free_ char *peer_path = NULL;
+        r = ptsname_malloc(fd, &peer_path);
+        if (r < 0)
+                return r;
+
+        return open_terminal(peer_path, mode);
 }

@@ -3,10 +3,13 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include "alloc-util.h"
+#include "ansi-color.h"
 #include "fd-util.h"
 #include "fs-util.h"
 #include "macro.h"
@@ -21,6 +24,10 @@
         "ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit " \
         "in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat " \
         "non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
+
+TEST(colors_enabled) {
+        log_info("colors_enabled: %s", yes_no(colors_enabled()));
+}
 
 TEST(default_term_for_tty) {
         puts(default_term_for_tty("/dev/tty23"));
@@ -123,8 +130,8 @@ static const Color colors[] = {
 };
 
 TEST(colors) {
-        for (size_t i = 0; i < ELEMENTSOF(colors); i++)
-                printf("<%s%s%s>\n", colors[i].func(), colors[i].name, ansi_normal());
+        FOREACH_ELEMENT(color, colors)
+                printf("<%s%s%s>\n", colors->func(), color->name, ansi_normal());
 }
 
 TEST(text) {
@@ -174,6 +181,137 @@ TEST(get_default_background_color) {
                 log_notice_errno(r, "Can't get terminal default background color: %m");
         else
                 log_notice("R=%g G=%g B=%g", red, green, blue);
+}
+
+TEST(terminal_get_size_by_dsr) {
+        unsigned rows, columns;
+        int r;
+
+        r = terminal_get_size_by_dsr(STDIN_FILENO, STDOUT_FILENO, &rows, &columns);
+        if (r < 0)
+                log_notice_errno(r, "Can't get screen dimensions via DSR: %m");
+        else {
+                log_notice("terminal size via DSR: rows=%u columns=%u", rows, columns);
+
+                struct winsize ws = {};
+
+                if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0)
+                        log_warning_errno(errno, "Can't get terminal size via ioctl, ignoring: %m");
+                else
+                        log_notice("terminal size via ioctl: rows=%u columns=%u", ws.ws_row, ws.ws_col);
+        }
+}
+
+TEST(terminal_fix_size) {
+        int r;
+
+        r = terminal_fix_size(STDIN_FILENO, STDOUT_FILENO);
+        if (r < 0)
+                log_warning_errno(r, "Failed to fix terminal size: %m");
+        else if (r == 0)
+                log_notice("Not fixing terminal size, nothing to do.");
+        else
+                log_notice("Fixed terminal size.");
+}
+
+TEST(terminal_is_pty_fd) {
+        _cleanup_close_ int fd1 = -EBADF, fd2 = -EBADF;
+        int r;
+
+        fd1 = openpt_allocate(O_RDWR, /* ret_peer_path= */ NULL);
+        assert_se(fd1 >= 0);
+        assert_se(terminal_is_pty_fd(fd1) > 0);
+
+        fd2 = pty_open_peer(fd1, O_RDWR|O_CLOEXEC|O_NOCTTY);
+        assert_se(fd2 >= 0);
+        assert_se(terminal_is_pty_fd(fd2) > 0);
+
+        fd1 = safe_close(fd1);
+        fd2 = safe_close(fd2);
+
+        fd1 = open("/dev/null", O_RDONLY|O_CLOEXEC);
+        assert_se(fd1 >= 0);
+        assert_se(terminal_is_pty_fd(fd1) == 0);
+
+        /* In container managers real tty devices might be weird, avoid them. */
+        r = path_is_read_only_fs("/sys");
+        if (r != 0)
+                return;
+
+        FOREACH_STRING(p, "/dev/ttyS0", "/dev/tty1") {
+                _cleanup_close_ int tfd = -EBADF;
+
+                tfd = open_terminal(p, O_CLOEXEC|O_NOCTTY|O_RDONLY|O_NONBLOCK);
+                if (tfd == -ENOENT)
+                        continue;
+                if (tfd < 0)  {
+                        log_notice_errno(tfd, "Failed to open '%s', skipping: %m", p);
+                        continue;
+                }
+
+                assert_se(terminal_is_pty_fd(tfd) <= 0);
+        }
+}
+
+static void test_get_color_mode_with_env(const char *key, const char *val, ColorMode expected) {
+        ASSERT_OK_ERRNO(setenv(key, val, true));
+        reset_terminal_feature_caches();
+        log_info("get_color_mode($%s=%s): %s", key, val, color_mode_to_string(get_color_mode()));
+        ASSERT_EQ(get_color_mode(), expected);
+}
+
+TEST(get_color_mode) {
+        log_info("get_color_mode(default): %s", color_mode_to_string(get_color_mode()));
+        ASSERT_OK(get_color_mode());
+
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "0",     COLOR_OFF);
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "no",    COLOR_OFF);
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "16",    COLOR_16);
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "256",   COLOR_256);
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "1",     COLOR_24BIT);
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "yes",   COLOR_24BIT);
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "24bit", COLOR_24BIT);
+
+        ASSERT_OK_ERRNO(setenv("NO_COLOR", "1", true));
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "42",      COLOR_OFF);
+        test_get_color_mode_with_env("SYSTEMD_COLORS", "invalid", COLOR_OFF);
+        ASSERT_OK_ERRNO(unsetenv("NO_COLOR"));
+        ASSERT_OK_ERRNO(unsetenv("SYSTEMD_COLORS"));
+
+        test_get_color_mode_with_env("COLORTERM", "truecolor", terminal_is_dumb() ? COLOR_OFF : COLOR_24BIT);
+        test_get_color_mode_with_env("COLORTERM", "24bit",     terminal_is_dumb() ? COLOR_OFF : COLOR_24BIT);
+        test_get_color_mode_with_env("COLORTERM", "invalid",   terminal_is_dumb() ? COLOR_OFF : COLOR_256);
+        test_get_color_mode_with_env("COLORTERM", "42",        terminal_is_dumb() ? COLOR_OFF : COLOR_256);
+        ASSERT_OK_ERRNO(unsetenv("COLORTERM"));
+        reset_terminal_feature_caches();
+}
+
+TEST(terminal_reset_defensive) {
+        int r;
+
+        r = terminal_reset_defensive(STDOUT_FILENO, /* switch_to_text= */ false);
+        if (r < 0)
+                log_notice_errno(r, "Failed to reset terminal: %m");
+}
+
+TEST(pty_open_peer) {
+        _cleanup_close_ int pty_fd = -EBADF, peer_fd = -EBADF;
+        _cleanup_free_ char *pty_path = NULL;
+
+        pty_fd = openpt_allocate(O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK, &pty_path);
+        assert(pty_fd >= 0);
+        assert(pty_path);
+
+        peer_fd = pty_open_peer(pty_fd, O_RDWR|O_NOCTTY|O_CLOEXEC);
+        assert(peer_fd >= 0);
+
+        static const char x[] = { 'x', '\n' };
+        assert(write(pty_fd, x, sizeof(x)) == 2);
+
+        char buf[3];
+        assert(read(peer_fd, &buf, sizeof(buf)) == sizeof(x));
+        assert(buf[0] == x[0]);
+        assert(buf[1] == x[1]);
 }
 
 DEFINE_TEST_MAIN(LOG_INFO);

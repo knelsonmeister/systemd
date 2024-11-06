@@ -6,6 +6,7 @@
 #include "sd-messages.h"
 
 #include "alloc-util.h"
+#include "ansi-color.h"
 #include "async.h"
 #include "cgroup.h"
 #include "dbus-job.h"
@@ -161,6 +162,7 @@ static void job_set_state(Job *j, JobState state) {
 void job_uninstall(Job *j) {
         Job **pj;
 
+        assert(j);
         assert(j->installed);
 
         job_set_state(j, JOB_WAITING);
@@ -184,25 +186,37 @@ void job_uninstall(Job *j) {
         j->installed = false;
 }
 
-static bool job_type_allows_late_merge(JobType t) {
-        /* Tells whether it is OK to merge a job of type 't' with an already
-         * running job.
-         * Reloads cannot be merged this way. Think of the sequence:
-         * 1. Reload of a daemon is in progress; the daemon has already loaded
-         *    its config file, but hasn't completed the reload operation yet.
+static bool jobs_may_late_merge(const Job *j, const Job *uj) {
+        assert(j);
+        assert(!j->installed);
+        assert(uj);
+        assert(uj->installed);
+        assert(uj->state == JOB_RUNNING);
+
+        /* Tells whether it is OK to merge a job with an already running job. */
+
+        if (j->refuse_late_merge) /* refused when constructing transaction? */
+                return false;
+
+        /* Reloads cannot be merged this way. Think of the sequence:
+         * 1. Reload of a daemon is in progress; the daemon has already loaded its config file, but hasn't
+         *    completed the reload operation yet.
          * 2. Edit foo's config file.
          * 3. Trigger another reload to have the daemon use the new config.
-         * Should the second reload job be merged into the first one, the daemon
-         * would not know about the new config.
-         * JOB_RESTART jobs on the other hand can be merged, because they get
-         * patched into JOB_START after stopping the unit. So if we see a
-         * JOB_RESTART running, it means the unit hasn't stopped yet and at
-         * this time the merge is still allowed. */
-        return t != JOB_RELOAD;
+         * Should the second reload job be merged into the first one, the daemon would not know about the new config.
+         * JOB_RESTART jobs on the other hand can be merged, because they get patched into JOB_START
+         * after stopping the unit. So if we see a JOB_RESTART running, it means the unit hasn't stopped yet
+         * and at this time the merge is still allowed. */
+        if (j->type == JOB_RELOAD)
+                return false;
+
+        return job_type_is_superset(uj->type, j->type);
 }
 
 static void job_merge_into_installed(Job *j, Job *other) {
+        assert(j);
         assert(j->installed);
+        assert(other);
         assert(j->unit == other->unit);
 
         if (j->type != JOB_NOP) {
@@ -218,13 +232,13 @@ static void job_merge_into_installed(Job *j, Job *other) {
         j->ignore_order = j->ignore_order || other->ignore_order;
 }
 
-Job* job_install(Job *j, bool refuse_late_merge) {
+Job* job_install(Job *j) {
         Job **pj;
         Job *uj;
 
         assert(j);
         assert(!j->installed);
-        assert(j->type < _JOB_TYPE_MAX_IN_TRANSACTION);
+        assert(j->type >= 0 && j->type < _JOB_TYPE_MAX_IN_TRANSACTION);
         assert(j->state == JOB_WAITING);
 
         pj = j->type == JOB_NOP ? &j->unit->nop_job : &j->unit->job;
@@ -236,8 +250,7 @@ Job* job_install(Job *j, bool refuse_late_merge) {
                 else {
                         /* not conflicting, i.e. mergeable */
 
-                        if (uj->state == JOB_WAITING ||
-                            (!refuse_late_merge && job_type_allows_late_merge(j->type) && job_type_is_superset(uj->type, j->type))) {
+                        if (uj->state == JOB_WAITING || jobs_may_late_merge(j, uj)) {
                                 job_merge_into_installed(uj, j);
                                 log_unit_debug(uj->unit,
                                                "Merged %s/%s into installed job %s/%s as %"PRIu32,
@@ -328,14 +341,16 @@ JobDependency* job_dependency_new(Job *subject, Job *object, bool matters, bool 
          * this means the 'anchor' job (i.e. the one the user
          * explicitly asked for) is the requester. */
 
-        l = new0(JobDependency, 1);
+        l = new(JobDependency, 1);
         if (!l)
                 return NULL;
 
-        l->subject = subject;
-        l->object = object;
-        l->matters = matters;
-        l->conflicts = conflicts;
+        *l = (JobDependency) {
+                .subject = subject,
+                .object = object,
+                .matters = matters,
+                .conflicts = conflicts,
+        };
 
         if (subject)
                 LIST_PREPEND(subject, subject->subject_list, l);
@@ -424,13 +439,13 @@ bool job_type_is_redundant(JobType a, UnitActiveState b) {
         switch (a) {
 
         case JOB_START:
-                return IN_SET(b, UNIT_ACTIVE, UNIT_RELOADING);
+                return IN_SET(b, UNIT_ACTIVE, UNIT_RELOADING, UNIT_REFRESHING);
 
         case JOB_STOP:
                 return IN_SET(b, UNIT_INACTIVE, UNIT_FAILED);
 
         case JOB_VERIFY_ACTIVE:
-                return IN_SET(b, UNIT_ACTIVE, UNIT_RELOADING);
+                return IN_SET(b, UNIT_ACTIVE, UNIT_RELOADING, UNIT_REFRESHING);
 
         case JOB_RELOAD:
                 return
@@ -493,6 +508,7 @@ JobType job_type_collapse(JobType t, Unit *u) {
                 return JOB_RELOAD;
 
         default:
+                assert(t >= 0 && t < _JOB_TYPE_MAX_IN_TRANSACTION);
                 return t;
         }
 }
@@ -1056,8 +1072,9 @@ int job_finish_and_invalidate(Job *j, JobResult result, bool recursive, bool alr
             !UNIT_IS_ACTIVE_OR_RELOADING(unit_active_state(u)))
                 job_fail_dependencies(u, UNIT_ATOM_PROPAGATE_INACTIVE_START_AS_FAILURE);
 
-        /* Trigger OnFailure= dependencies that are not generated by the unit itself. We don't treat
-         * JOB_CANCELED as failure in this context. And JOB_FAILURE is already handled by the unit itself. */
+        /* Trigger OnFailure= dependencies manually here. We need to do that because a failed job might not
+         * cause a unit state change. Note that we don't treat JOB_CANCELED as failure in this context.
+         * And JOB_FAILURE is already handled by the unit itself (unit_notify). */
         if (IN_SET(result, JOB_TIMEOUT, JOB_DEPENDENCY)) {
                 log_unit_struct(u, LOG_NOTICE,
                                 "JOB_TYPE=%s", job_type_to_string(t),
@@ -1067,7 +1084,7 @@ int job_finish_and_invalidate(Job *j, JobResult result, bool recursive, bool alr
                                                  job_type_to_string(t),
                                                  job_result_to_string(result)));
 
-                unit_start_on_failure(u, "OnFailure=", UNIT_ATOM_ON_FAILURE, u->on_failure_job_mode);
+                unit_start_on_termination_deps(u, UNIT_ATOM_ON_FAILURE);
         }
 
         unit_trigger_notify(u);
@@ -1196,7 +1213,7 @@ void job_add_to_dbus_queue(Job *j) {
         j->in_dbus_queue = true;
 }
 
-char *job_dbus_path(Job *j) {
+char* job_dbus_path(Job *j) {
         char *p;
 
         assert(j);
@@ -1241,7 +1258,7 @@ int job_deserialize(Job *j, FILE *f) {
         for (;;) {
                 _cleanup_free_ char *l = NULL;
                 size_t k;
-                char *v;
+                const char *v;
 
                 r = deserialize_read_line(f, &l);
                 if (r < 0)

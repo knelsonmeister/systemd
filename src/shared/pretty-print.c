@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
-#include <sys/utsname.h>
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
+#include <sys/utsname.h>
 
 #include "alloc-util.h"
 #include "color-util.h"
@@ -87,7 +88,9 @@ int terminal_urlify(const char *url, const char *text, char **ret) {
                 text = url;
 
         if (urlify_enabled())
-                n = strjoin("\x1B]8;;", url, "\a", text, "\x1B]8;;\a");
+                n = strjoin(ANSI_OSC "8;;", url, ANSI_ST,
+                            text,
+                            ANSI_OSC "8;;" ANSI_ST);
         else
                 n = strdup(text);
         if (!n)
@@ -290,7 +293,7 @@ void print_separator(void) {
                 size_t c = columns();
 
                 flockfile(stdout);
-                fputs_unlocked(ANSI_UNDERLINE, stdout);
+                fputs_unlocked(ANSI_GREY_UNDERLINE, stdout);
 
                 for (size_t i = 0; i < c; i++)
                         fputc_unlocked(' ', stdout);
@@ -460,15 +463,24 @@ bool shall_tint_background(void) {
         return cache != 0;
 }
 
-void draw_progress_bar(const char *prefix, double percentage) {
-
+void draw_progress_bar_unbuffered(const char *prefix, double percentage) {
         fputc('\r', stderr);
-        if (prefix)
+        if (prefix) {
                 fputs(prefix, stderr);
+                fputc(' ', stderr);
+        }
 
         if (!terminal_is_dumb()) {
+                /* Generate the Windows Terminal progress indication OSC sequence here. Most Linux terminals currently
+                 * ignore this. But let's hope this changes one day. For details about this OSC sequence, see:
+                 *
+                 * https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
+                 * https://github.com/microsoft/terminal/pull/8055
+                 */
+                fprintf(stderr, ANSI_OSC "9;4;1;%u" ANSI_ST, (unsigned) ceil(percentage));
+
                 size_t cols = columns();
-                size_t prefix_width = utf8_console_width(prefix);
+                size_t prefix_width = utf8_console_width(prefix) + 1 /* space */;
                 size_t length = cols > prefix_width + 6 ? cols - prefix_width - 6 : 0;
 
                 if (length > 5 && percentage >= 0.0 && percentage <= 100.0) {
@@ -512,19 +524,49 @@ void draw_progress_bar(const char *prefix, double percentage) {
                 fputs(ANSI_ERASE_TO_END_OF_LINE, stderr);
 
         fputc('\r', stderr);
-        fflush(stderr);
 }
 
-void clear_progress_bar(const char *prefix) {
-
+void clear_progress_bar_unbuffered(const char *prefix) {
         fputc('\r', stderr);
 
         if (terminal_is_dumb())
-                fputs(strrepa(" ", utf8_console_width(prefix) + 4), /* 4: %3.0f%% */
+                fputs(strrepa(" ",
+                              prefix ? utf8_console_width(prefix) + 5 : /* %3.0f%% (4 chars) + space */
+                              LESS_BY(columns(), 1U)),
                       stderr);
         else
-                fputs(ANSI_ERASE_TO_END_OF_LINE, stderr);
+                /* Undo Windows Terminal progress indication again. */
+                fputs(ANSI_OSC "9;4;0;;" ANSI_ST
+                      ANSI_ERASE_TO_END_OF_LINE, stderr);
 
         fputc('\r', stderr);
-        fflush(stderr);
+}
+
+void draw_progress_bar(const char *prefix, double percentage) {
+        /* We are going output a bunch of small strings that shall appear as a single line to STDERR which is
+         * unbuffered by default. Let's temporarily turn on full buffering, so that this is passed to the tty
+         * as a single buffer, to make things more efficient. */
+        WITH_BUFFERED_STDERR;
+        draw_progress_bar_unbuffered(prefix, percentage);
+}
+
+int draw_progress_barf(double percentage, const char *prefixf, ...) {
+        _cleanup_free_ char *s = NULL;
+        va_list ap;
+        int r;
+
+        va_start(ap, prefixf);
+        r = vasprintf(&s, prefixf, ap);
+        va_end(ap);
+
+        if (r < 0)
+                return -ENOMEM;
+
+        draw_progress_bar(s, percentage);
+        return 0;
+}
+
+void clear_progress_bar(const char *prefix) {
+        WITH_BUFFERED_STDERR;
+        clear_progress_bar_unbuffered(prefix);
 }

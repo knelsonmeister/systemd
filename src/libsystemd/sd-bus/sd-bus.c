@@ -3673,7 +3673,7 @@ static int io_callback(sd_event_source *s, int fd, uint32_t revents, void *userd
         sd_bus *bus = ASSERT_PTR(userdata);
         int r;
 
-        /* Note that this is called both on input_fd, output_fd as well as inotify_fd events */
+        /* Note that this is called both on input_fd, output_fd, as well as inotify_fd events */
 
         r = sd_bus_process(bus, NULL);
         if (r < 0) {
@@ -4470,4 +4470,22 @@ _public_ int sd_bus_enqueue_for_read(sd_bus *bus, sd_bus_message *m) {
 
         bus->rqueue[bus->rqueue_size++] = bus_message_ref_queued(m, bus);
         return 0;
+}
+
+_public_ int sd_bus_pending_method_calls(sd_bus *bus) {
+
+        /* Returns the number of currently pending asynchronous method calls. This is graceful, i.e. an
+         * unallocated (i.e. NULL) bus connection has no method calls pending. */
+
+        if (!bus)
+                return 0;
+
+        assert_return(bus = bus_resolve(bus), -ENOPKG);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return 0;
+
+        size_t n = ordered_hashmap_size(bus->reply_callbacks);
+
+        return n > INT_MAX ? INT_MAX : (int) n; /* paranoid overflow check */
 }

@@ -153,6 +153,7 @@ struct Network {
         int dhcp_ipv6_only_mode;
         int dhcp_use_rapid_commit;
         int dhcp_use_dns;
+        int dhcp_use_dnr;
         bool dhcp_routes_to_dns;
         int dhcp_use_ntp;
         bool dhcp_routes_to_ntp;
@@ -167,6 +168,7 @@ struct Network {
         bool dhcp_use_timezone;
         bool dhcp_use_hostname;
         bool dhcp_use_6rd;
+        uint8_t dhcp_6rd_prefix_route_type;
         bool dhcp_send_release;
         bool dhcp_send_decline;
         UseDomains dhcp_use_domains;
@@ -184,6 +186,7 @@ struct Network {
         bool dhcp6_send_hostname;
         bool dhcp6_send_hostname_set;
         int dhcp6_use_dns;
+        int dhcp6_use_dnr;
         bool dhcp6_use_hostname;
         int dhcp6_use_ntp;
         bool dhcp6_use_captive_portal;
@@ -195,6 +198,7 @@ struct Network {
         DUID dhcp6_duid;
         uint8_t dhcp6_pd_prefix_length;
         struct in6_addr dhcp6_pd_prefix_hint;
+        uint8_t dhcp6_pd_prefix_route_type;
         char *dhcp6_hostname;
         char *dhcp6_mudurl;
         char **dhcp6_user_class;
@@ -336,11 +340,13 @@ struct Network {
         uint32_t ipv6_mtu;
         IPv6PrivacyExtensions ipv6_privacy_extensions;
         IPReversePathFilter ipv4_rp_filter;
+        IPv4ForceIgmpVersion ipv4_force_igmp_version;
         int ipv6_proxy_ndp;
         Set *ipv6_proxy_ndp_addresses;
 
         /* NDisc support */
         int ndisc;
+        int ndisc_use_dnr;
         bool ndisc_use_redirect;
         int ndisc_use_dns;
         bool ndisc_use_gateway;
@@ -414,7 +420,7 @@ Network *network_ref(Network *network);
 Network *network_unref(Network *network);
 DEFINE_TRIVIAL_CLEANUP_FUNC(Network*, network_unref);
 
-int network_load(Manager *manager, OrderedHashmap **networks);
+int network_load(Manager *manager, OrderedHashmap **ret);
 int network_reload(Manager *manager);
 int network_load_one(Manager *manager, OrderedHashmap **networks, const char *filename);
 int network_verify(Network *network);

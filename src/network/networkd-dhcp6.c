@@ -122,6 +122,10 @@ int dhcp6_check_ready(Link *link) {
         if (r < 0)
                 return r;
 
+        r = link_request_stacked_netdevs(link, NETDEV_LOCAL_ADDRESS_DHCP6);
+        if (r < 0)
+                return r;
+
         link_check_ready(link);
         return 0;
 }
@@ -264,25 +268,35 @@ static int dhcp6_address_acquired(Link *link) {
                         return r;
         }
 
-        if (link->network->dhcp6_use_hostname) {
-                const char *dhcpname = NULL;
-                _cleanup_free_ char *hostname = NULL;
+        return 0;
+}
 
-                (void) sd_dhcp6_lease_get_fqdn(link->dhcp6_lease, &dhcpname);
+static int dhcp6_request_hostname(Link *link) {
+        _cleanup_free_ char *hostname = NULL;
+        const char *dhcpname = NULL;
+        int r;
 
-                if (dhcpname) {
-                        r = shorten_overlong(dhcpname, &hostname);
-                        if (r < 0)
-                                log_link_warning_errno(link, r, "Unable to shorten overlong DHCP hostname '%s', ignoring: %m", dhcpname);
-                        if (r == 1)
-                                log_link_notice(link, "Overlong DHCP hostname received, shortened from '%s' to '%s'", dhcpname, hostname);
-                }
-                if (hostname) {
-                        r = manager_set_hostname(link->manager, hostname);
-                        if (r < 0)
-                                log_link_error_errno(link, r, "Failed to set transient hostname to '%s': %m", hostname);
-                }
-        }
+        assert(link);
+        assert(link->network);
+
+        if (!link->network->dhcp6_use_hostname)
+                return 0;
+
+        r = sd_dhcp6_lease_get_fqdn(link->dhcp6_lease, &dhcpname);
+        if (r == -ENODATA)
+                return 0;
+        if (r < 0)
+                return r;
+
+        r = shorten_overlong(dhcpname, &hostname);
+        if (r < 0)
+                return log_link_warning_errno(link, r, "Unable to shorten overlong DHCP hostname '%s': %m", dhcpname);
+        if (r == 1)
+                log_link_notice(link, "Overlong DHCP hostname received, shortened from '%s' to '%s'", dhcpname, hostname);
+
+        r = manager_set_hostname(link->manager, hostname);
+        if (r < 0)
+                log_link_warning_errno(link, r, "Failed to set transient hostname to '%s', ignoring: %m", hostname);
 
         return 0;
 }
@@ -301,6 +315,10 @@ static int dhcp6_lease_ip_acquired(sd_dhcp6_client *client, Link *link) {
 
         lease_old = TAKE_PTR(link->dhcp6_lease);
         link->dhcp6_lease = sd_dhcp6_lease_ref(lease);
+
+        r = dhcp6_request_hostname(link);
+        if (r < 0)
+                return r;
 
         r = dhcp6_address_acquired(link);
         if (r < 0)
@@ -646,6 +664,12 @@ static int dhcp6_configure(Link *link) {
                         return log_link_debug_errno(link, r, "DHCPv6 CLIENT: Failed to request domains: %m");
         }
 
+        if (link_get_use_dnr(link, NETWORK_CONFIG_SOURCE_DHCP6)) {
+                r = sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_V6_DNR);
+                if (r < 0)
+                        return log_link_debug_errno(link, r, "DHCPv6 CLIENT: Failed to request DNR: %m");
+        }
+
         if (link->network->dhcp6_use_captive_portal > 0) {
                 r = sd_dhcp6_client_set_request_option(client, SD_DHCP6_OPTION_CAPTIVE_PORTAL);
                 if (r < 0)
@@ -817,6 +841,26 @@ int link_request_dhcp6_client(Link *link) {
         return 0;
 }
 
+int link_drop_dhcp6_config(Link *link, Network *network) {
+        int ret = 0;
+
+        assert(link);
+        assert(network);
+
+        if (!link_dhcp6_enabled(link))
+                return 0; /* Currently DHCPv6 client is not enabled, there is nothing we need to drop. */
+
+        if (!FLAGS_SET(network->dhcp, ADDRESS_FAMILY_IPV6))
+                /* Currently enabled but will be disabled. Stop the client and drop the lease. */
+                ret = sd_dhcp6_client_stop(link->dhcp6_client);
+
+        /* Even if the client is currently enabled and also enabled in the new .network file, detailed
+         * settings for the client may be different. Let's unref() the client. But do not unref() the lease.
+         * it will be unref()ed later when a new lease is acquired. */
+        link->dhcp6_client = sd_dhcp6_client_unref(link->dhcp6_client);
+        return ret;
+}
+
 int link_serialize_dhcp6_client(Link *link, FILE *f) {
         _cleanup_free_ char *duid = NULL;
         uint32_t iaid;
@@ -878,8 +922,7 @@ int config_parse_dhcp6_pd_prefix_hint(
         return 0;
 }
 
-DEFINE_CONFIG_PARSE_ENUM(config_parse_dhcp6_client_start_mode, dhcp6_client_start_mode, DHCP6ClientStartMode,
-                         "Failed to parse WithoutRA= setting");
+DEFINE_CONFIG_PARSE_ENUM(config_parse_dhcp6_client_start_mode, dhcp6_client_start_mode, DHCP6ClientStartMode);
 
 static const char* const dhcp6_client_start_mode_table[_DHCP6_CLIENT_START_MODE_MAX] = {
         [DHCP6_CLIENT_START_MODE_NO]                  = "no",

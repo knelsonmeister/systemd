@@ -266,7 +266,7 @@ static bool env_entry_has_name(const char *entry, const char *name) {
         return *t == '=';
 }
 
-char **strv_env_delete(char **x, size_t n_lists, ...) {
+char** strv_env_delete(char **x, size_t n_lists, ...) {
         size_t n, i = 0;
         _cleanup_strv_free_ char **t = NULL;
         va_list ap;
@@ -552,7 +552,7 @@ char* strv_env_get_n(char * const *l, const char *name, size_t k, ReplaceEnvFlag
         return NULL;
 }
 
-char *strv_env_pairs_get(char **l, const char *name) {
+char* strv_env_pairs_get(char **l, const char *name) {
         char *result = NULL;
 
         assert(name);
@@ -564,7 +564,35 @@ char *strv_env_pairs_get(char **l, const char *name) {
         return result;
 }
 
-char **strv_env_clean_with_callback(char **e, void (*invalid_callback)(const char *p, void *userdata), void *userdata) {
+int strv_env_get_merged(char **l, char ***ret) {
+        _cleanup_strv_free_ char **v = NULL;
+        size_t n = 0;
+        int r;
+
+        assert(ret);
+
+        /* This converts a strv with pairs of environment variable name + value into a strv of name and
+         * value concatenated with a "=" separator. E.g.
+         * input  : { "NAME", "value", "FOO", "var" }
+         * output : { "NAME=value", "FOO=var" } */
+
+        STRV_FOREACH_PAIR(key, value, l) {
+                char *s;
+
+                s = strjoin(*key, "=", *value);
+                if (!s)
+                        return -ENOMEM;
+
+                r = strv_consume_with_size(&v, &n, s);
+                if (r < 0)
+                        return r;
+        }
+
+        *ret = TAKE_PTR(v);
+        return 0;
+}
+
+char** strv_env_clean_with_callback(char **e, void (*invalid_callback)(const char *p, void *userdata), void *userdata) {
         int k = 0;
 
         STRV_FOREACH(p, e) {
@@ -796,10 +824,10 @@ int replace_env_full(
                                         t = v;
                                 }
 
-                                r = strv_extend_strv(&unset_variables, u, /* filter_duplicates= */ true);
+                                r = strv_extend_strv_consume(&unset_variables, TAKE_PTR(u), /* filter_duplicates= */ true);
                                 if (r < 0)
                                         return r;
-                                r = strv_extend_strv(&bad_variables, b, /* filter_duplicates= */ true);
+                                r = strv_extend_strv_consume(&bad_variables, TAKE_PTR(b), /* filter_duplicates= */ true);
                                 if (r < 0)
                                         return r;
 
@@ -931,21 +959,21 @@ int replace_env_argv(
                         return r;
                 n[++k] = NULL;
 
-                r = strv_extend_strv(&unset_variables, u, /* filter_duplicates= */ true);
+                r = strv_extend_strv_consume(&unset_variables, TAKE_PTR(u), /* filter_duplicates= */ true);
                 if (r < 0)
                         return r;
 
-                r = strv_extend_strv(&bad_variables, b, /*filter_duplicates= */ true);
+                r = strv_extend_strv_consume(&bad_variables, TAKE_PTR(b), /* filter_duplicates= */ true);
                 if (r < 0)
                         return r;
         }
 
         if (ret_unset_variables) {
-                strv_uniq(strv_sort(unset_variables));
+                strv_sort_uniq(unset_variables);
                 *ret_unset_variables = TAKE_PTR(unset_variables);
         }
         if (ret_bad_variables) {
-                strv_uniq(strv_sort(bad_variables));
+                strv_sort_uniq(bad_variables);
                 *ret_bad_variables = TAKE_PTR(bad_variables);
         }
 
@@ -1145,6 +1173,11 @@ int setenvf(const char *name, bool overwrite, const char *valuef, ...) {
 
         if (r < 0)
                 return -ENOMEM;
+
+        /* Try to suppress writes if the value is already set correctly (simply because memory management of
+         * environment variables sucks a bit. */
+        if (streq_ptr(getenv(name), value))
+                return 0;
 
         return RET_NERRNO(setenv(name, value, overwrite));
 }

@@ -24,8 +24,6 @@
   <refsynopsisdiv>
     <programlisting>
 #include &lt;systemd/sd-bus.h&gt;
-#include &lt;systemd/sd-bus-vtable.h&gt;
-#include &lt;systemd/sd-bus-protocol.h&gt;
 #include &lt;systemd/sd-daemon.h&gt;
 #include &lt;systemd/sd-device.h&gt;
 #include &lt;systemd/sd-event.h&gt;
@@ -33,9 +31,11 @@
 #include &lt;systemd/sd-hwdb.h&gt;
 #include &lt;systemd/sd-id128.h&gt;
 #include &lt;systemd/sd-journal.h&gt;
+#include &lt;systemd/sd-json.h&gt;
 #include &lt;systemd/sd-login.h&gt;
 #include &lt;systemd/sd-messages.h&gt;
 #include &lt;systemd/sd-path.h&gt;
+#include &lt;systemd/sd-varlink.h&gt;
     </programlisting>
 
     <cmdsynopsis>
@@ -61,8 +61,10 @@
     <citerefentry><refentrytitle>sd-hwdb</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
     <citerefentry><refentrytitle>sd-id128</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
     <citerefentry><refentrytitle>sd-journal</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
-    and
+    <citerefentry><refentrytitle>sd-json</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
     <citerefentry><refentrytitle>sd-login</refentrytitle><manvolnum>3</manvolnum></citerefentry>
+    and
+    <citerefentry><refentrytitle>sd-varlink</refentrytitle><manvolnum>3</manvolnum></citerefentry>
     for information about different parts of the library interface.</para>
   </refsect1>
 

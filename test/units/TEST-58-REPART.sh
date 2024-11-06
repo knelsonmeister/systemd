@@ -4,9 +4,6 @@
 set -eux
 set -o pipefail
 
-# shellcheck source=test/units/util.sh
-. "$(dirname "$0")"/util.sh
-
 if ! command -v systemd-repart >/dev/null; then
     echo "no systemd-repart" >/skipped
     exit 77
@@ -28,6 +25,9 @@ seed=750b6cd5c4ae4012a15e7be3c29e6a47
 if ! systemd-detect-virt --quiet --container; then
     udevadm control --log-level debug
 fi
+
+esp_guid=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+xbootldr_guid=BC13C2FF-59E6-4262-A352-B275FD6F7172
 
 machine="$(uname -m)"
 if [ "${machine}" = "x86_64" ]; then
@@ -968,6 +968,83 @@ EOF
     veritysetup dump "${loop}p2" | grep 'Hash block size:' | grep -q '1024'
 }
 
+testcase_verity_hash_size_from_data_size() {
+    local defs imgs loop
+
+    if systemd-detect-virt --quiet --container; then
+        echo "Skipping verity hash size from data size test in container."
+        return
+    fi
+
+    defs="$(mktemp --directory "/tmp/test-repart.defs.XXXXXXXXXX")"
+    imgs="$(mktemp --directory "/var/tmp/test-repart.imgs.XXXXXXXXXX")"
+
+    # shellcheck disable=SC2064
+    trap "rm -rf '$defs' '$imgs'" RETURN
+    chmod 0755 "$defs"
+
+    echo "*** dm-verity-hash-size-from-data-size ***"
+
+    # create minimized data partition with SizeMaxBytes=
+    tee "$defs/verity-data.conf" <<EOF
+[Partition]
+Type=root-${architecture}
+CopyFiles=${defs}
+Verity=data
+VerityMatchKey=root
+Minimize=guess
+SizeMaxBytes=10G
+EOF
+
+    # create hash partition, its size will be derived from SizeMaxBytes= of the data partition
+    tee "$defs/verity-hash.conf" <<EOF
+[Partition]
+Type=root-${architecture}-verity
+Verity=hash
+VerityMatchKey=root
+VerityHashBlockSizeBytes=4096
+VerityDataBlockSizeBytes=4096
+EOF
+
+    systemd-repart --offline="$OFFLINE" \
+                   --definitions="$defs" \
+                   --seed="$seed" \
+                   --dry-run=no \
+                   --empty=create \
+                   --size=auto \
+                   --json=pretty \
+                   "$imgs/verity"
+
+    loop="$(losetup --partscan --show --find "$imgs/verity")"
+
+    # Make sure the loopback device gets cleaned up
+    # shellcheck disable=SC2064
+    trap "rm -rf '$defs' '$imgs' ; losetup -d '$loop'" RETURN ERR
+
+    udevadm wait --timeout 60 --settle "${loop:?}p1" "${loop:?}p2"
+
+    output=$(sfdisk -J "$loop")
+
+    # size of the hash partition, as determined by calculate_verity_hash_size()
+    # for 10GiB data partition and hash / data block size of 4096B
+    hash_bytes=84557824
+    hash_sectors_expected=$((hash_bytes / 512))
+
+    hash_sectors_actual=$(jq -r ".partitiontable.partitions | map(select(.name == \"root-${architecture}-verity\")) | .[].size" <<<"$output")
+
+    assert_eq "$hash_sectors_expected" "$hash_sectors_actual"
+
+    data_sectors=$(jq -r ".partitiontable.partitions | map(select(.name == \"root-${architecture}\")) | .[].size" <<<"$output")
+    data_bytes=$((data_sectors * 512))
+    data_verity_blocks=$((data_bytes / 4096))
+
+    # The actual data partition is much smaller than 10GiB, i.e. also smaller than 100MiB
+    assert_rc 0 test $data_bytes -lt $((100 * 1024 * 1024))
+
+    # Check that the verity hash tree is created from the actual on-disk data, not the custom size
+    veritysetup dump "${loop}p2" | grep 'Data blocks:' | grep -q "$data_verity_blocks"
+}
+
 testcase_exclude_files() {
     local defs imgs root output
 
@@ -1067,11 +1144,6 @@ EOF
 testcase_minimize() {
     local defs imgs output
 
-    if systemd-detect-virt --quiet --container; then
-        echo "Skipping minimize test in container."
-        return
-    fi
-
     echo "*** minimization ***"
 
     defs="$(mktemp --directory "/tmp/test-repart.defs.XXXXXXXXXX")"
@@ -1113,6 +1185,11 @@ EOF
                             "$imgs/zzz")
 
     # Check that we can dissect, mount and unmount a minimized image.
+
+    if systemd-detect-virt --quiet --container; then
+        echo "Skipping minimize dissect, mount and unmount test in container."
+        return
+    fi
 
     systemd-dissect "$imgs/zzz"
     systemd-dissect "$imgs/zzz" -M "$imgs/mnt"
@@ -1288,6 +1365,68 @@ testcase_dropped_partitions() {
     [[ "$(sfdisk -q -l "$image" | grep -c "$image")" -eq 2 ]]
 }
 
+testcase_urandom() {
+    local workdir image defs
+
+    workdir="$(mktemp --directory "/tmp/test-repart.urandom.XXXXXXXXXX")"
+    # shellcheck disable=SC2064
+    trap "rm -rf '${workdir:?}'" RETURN
+
+    image="$workdir/image.img"
+    truncate -s 32M "$image"
+
+    defs="$workdir/defs"
+    mkdir "$defs"
+    echo -ne "[Partition]\nType=swap\nCopyBlocks=/dev/urandom\n" >"$defs/10-urandom.conf"
+
+    systemd-repart --empty=force --pretty=yes --dry-run=no --definitions="$defs" "$image"
+
+    sfdisk -q -l "$image"
+    [[ "$(sfdisk -q -l "$image" | grep -c "$image")" -eq 1 ]]
+}
+
+testcase_list_devices() {
+    systemd-repart --list-devices
+}
+
+testcase_compression() {
+    local workdir image defs
+
+    workdir="$(mktemp --directory "/tmp/test-repart.compression.XXXXXXXXXX")"
+    # shellcheck disable=SC2064
+    trap "rm -rf '${workdir:?}'" RETURN
+
+    image="$workdir/image.img"
+    defs="$workdir/defs"
+    mkdir "$defs"
+
+    # TODO: add btrfs once btrfs-progs v6.11 is available in distributions.
+    for format in squashfs erofs; do
+        case "$format" in
+            squashfs)
+                command -v mksquashfs >/dev/null || continue ;;
+            *)
+                command -v "mkfs.$format" || continue ;;
+        esac
+
+        [[ "$format" == "squashfs" ]] && compression=zstd
+        [[ "$format" == "erofs" ]] && compression=lz4hc
+
+        tee "$defs/10-root.conf" <<EOF
+[Partition]
+Type=root
+Format=$format
+Compression=$compression
+CompressionLevel=3
+CopyFiles=$defs:/def
+SizeMinBytes=48M
+EOF
+
+        rm -f "$image"
+        systemd-repart --empty=create --size=auto --pretty=yes --dry-run=no --definitions="$defs" "$image"
+    done
+}
+
 testcase_random_seed() {
     local defs imgs output
 
@@ -1329,6 +1468,121 @@ EOF
 
     sfdisk -d "$imgs/zzz"
     [[ "$(sfdisk -d "$imgs/zzz" | grep -F 'uuid=' | awk '{ print $8 }' | sort -u | wc -l)" == "3" ]]
+}
+
+testcase_make_symlinks() {
+    local defs imgs output
+
+    if systemd-detect-virt --quiet --container; then
+        echo "Skipping MakeSymlinks= test in container."
+        return
+    fi
+
+    # For issue #34257
+
+    defs="$(mktemp --directory "/tmp/test-repart.defs.XXXXXXXXXX")"
+    imgs="$(mktemp --directory "/var/tmp/test-repart.imgs.XXXXXXXXXX")"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$defs' '$imgs'" RETURN
+    chmod 0755 "$defs"
+
+    tee "$defs/root.conf" <<EOF
+[Partition]
+Type=root
+MakeDirectories=/dir
+MakeSymlinks=/foo:/bar
+MakeSymlinks=/dir/foo:/bar
+EOF
+
+    systemd-repart --offline="$OFFLINE" \
+                   --definitions="$defs" \
+                   --empty=create \
+                   --size=1G \
+                   --dry-run=no \
+                   --offline="$OFFLINE" \
+                   --json=pretty \
+                   "$imgs/zzz"
+
+    systemd-dissect "$imgs/zzz" -M "$imgs/mnt"
+    assert_eq "$(readlink "$imgs/mnt/foo")" "/bar"
+    assert_eq "$(readlink "$imgs/mnt/dir/foo")" "/bar"
+    systemd-dissect -U "$imgs/mnt"
+}
+
+testcase_fallback_partitions() {
+    local workdir image defs
+
+    workdir="$(mktemp --directory "/tmp/test-repart.fallback.XXXXXXXXXX")"
+    # shellcheck disable=SC2064
+    trap "rm -rf '${workdir:?}'" RETURN
+
+    image="$workdir/image.img"
+    defs="$workdir/defs"
+    mkdir "$defs"
+
+    tee "$defs/10-esp.conf" <<EOF
+[Partition]
+Type=esp
+Format=vfat
+SizeMinBytes=10M
+EOF
+
+    tee "$defs/20-xbootldr.conf" <<EOF
+[Partition]
+Type=xbootldr
+Format=vfat
+SizeMinBytes=100M
+SupplementFor=10-esp
+EOF
+
+    # Blank disk => big ESP should be created
+
+    systemd-repart --empty=create --size=auto --dry-run=no --definitions="$defs" "$image"
+
+    output=$(sfdisk -d "$image")
+    assert_in "${image}1 : start=        2048, size=      204800, type=${esp_guid}" "$output"
+    assert_not_in "${image}2" "$output"
+
+    # Disk with small ESP => ESP grows
+
+    sfdisk "$image" <<EOF
+label: gpt
+size=10M, type=${esp_guid}
+EOF
+
+    systemd-repart --dry-run=no --definitions="$defs" "$image"
+
+    output=$(sfdisk -d "$image")
+    assert_in "${image}1 : start=        2048, size=      204800, type=${esp_guid}" "$output"
+    assert_not_in "${image}2" "$output"
+
+    # Disk with small ESP that can't grow => XBOOTLDR created
+
+    truncate -s 150M "$image"
+    sfdisk "$image" <<EOF
+label: gpt
+size=10M, type=${esp_guid},
+size=10M, type=${root_guid},
+EOF
+
+    systemd-repart --dry-run=no --definitions="$defs" "$image"
+
+    output=$(sfdisk -d "$image")
+    assert_in "${image}1 : start=        2048, size=       20480, type=${esp_guid}" "$output"
+    assert_in "${image}3 : start=       43008, size=      264152, type=${xbootldr_guid}" "$output"
+
+    # Disk with existing XBOOTLDR partition => XBOOTLDR grows, small ESP created
+
+    sfdisk "$image" <<EOF
+label: gpt
+size=10M, type=${xbootldr_guid},
+EOF
+
+    systemd-repart --dry-run=no --definitions="$defs" "$image"
+
+    output=$(sfdisk -d "$image")
+    assert_in "${image}1 : start=        2048, size=      204800, type=${xbootldr_guid}" "$output"
+    assert_in "${image}2 : start=      206848, size=      100312, type=${esp_guid}" "$output"
 }
 
 OFFLINE="yes"

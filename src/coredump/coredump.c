@@ -2,14 +2,19 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/statvfs.h>
 #include <sys/auxv.h>
 #include <sys/xattr.h>
 #include <unistd.h>
+#if WANT_LINUX_FS_H
+#  include <linux/fs.h>
+#endif
 
 #include "sd-daemon.h"
 #include "sd-journal.h"
+#include "sd-json.h"
 #include "sd-login.h"
 #include "sd-messages.h"
 
@@ -32,11 +37,14 @@
 #include "iovec-util.h"
 #include "journal-importer.h"
 #include "journal-send.h"
+#include "json-util.h"
 #include "log.h"
 #include "macro.h"
 #include "main-func.h"
 #include "memory-util.h"
 #include "memstream-util.h"
+#include "missing_mount.h"
+#include "missing_syscall.h"
 #include "mkdir-label.h"
 #include "namespace-util.h"
 #include "parse-util.h"
@@ -81,6 +89,8 @@
 /* Make sure to not make this larger than the maximum journal entry
  * size. See DATA_SIZE_MAX in journal-importer.h. */
 assert_cc(JOURNAL_SIZE_MAX <= DATA_SIZE_MAX);
+
+#define MOUNT_TREE_ROOT "/run/systemd/mount-rootfs"
 
 enum {
         /* We use these as array indexes for our process metadata cache.
@@ -130,14 +140,27 @@ static const char * const meta_field_names[_META_MAX] = {
 };
 
 typedef struct Context {
-        const char *meta[_META_MAX];
-        size_t meta_size[_META_MAX];
-        pid_t pid;
+        PidRef pidref;
         uid_t uid;
         gid_t gid;
+        int signo;
+        uint64_t rlimit;
         bool is_pid1;
         bool is_journald;
+        int mount_tree_fd;
+
+        /* These point into external memory, are not owned by this object */
+        const char *meta[_META_MAX];
+        size_t meta_size[_META_MAX];
 } Context;
+
+#define CONTEXT_NULL                            \
+        (Context) {                             \
+                .pidref = PIDREF_NULL,          \
+                .uid = UID_INVALID,             \
+                .gid = GID_INVALID,             \
+                .mount_tree_fd = -EBADF,        \
+        }
 
 typedef enum CoredumpStorage {
         COREDUMP_STORAGE_NONE,
@@ -154,7 +177,7 @@ static const char* const coredump_storage_table[_COREDUMP_STORAGE_MAX] = {
 };
 
 DEFINE_PRIVATE_STRING_TABLE_LOOKUP(coredump_storage, CoredumpStorage);
-static DEFINE_CONFIG_PARSE_ENUM(config_parse_coredump_storage, coredump_storage, CoredumpStorage, "Failed to parse storage setting");
+static DEFINE_CONFIG_PARSE_ENUM(config_parse_coredump_storage, coredump_storage, CoredumpStorage);
 
 static CoredumpStorage arg_storage = COREDUMP_STORAGE_EXTERNAL;
 static bool arg_compress = true;
@@ -163,16 +186,31 @@ static uint64_t arg_external_size_max = EXTERNAL_SIZE_MAX;
 static uint64_t arg_journal_size_max = JOURNAL_SIZE_MAX;
 static uint64_t arg_keep_free = UINT64_MAX;
 static uint64_t arg_max_use = UINT64_MAX;
+#if HAVE_DWFL_SET_SYSROOT
+static bool arg_enter_namespace = false;
+#endif
+
+static void context_done(Context *c) {
+        assert(c);
+
+        pidref_done(&c->pidref);
+        c->mount_tree_fd = safe_close(c->mount_tree_fd);
+}
 
 static int parse_config(void) {
         static const ConfigTableItem items[] = {
-                { "Coredump", "Storage",          config_parse_coredump_storage,     0, &arg_storage           },
-                { "Coredump", "Compress",         config_parse_bool,                 0, &arg_compress          },
-                { "Coredump", "ProcessSizeMax",   config_parse_iec_uint64,           0, &arg_process_size_max  },
-                { "Coredump", "ExternalSizeMax",  config_parse_iec_uint64_infinity,  0, &arg_external_size_max },
-                { "Coredump", "JournalSizeMax",   config_parse_iec_size,             0, &arg_journal_size_max  },
-                { "Coredump", "KeepFree",         config_parse_iec_uint64,           0, &arg_keep_free         },
-                { "Coredump", "MaxUse",           config_parse_iec_uint64,           0, &arg_max_use           },
+                { "Coredump", "Storage",         config_parse_coredump_storage,    0,                      &arg_storage           },
+                { "Coredump", "Compress",        config_parse_bool,                0,                      &arg_compress          },
+                { "Coredump", "ProcessSizeMax",  config_parse_iec_uint64,          0,                      &arg_process_size_max  },
+                { "Coredump", "ExternalSizeMax", config_parse_iec_uint64_infinity, 0,                      &arg_external_size_max },
+                { "Coredump", "JournalSizeMax",  config_parse_iec_size,            0,                      &arg_journal_size_max  },
+                { "Coredump", "KeepFree",        config_parse_iec_uint64,          0,                      &arg_keep_free         },
+                { "Coredump", "MaxUse",          config_parse_iec_uint64,          0,                      &arg_max_use           },
+#if HAVE_DWFL_SET_SYSROOT
+                { "Coredump", "EnterNamespace",  config_parse_bool,                0,                      &arg_enter_namespace   },
+#else
+                { "Coredump", "EnterNamespace",  config_parse_warn_compat,         DISABLED_CONFIGURATION, 0                      },
+#endif
                 {}
         };
 
@@ -418,7 +456,7 @@ static int save_external_coredump(
         _cleanup_(unlink_and_freep) char *tmp = NULL;
         _cleanup_free_ char *fn = NULL;
         _cleanup_close_ int fd = -EBADF;
-        uint64_t rlimit, process_limit, max_size;
+        uint64_t process_limit, max_size;
         bool truncated, storage_on_tmpfs;
         struct stat st;
         int r;
@@ -431,11 +469,7 @@ static int save_external_coredump(
         assert(ret_compressed_size);
         assert(ret_truncated);
 
-        r = safe_atou64(context->meta[META_ARGV_RLIMIT], &rlimit);
-        if (r < 0)
-                return log_error_errno(r, "Failed to parse resource limit '%s': %m",
-                                       context->meta[META_ARGV_RLIMIT]);
-        if (rlimit < page_size())
+        if (context->rlimit < page_size())
                 /* Is coredumping disabled? Then don't bother saving/processing the
                  * coredump. Anything below PAGE_SIZE cannot give a readable coredump
                  * (the kernel uses ELF_EXEC_PAGESIZE which is not easily accessible, but
@@ -450,7 +484,7 @@ static int save_external_coredump(
                                        "Limits for coredump processing and storage are both 0, not dumping core.");
 
         /* Never store more than the process configured, or than we actually shall keep or process */
-        max_size = MIN(rlimit, process_limit);
+        max_size = MIN(context->rlimit, process_limit);
 
         r = make_filename(context, &fn);
         if (r < 0)
@@ -755,9 +789,12 @@ static int get_process_container_parent_cmdline(pid_t pid, char** cmdline) {
 }
 
 static int change_uid_gid(const Context *context) {
+        int r;
+
+        assert(context);
+
         uid_t uid = context->uid;
         gid_t gid = context->gid;
-        int r;
 
         if (uid_is_system(uid)) {
                 const char *user = "systemd-coredump";
@@ -772,19 +809,46 @@ static int change_uid_gid(const Context *context) {
         return drop_privileges(uid, gid, 0);
 }
 
+static int attach_mount_tree(int mount_tree_fd) {
+        int r;
+
+        assert(mount_tree_fd >= 0);
+
+        r = detach_mount_namespace();
+        if (r < 0)
+                return log_warning_errno(r, "Failed to detach mount namespace: %m");
+
+        r = mkdir_p_label(MOUNT_TREE_ROOT, 0555);
+        if (r < 0)
+                return log_warning_errno(r, "Failed to create directory: %m");
+
+        r = mount_setattr(mount_tree_fd, "", AT_EMPTY_PATH,
+                                &(struct mount_attr) {
+                                        .attr_set = MOUNT_ATTR_RDONLY|MOUNT_ATTR_NOSUID|MOUNT_ATTR_NODEV|MOUNT_ATTR_NOEXEC|MOUNT_ATTR_NOSYMFOLLOW,
+                                        .propagation = MS_SLAVE,
+                                }, sizeof(struct mount_attr));
+        if (r < 0)
+                return log_warning_errno(errno, "Failed to change properties of mount tree: %m");
+
+        r = move_mount(mount_tree_fd, "", -EBADF, MOUNT_TREE_ROOT, MOVE_MOUNT_F_EMPTY_PATH);
+        if (r < 0)
+                return log_warning_errno(errno, "Failed to attach mount tree: %m");
+
+        return 0;
+}
+
 static int submit_coredump(
                 const Context *context,
                 struct iovec_wrapper *iovw,
                 int input_fd) {
 
-        _cleanup_(json_variant_unrefp) JsonVariant *json_metadata = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *json_metadata = NULL;
         _cleanup_close_ int coredump_fd = -EBADF, coredump_node_fd = -EBADF;
-        _cleanup_free_ char *filename = NULL, *coredump_data = NULL;
-        _cleanup_free_ char *stacktrace = NULL;
-        const char *module_name;
+        _cleanup_free_ char *filename = NULL, *coredump_data = NULL, *stacktrace = NULL;
+        const char *module_name, *root = NULL;
         uint64_t coredump_size = UINT64_MAX, coredump_compressed_size = UINT64_MAX;
         bool truncated = false, written = false;
-        JsonVariant *module_json;
+        sd_json_variant *module_json;
         int r;
 
         assert(context);
@@ -817,6 +881,9 @@ static int submit_coredump(
                 (void) coredump_vacuum(coredump_node_fd >= 0 ? coredump_node_fd : coredump_fd, arg_keep_free, arg_max_use);
         }
 
+        if (context->mount_tree_fd >= 0 && attach_mount_tree(context->mount_tree_fd) >= 0)
+                root = MOUNT_TREE_ROOT;
+
         /* Now, let's drop privileges to become the user who owns the segfaulted process and allocate the
          * coredump memory under the user's uid. This also ensures that the credentials journald will see are
          * the ones of the coredumping user, thus making sure the user gets access to the core dump. Let's
@@ -836,6 +903,7 @@ static int submit_coredump(
 
                         (void) parse_elf_object(coredump_fd,
                                                 context->meta[META_EXE],
+                                                root,
                                                 /* fork_disable_dump= */ skip, /* avoid loops */
                                                 &stacktrace,
                                                 &json_metadata);
@@ -874,7 +942,7 @@ static int submit_coredump(
         if (json_metadata) {
                 _cleanup_free_ char *formatted_json = NULL;
 
-                r = json_variant_format(json_metadata, 0, &formatted_json);
+                r = sd_json_variant_format(json_metadata, 0, &formatted_json);
                 if (r < 0)
                         return log_error_errno(r, "Failed to format JSON package metadata: %m");
 
@@ -885,19 +953,19 @@ static int submit_coredump(
          * let's avoid guessing the module name and skip the loop. */
         if (context->meta[META_EXE])
                 JSON_VARIANT_OBJECT_FOREACH(module_name, module_json, json_metadata) {
-                        JsonVariant *t;
+                        sd_json_variant *t;
 
                         /* We only add structured fields for the 'main' ELF module, and only if we can identify it. */
                         if (!path_equal_filename(module_name, context->meta[META_EXE]))
                                 continue;
 
-                        t = json_variant_by_key(module_json, "name");
+                        t = sd_json_variant_by_key(module_json, "name");
                         if (t)
-                                (void) iovw_put_string_field(iovw, "COREDUMP_PACKAGE_NAME=", json_variant_string(t));
+                                (void) iovw_put_string_field(iovw, "COREDUMP_PACKAGE_NAME=", sd_json_variant_string(t));
 
-                        t = json_variant_by_key(module_json, "version");
+                        t = sd_json_variant_by_key(module_json, "version");
                         if (t)
-                                (void) iovw_put_string_field(iovw, "COREDUMP_PACKAGE_VERSION=", json_variant_string(t));
+                                (void) iovw_put_string_field(iovw, "COREDUMP_PACKAGE_VERSION=", sd_json_variant_string(t));
                 }
 
         /* Optionally store the entire coredump in the journal */
@@ -946,7 +1014,7 @@ static int submit_coredump(
         return 0;
 }
 
-static int save_context(Context *context, const struct iovec_wrapper *iovw) {
+static int context_parse_iovw(Context *context, struct iovec_wrapper *iovw) {
         const char *unit;
         int r;
 
@@ -954,33 +1022,46 @@ static int save_context(Context *context, const struct iovec_wrapper *iovw) {
         assert(iovw);
         assert(iovw->count >= _META_ARGV_MAX);
 
-        /* The context does not allocate any memory on its own */
+        /* Converts the data in the iovec array iovw into separate fields. Fills in context->meta[] (for
+         * which no memory is allocated, it just contains direct pointers into the iovec array memory). */
 
-        for (size_t n = 0; n < iovw->count; n++) {
-                struct iovec *iovec = iovw->iovec + n;
-
+        bool have_signal_name = false;
+        FOREACH_ARRAY(iovec, iovw->iovec, iovw->count) {
                 for (size_t i = 0; i < ELEMENTSOF(meta_field_names); i++) {
                         /* Note that these strings are NUL terminated, because we made sure that a
                          * trailing NUL byte is in the buffer, though not included in the iov_len
                          * count (see process_socket() and gather_pid_metadata_*()) */
                         assert(((char*) iovec->iov_base)[iovec->iov_len] == 0);
 
-                        const char *p = startswith(iovec->iov_base, meta_field_names[i]);
+                        const char *p = memory_startswith(iovec->iov_base, iovec->iov_len, meta_field_names[i]);
                         if (p) {
                                 context->meta[i] = p;
                                 context->meta_size[i] = iovec->iov_len - strlen(meta_field_names[i]);
                                 break;
                         }
                 }
+
+                have_signal_name = have_signal_name ||
+                        memory_startswith(iovec->iov_base, iovec->iov_len, "COREDUMP_SIGNAL_NAME=");
         }
 
-        if (!context->meta[META_ARGV_PID])
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                       "Failed to find the PID of crashing process");
+        /* The basic fields from argv[] should always be there, refuse early if not */
+        for (int i = 0; i < _META_ARGV_MAX; i++)
+                if (!context->meta[i])
+                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "A required (%s) has not been sent, aborting.", meta_field_names[i]);
 
-        r = parse_pid(context->meta[META_ARGV_PID], &context->pid);
+        pid_t parsed_pid;
+        r = parse_pid(context->meta[META_ARGV_PID], &parsed_pid);
         if (r < 0)
                 return log_error_errno(r, "Failed to parse PID \"%s\": %m", context->meta[META_ARGV_PID]);
+        if (pidref_is_set(&context->pidref)) {
+                if (context->pidref.pid != parsed_pid)
+                        return log_error_errno(r, "Passed PID " PID_FMT " does not match passed " PID_FMT ": %m", parsed_pid, context->pidref.pid);
+        } else {
+                r = pidref_set_pid(&context->pidref, parsed_pid);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to initialize pidref from pid " PID_FMT ": %m", parsed_pid);
+        }
 
         r = parse_uid(context->meta[META_ARGV_UID], &context->uid);
         if (r < 0)
@@ -990,25 +1071,42 @@ static int save_context(Context *context, const struct iovec_wrapper *iovw) {
         if (r < 0)
                 return log_error_errno(r, "Failed to parse GID \"%s\": %m", context->meta[META_ARGV_GID]);
 
+        r = parse_signo(context->meta[META_ARGV_SIGNAL], &context->signo);
+        if (r < 0)
+                log_warning_errno(r, "Failed to parse signal number \"%s\", ignoring: %m", context->meta[META_ARGV_SIGNAL]);
+
+        r = safe_atou64(context->meta[META_ARGV_RLIMIT], &context->rlimit);
+        if (r < 0)
+                log_warning_errno(r, "Failed to parse resource limit \"%s\", ignoring: %m", context->meta[META_ARGV_RLIMIT]);
+
         unit = context->meta[META_UNIT];
         context->is_pid1 = streq(context->meta[META_ARGV_PID], "1") || streq_ptr(unit, SPECIAL_INIT_SCOPE);
         context->is_journald = streq_ptr(unit, SPECIAL_JOURNALD_SERVICE);
+
+        /* After parsing everything, let's also synthesize a new iovw field for the textual signal name if it
+         * isn't already set. */
+        if (SIGNAL_VALID(context->signo) && !have_signal_name)
+                (void) iovw_put_string_field(iovw, "COREDUMP_SIGNAL_NAME=SIG", signal_to_string(context->signo));
 
         return 0;
 }
 
 static int process_socket(int fd) {
+        _cleanup_(iovw_done_free) struct iovec_wrapper iovw = {};
+        _cleanup_(context_done) Context context = CONTEXT_NULL;
         _cleanup_close_ int input_fd = -EBADF;
-        Context context = {};
-        struct iovec_wrapper iovw = {};
-        struct iovec iovec;
+        enum {
+                STATE_PAYLOAD,
+                STATE_INPUT_FD_DONE,
+                STATE_PID_FD_DONE,
+        } state = STATE_PAYLOAD;
         int r;
 
         assert(fd >= 0);
 
         log_setup();
 
-        log_debug("Processing coredump received on stdin...");
+        log_debug("Processing coredump received via socket...");
 
         for (;;) {
                 CMSG_BUFFER_TYPE(CMSG_SPACE(sizeof(int))) control;
@@ -1017,85 +1115,118 @@ static int process_socket(int fd) {
                         .msg_controllen = sizeof(control),
                         .msg_iovlen = 1,
                 };
-                ssize_t n;
-                ssize_t l;
+                ssize_t n, l;
 
                 l = next_datagram_size_fd(fd);
-                if (l < 0) {
-                        r = log_error_errno(l, "Failed to determine datagram size to read: %m");
-                        goto finish;
-                }
+                if (l < 0)
+                        return log_error_errno(l, "Failed to determine datagram size to read: %m");
 
-                iovec.iov_len = l;
-                iovec.iov_base = malloc(l + 1);
-                if (!iovec.iov_base) {
-                        r = log_oom();
-                        goto finish;
-                }
+                _cleanup_(iovec_done) struct iovec iovec = {
+                        .iov_len = l,
+                        .iov_base = malloc(l + 1),
+                };
+                if (!iovec.iov_base)
+                        return log_oom();
 
                 mh.msg_iov = &iovec;
 
                 n = recvmsg_safe(fd, &mh, MSG_CMSG_CLOEXEC);
-                if (n < 0)  {
-                        free(iovec.iov_base);
-                        r = log_error_errno(n, "Failed to receive datagram: %m");
-                        goto finish;
-                }
+                if (n < 0)
+                        return log_error_errno(n, "Failed to receive datagram: %m");
 
-                /* The final zero-length datagram carries the file descriptor and tells us
-                 * that we're done. */
+                /* The final zero-length datagrams ("sentinels") carry file descriptors and tell us that
+                 * we're done. There are three sentinels: one with just the coredump fd, followed by one with
+                 * the pidfd, and finally one with the mount tree fd. The latter two or the last one may be
+                 * omitted (which is supported for compatibility with older systemd version, in particular to
+                 * facilitate cross-container coredumping). */
                 if (n == 0) {
                         struct cmsghdr *found;
 
-                        free(iovec.iov_base);
-
                         found = cmsg_find(&mh, SOL_SOCKET, SCM_RIGHTS, CMSG_LEN(sizeof(int)));
                         if (!found) {
+                                /* This is zero length message but it either doesn't carry a single
+                                 * descriptor, or it has more than one. This is a protocol violation so let's
+                                 * bail out.
+                                 *
+                                 * Well, not quite! In practice there's one more complication: EOF on
+                                 * SOCK_SEQPACKET is not distinguishable from a zero length datagram. Hence
+                                 * if we get a zero length datagram without fds we consider it EOF, and
+                                 * that's permissible for the final two fds. Hence let's be strict on the
+                                 * first fd, but lenient on the other two. */
+
+                                if (!cmsg_find(&mh, SOL_SOCKET, SCM_RIGHTS, (socklen_t) -1) && state != STATE_PAYLOAD) /* no fds, and already got the first fd → we are done */
+                                        break;
+
                                 cmsg_close_all(&mh);
-                                r = log_error_errno(SYNTHETIC_ERRNO(EBADMSG),
-                                                    "Coredump file descriptor missing.");
-                                goto finish;
+                                return log_error_errno(SYNTHETIC_ERRNO(EBADMSG),
+                                                       "Received zero length message with zero or more than one file descriptor(s), expected one.");
                         }
 
-                        assert(input_fd < 0);
-                        input_fd = *CMSG_TYPED_DATA(found, int);
+                        switch (state) {
+
+                        case STATE_PAYLOAD:
+                                assert(input_fd < 0);
+                                input_fd = *CMSG_TYPED_DATA(found, int);
+                                state = STATE_INPUT_FD_DONE;
+                                continue;
+
+                        case STATE_INPUT_FD_DONE:
+                                assert(!pidref_is_set(&context.pidref));
+
+                                r = pidref_set_pidfd_consume(&context.pidref, *CMSG_TYPED_DATA(found, int));
+                                if (r < 0)
+                                        return log_error_errno(r, "Failed to initialize pidref: %m");
+
+                                state = STATE_PID_FD_DONE;
+                                continue;
+
+                        case STATE_PID_FD_DONE:
+                                assert(context.mount_tree_fd < 0);
+                                context.mount_tree_fd = *CMSG_TYPED_DATA(found, int);
+                                /* We have all FDs we need so we are done. */
+                                break;
+                        }
+
                         break;
-                } else
-                        cmsg_close_all(&mh);
+                }
+
+                cmsg_close_all(&mh);
+
+                /* Only zero length messages are allowed after the first message that carried a file descriptor. */
+                if (state != STATE_PAYLOAD)
+                        return log_error_errno(SYNTHETIC_ERRNO(EBADMSG), "Received unexpected message with non-zero length.");
+
+                /* Payload messages should not carry fds */
+                if (cmsg_find(&mh, SOL_SOCKET, SCM_RIGHTS, (socklen_t) -1))
+                        return log_error_errno(SYNTHETIC_ERRNO(EBADMSG),
+                                            "Received payload message with file descriptor(s), expected none.");
 
                 /* Add trailing NUL byte, in case these are strings */
                 ((char*) iovec.iov_base)[n] = 0;
                 iovec.iov_len = (size_t) n;
 
-                r = iovw_put(&iovw, iovec.iov_base, iovec.iov_len);
-                if (r < 0)
-                        goto finish;
+                if (iovw_put(&iovw, iovec.iov_base, iovec.iov_len) < 0)
+                        return log_oom();
+
+                TAKE_STRUCT(iovec);
         }
 
         /* Make sure we got all data we really need */
         assert(input_fd >= 0);
 
-        r = save_context(&context, &iovw);
+        r = context_parse_iovw(&context, &iovw);
         if (r < 0)
-                goto finish;
+                return r;
 
         /* Make sure we received at least all fields we need. */
         for (int i = 0; i < _META_MANDATORY_MAX; i++)
-                if (!context.meta[i]) {
-                        r = log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                            "A mandatory argument (%i) has not been sent, aborting.",
-                                            i);
-                        goto finish;
-                }
+                if (!context.meta[i])
+                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "A mandatory argument (%i) has not been sent, aborting.", i);
 
-        r = submit_coredump(&context, &iovw, input_fd);
-
-finish:
-        iovw_free_contents(&iovw, true);
-        return r;
+        return submit_coredump(&context, &iovw, input_fd);
 }
 
-static int send_iovec(const struct iovec_wrapper *iovw, int input_fd) {
+static int send_iovec(const struct iovec_wrapper *iovw, int input_fd, PidRef *pidref, int mount_tree_fd) {
         _cleanup_close_ int fd = -EBADF;
         int r;
 
@@ -1134,7 +1265,7 @@ static int send_iovec(const struct iovec_wrapper *iovw, int input_fd) {
                                          * what we want to send, and the second one contains
                                          * the trailing dots. */
                                         copy[0] = iovw->iovec[i];
-                                        copy[1] = IOVEC_MAKE(((char[]){'.', '.', '.'}), 3);
+                                        copy[1] = IOVEC_MAKE(((const char[]){'.', '.', '.'}), 3);
 
                                         mh.msg_iov = copy;
                                         mh.msg_iovlen = 2;
@@ -1148,9 +1279,26 @@ static int send_iovec(const struct iovec_wrapper *iovw, int input_fd) {
                 }
         }
 
+        /* First sentinel: the coredump fd */
         r = send_one_fd(fd, input_fd, 0);
         if (r < 0)
                 return log_error_errno(r, "Failed to send coredump fd: %m");
+
+        /* The optional second sentinel: the pidfd */
+        if (!pidref_is_set(pidref) || pidref->fd < 0) /* If we have no pidfd, stop now */
+                return 0;
+
+        r = send_one_fd(fd, pidref->fd, 0);
+        if (r < 0)
+                return log_error_errno(r, "Failed to send pidfd: %m");
+
+        /* The optional third sentinel: the mount tree fd */
+        if (mount_tree_fd < 0) /* If we have no mount tree, stop now */
+                return 0;
+
+        r = send_one_fd(fd, mount_tree_fd, 0);
+        if (r < 0)
+                return log_error_errno(r, "Failed to send mount tree fd: %m");
 
         return 0;
 }
@@ -1160,9 +1308,7 @@ static int gather_pid_metadata_from_argv(
                 Context *context,
                 int argc, char **argv) {
 
-        _cleanup_free_ char *free_timestamp = NULL;
-        int r, signo;
-        char *t;
+        int r;
 
         assert(iovw);
         assert(context);
@@ -1176,30 +1322,19 @@ static int gather_pid_metadata_from_argv(
                                        argc, _META_ARGV_MAX);
 
         for (int i = 0; i < _META_ARGV_MAX; i++) {
+                _cleanup_free_ char *buf = NULL;
+                const char *t = argv[i];
 
-                t = argv[i];
-
-                switch (i) {
-
-                case META_ARGV_TIMESTAMP:
+                if (i == META_ARGV_TIMESTAMP) {
                         /* The journal fields contain the timestamp padded with six
                          * zeroes, so that the kernel-supplied 1s granularity timestamps
                          * becomes 1μs granularity, i.e. the granularity systemd usually
                          * operates in. */
-                        t = free_timestamp = strjoin(argv[i], "000000");
-                        if (!t)
+                        buf = strjoin(argv[i], "000000");
+                        if (!buf)
                                 return log_oom();
-                        break;
 
-                case META_ARGV_SIGNAL:
-                        /* For signal, record its pretty name too */
-                        if (safe_atoi(argv[i], &signo) >= 0 && SIGNAL_VALID(signo))
-                                (void) iovw_put_string_field(iovw, "COREDUMP_SIGNAL_NAME=SIG",
-                                                             signal_to_string(signo));
-                        break;
-
-                default:
-                        break;
+                        t = buf;
                 }
 
                 r = iovw_put_string_field(iovw, meta_field_names[i], t);
@@ -1209,7 +1344,7 @@ static int gather_pid_metadata_from_argv(
 
         /* Cache some of the process metadata we collected so far and that we'll need to
          * access soon */
-        return save_context(context, iovw);
+        return context_parse_iovw(context, iovw);
 }
 
 static int gather_pid_metadata_from_procfs(struct iovec_wrapper *iovw, Context *context) {
@@ -1226,10 +1361,10 @@ static int gather_pid_metadata_from_procfs(struct iovec_wrapper *iovw, Context *
         /* Note that if we fail on oom later on, we do not roll-back changes to the iovec
          * structure. (It remains valid, with the first iovec fields initialized.) */
 
-        pid = context->pid;
+        pid = context->pidref.pid;
 
         /* The following is mandatory */
-        r = pid_get_comm(pid, &t);
+        r = pidref_get_comm(&context->pidref, &t);
         if (r < 0)
                 return log_error_errno(r, "Failed to get COMM: %m");
 
@@ -1244,7 +1379,7 @@ static int gather_pid_metadata_from_procfs(struct iovec_wrapper *iovw, Context *
         if (r < 0)
                 log_warning_errno(r, "Failed to get EXE, ignoring: %m");
 
-        if (cg_pid_get_unit(pid, &t) >= 0)
+        if (cg_pidref_get_unit(&context->pidref, &t) >= 0)
                 (void) iovw_put_string_field_free(iovw, "COREDUMP_UNIT=", t);
 
         if (cg_pid_get_user_unit(pid, &t) >= 0)
@@ -1262,7 +1397,7 @@ static int gather_pid_metadata_from_procfs(struct iovec_wrapper *iovw, Context *
         if (sd_pid_get_slice(pid, &t) >= 0)
                 (void) iovw_put_string_field_free(iovw, "COREDUMP_SLICE=", t);
 
-        if (pid_get_cmdline(pid, SIZE_MAX, PROCESS_CMDLINE_QUOTE_POSIX, &t) >= 0)
+        if (pidref_get_cmdline(&context->pidref, SIZE_MAX, PROCESS_CMDLINE_QUOTE_POSIX, &t) >= 0)
                 (void) iovw_put_string_field_free(iovw, "COREDUMP_CMDLINE=", t);
 
         if (cg_pid_get_path_shifted(pid, NULL, &t) >= 0)
@@ -1296,8 +1431,8 @@ static int gather_pid_metadata_from_procfs(struct iovec_wrapper *iovw, Context *
         if (read_full_virtual_file(p, &t, &size) >= 0) {
                 char *buf = malloc(strlen("COREDUMP_PROC_AUXV=") + size + 1);
                 if (buf) {
-                        /* Add a dummy terminator to make save_context() happy. */
-                        *((uint8_t*) mempcpy(stpcpy(buf, "COREDUMP_PROC_AUXV="), t, size)) = '\0';
+                        /* Add a dummy terminator to make context_parse_iovw() happy. */
+                        *mempcpy_typesafe(stpcpy(buf, "COREDUMP_PROC_AUXV="), t, size) = '\0';
                         (void) iovw_consume(iovw, buf, size + strlen("COREDUMP_PROC_AUXV="));
                 }
 
@@ -1324,10 +1459,10 @@ static int gather_pid_metadata_from_procfs(struct iovec_wrapper *iovw, Context *
                 (void) iovw_put_string_field_free(iovw, "COREDUMP_ENVIRON=", t);
 
         /* we successfully acquired all metadata */
-        return save_context(context, iovw);
+        return context_parse_iovw(context, iovw);
 }
 
-static int send_ucred(int transport_fd, struct ucred *ucred) {
+static int send_ucred(int transport_fd, const struct ucred *ucred) {
         CMSG_BUFFER_TYPE(CMSG_SPACE(sizeof(struct ucred))) control = {};
         struct msghdr mh = {
                 .msg_control = &control,
@@ -1336,6 +1471,7 @@ static int send_ucred(int transport_fd, struct ucred *ucred) {
         struct cmsghdr *cmsg;
 
         assert(transport_fd >= 0);
+        assert(ucred);
 
         cmsg = CMSG_FIRSTHDR(&mh);
         *cmsg = (struct cmsghdr) {
@@ -1358,6 +1494,7 @@ static int receive_ucred(int transport_fd, struct ucred *ret_ucred) {
         struct ucred *ucred = NULL;
         ssize_t n;
 
+        assert(transport_fd >= 0);
         assert(ret_ucred);
 
         n = recvmsg_safe(transport_fd, &mh, 0);
@@ -1414,19 +1551,21 @@ static int can_forward_coredump(pid_t pid) {
 static int forward_coredump_to_container(Context *context) {
         _cleanup_close_ int pidnsfd = -EBADF, mntnsfd = -EBADF, netnsfd = -EBADF, usernsfd = -EBADF, rootfd = -EBADF;
         _cleanup_close_pair_ int pair[2] = EBADF_PAIR;
-        pid_t pid, child;
+        pid_t leader_pid, child;
         struct ucred ucred = {
-                .pid = context->pid,
+                .pid = context->pidref.pid,
                 .uid = context->uid,
                 .gid = context->gid,
         };
         int r;
 
-        r = namespace_get_leader(context->pid, NAMESPACE_PID, &pid);
+        assert(context);
+
+        r = namespace_get_leader(context->pidref.pid, NAMESPACE_PID, &leader_pid);
         if (r < 0)
                 return log_debug_errno(r, "Failed to get namespace leader: %m");
 
-        r = can_forward_coredump(pid);
+        r = can_forward_coredump(leader_pid);
         if (r < 0)
                 return log_debug_errno(r, "Failed to check if coredump can be forwarded: %m");
         if (r == 0)
@@ -1441,22 +1580,19 @@ static int forward_coredump_to_container(Context *context) {
         if (r < 0)
                 return log_debug_errno(r, "Failed to set SO_PASSCRED: %m");
 
-        r = namespace_open(pid, &pidnsfd, &mntnsfd, &netnsfd, &usernsfd, &rootfd);
+        r = namespace_open(leader_pid, &pidnsfd, &mntnsfd, &netnsfd, &usernsfd, &rootfd);
         if (r < 0)
-                return log_debug_errno(r, "Failed to join namespaces of PID " PID_FMT ": %m", pid);
+                return log_debug_errno(r, "Failed to join namespaces of PID " PID_FMT ": %m", leader_pid);
 
         r = namespace_fork("(sd-coredumpns)", "(sd-coredump)", NULL, 0,
                            FORK_RESET_SIGNALS|FORK_DEATHSIG_SIGTERM,
                            pidnsfd, mntnsfd, netnsfd, usernsfd, rootfd, &child);
         if (r < 0)
-                return log_debug_errno(r, "Failed to fork into namespaces of PID " PID_FMT ": %m", pid);
+                return log_debug_errno(r, "Failed to fork into namespaces of PID " PID_FMT ": %m", leader_pid);
         if (r == 0) {
-                _cleanup_(iovw_free_freep) struct iovec_wrapper *iovw = NULL;
-                Context child_context = {};
-
                 pair[0] = safe_close(pair[0]);
 
-                r = laccess("/run/systemd/coredump", W_OK);
+                r = access_nofollow("/run/systemd/coredump", W_OK);
                 if (r < 0) {
                         log_debug_errno(r, "Cannot find coredump socket, exiting: %m");
                         _exit(EXIT_FAILURE);
@@ -1468,7 +1604,7 @@ static int forward_coredump_to_container(Context *context) {
                         _exit(EXIT_FAILURE);
                 }
 
-                iovw = iovw_new();
+                _cleanup_(iovw_free_freep) struct iovec_wrapper *iovw = iovw_new();
                 if (!iovw) {
                         log_oom();
                         _exit(EXIT_FAILURE);
@@ -1479,16 +1615,15 @@ static int forward_coredump_to_container(Context *context) {
                 (void) iovw_put_string_field(iovw, "COREDUMP_FORWARDED=", "1");
 
                 for (int i = 0; i < _META_ARGV_MAX; i++) {
-                        int signo;
                         char buf[DECIMAL_STR_MAX(pid_t)];
                         const char *t = context->meta[i];
 
+                        /* Patch some of the fields with the translated ucred data */
                         switch (i) {
 
                         case META_ARGV_PID:
                                 xsprintf(buf, PID_FMT, ucred.pid);
                                 t = buf;
-
                                 break;
 
                         case META_ARGV_UID:
@@ -1499,13 +1634,6 @@ static int forward_coredump_to_container(Context *context) {
                         case META_ARGV_GID:
                                 xsprintf(buf, GID_FMT, ucred.gid);
                                 t = buf;
-                                break;
-
-                        case META_ARGV_SIGNAL:
-                                if (safe_atoi(t, &signo) >= 0 && SIGNAL_VALID(signo))
-                                        (void) iovw_put_string_field(iovw,
-                                                                     "COREDUMP_SIGNAL_NAME=SIG",
-                                                                     signal_to_string(signo));
                                 break;
 
                         default:
@@ -1519,7 +1647,8 @@ static int forward_coredump_to_container(Context *context) {
                         }
                 }
 
-                r = save_context(&child_context, iovw);
+                _cleanup_(context_done) Context child_context = CONTEXT_NULL;
+                r = context_parse_iovw(&child_context, iovw);
                 if (r < 0) {
                         log_debug_errno(r, "Failed to save context: %m");
                         _exit(EXIT_FAILURE);
@@ -1531,7 +1660,7 @@ static int forward_coredump_to_container(Context *context) {
                         _exit(EXIT_FAILURE);
                 }
 
-                r = send_iovec(iovw, STDIN_FILENO);
+                r = send_iovec(iovw, STDIN_FILENO, &context->pidref, /* mount_tree_fd= */ -EBADF);
                 if (r < 0) {
                         log_debug_errno(r, "Failed to send iovec to coredump socket: %m");
                         _exit(EXIT_FAILURE);
@@ -1559,10 +1688,83 @@ static int forward_coredump_to_container(Context *context) {
         return 0;
 }
 
+static int acquire_pid_mount_tree_fd(const Context *context, int *ret_fd) {
+        /* Don't bother preparing environment if we can't pass it to libdwfl. */
+#if !HAVE_DWFL_SET_SYSROOT
+        *ret_fd = -EOPNOTSUPP;
+        log_debug("dwfl_set_sysroot() is not supported.");
+#else
+        _cleanup_close_ int mntns_fd = -EBADF, root_fd = -EBADF, fd = -EBADF;
+        _cleanup_close_pair_ int pair[2] = EBADF_PAIR;
+        int r;
+
+        assert(context);
+        assert(ret_fd);
+
+        if (!arg_enter_namespace) {
+                *ret_fd = -EHOSTDOWN;
+                log_debug("EnterNamespace=no so we won't use mount tree of the crashed process for generating backtrace.");
+                return 0;
+        }
+
+        if (socketpair(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0, pair) < 0)
+                return log_error_errno(errno, "Failed to create socket pair: %m");
+
+        r = namespace_open(context->pidref.pid,
+                           /* ret_pidns_fd= */ NULL,
+                           &mntns_fd,
+                           /* ret_netns_fd= */ NULL,
+                           /* ret_userns_fd= */ NULL,
+                           &root_fd);
+        if (r < 0)
+                return log_error_errno(r, "Failed to open mount namespace of crashing process: %m");
+
+        r = namespace_fork("(sd-mount-tree-ns)",
+                           "(sd-mount-tree)",
+                           /* except_fds= */ NULL,
+                           /* n_except_fds= */ 0,
+                           FORK_RESET_SIGNALS|FORK_DEATHSIG_SIGKILL|FORK_LOG|FORK_WAIT,
+                           /* pidns_fd= */ -EBADF,
+                           mntns_fd,
+                           /* netns_fd= */ -EBADF,
+                           /* userns_fd= */ -EBADF,
+                           root_fd,
+                           NULL);
+        if (r < 0)
+                return r;
+        if (r == 0) {
+                pair[0] = safe_close(pair[0]);
+
+                fd = open_tree(-EBADF, "/", AT_NO_AUTOMOUNT | AT_RECURSIVE | AT_SYMLINK_NOFOLLOW | OPEN_TREE_CLOEXEC | OPEN_TREE_CLONE);
+                if (fd < 0) {
+                        log_error_errno(errno, "Failed to clone mount tree: %m");
+                        _exit(EXIT_FAILURE);
+                }
+
+                r = send_one_fd(pair[1], fd, 0);
+                if (r < 0) {
+                        log_error_errno(r, "Failed to send mount tree to parent: %m");
+                        _exit(EXIT_FAILURE);
+                }
+
+                _exit(EXIT_SUCCESS);
+        }
+
+        pair[1] = safe_close(pair[1]);
+
+        fd = receive_one_fd(pair[0], MSG_DONTWAIT);
+        if (fd < 0)
+                return log_error_errno(fd, "Failed to receive mount tree: %m");
+
+        *ret_fd = TAKE_FD(fd);
+#endif
+        return 0;
+}
+
 static int process_kernel(int argc, char* argv[]) {
         _cleanup_(iovw_free_freep) struct iovec_wrapper *iovw = NULL;
-        Context context = {};
-        int r, signo;
+        _cleanup_(context_done) Context context = CONTEXT_NULL;
+        int r;
 
         /* When we're invoked by the kernel, stdout/stderr are closed which is dangerous because the fds
          * could get reallocated. To avoid hard to debug issues, let's instead bind stdout/stderr to
@@ -1593,11 +1795,11 @@ static int process_kernel(int argc, char* argv[]) {
 
         /* Log minimal metadata now, so it is not lost if the system is about to shut down. */
         log_info("Process %s (%s) of user %s terminated abnormally with signal %s/%s, processing...",
-                        context.meta[META_ARGV_PID], context.meta[META_COMM],
-                        context.meta[META_ARGV_UID], context.meta[META_ARGV_SIGNAL],
-                        strna(safe_atoi(context.meta[META_ARGV_SIGNAL], &signo) >= 0 ? signal_to_string(signo) : NULL));
+                 context.meta[META_ARGV_PID], context.meta[META_COMM],
+                 context.meta[META_ARGV_UID], context.meta[META_ARGV_SIGNAL],
+                 signal_to_string(context.signo));
 
-        r = in_same_namespace(getpid_cached(), context.pid, NAMESPACE_PID);
+        r = in_same_namespace(getpid_cached(), context.pidref.pid, NAMESPACE_PID);
         if (r < 0)
                 log_debug_errno(r, "Failed to check pidns of crashing process, ignoring: %m");
         if (r == 0) {
@@ -1606,6 +1808,10 @@ static int process_kernel(int argc, char* argv[]) {
                 r = forward_coredump_to_container(&context);
                 if (r >= 0)
                         return 0;
+
+                r = acquire_pid_mount_tree_fd(&context, &context.mount_tree_fd);
+                if (r < 0)
+                        log_warning_errno(r, "Failed to access the mount tree of a container, ignoring: %m");
         }
 
         /* If this is PID 1 disable coredump collection, we'll unlikely be able to process
@@ -1625,15 +1831,17 @@ static int process_kernel(int argc, char* argv[]) {
         if (context.is_journald || context.is_pid1)
                 return submit_coredump(&context, iovw, STDIN_FILENO);
 
-        return send_iovec(iovw, STDIN_FILENO);
+        return send_iovec(iovw, STDIN_FILENO, &context.pidref, context.mount_tree_fd);
 }
 
 static int process_backtrace(int argc, char *argv[]) {
         _cleanup_(journal_importer_cleanup) JournalImporter importer = JOURNAL_IMPORTER_INIT(STDIN_FILENO);
         _cleanup_(iovw_free_freep) struct iovec_wrapper *iovw = NULL;
-        Context context = {};
+        _cleanup_(context_done) Context context = CONTEXT_NULL;
         char *message;
         int r;
+
+        assert(argc >= 2);
 
         log_debug("Processing backtrace on stdin...");
 

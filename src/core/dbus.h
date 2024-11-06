@@ -5,7 +5,7 @@
 
 #include "manager.h"
 
-int bus_send_pending_reload_message(Manager *m);
+void bus_send_pending_reload_message(Manager *m);
 
 int bus_init_private(Manager *m);
 int bus_init_api(Manager *m);
@@ -22,12 +22,6 @@ void bus_track_serialize(sd_bus_track *t, FILE *f, const char *prefix);
 int bus_track_coldplug(Manager *m, sd_bus_track **t, bool recursive, char **l);
 
 int bus_foreach_bus(Manager *m, sd_bus_track *subscribed2, int (*send_message)(sd_bus *bus, void *userdata), void *userdata);
-
-int bus_verify_manage_units_async(Manager *m, sd_bus_message *call, sd_bus_error *error);
-int bus_verify_manage_unit_files_async(Manager *m, sd_bus_message *call, sd_bus_error *error);
-int bus_verify_reload_daemon_async(Manager *m, sd_bus_message *call, sd_bus_error *error);
-int bus_verify_set_environment_async(Manager *m, sd_bus_message *call, sd_bus_error *error);
-int bus_verify_bypass_dump_ratelimit_async(Manager *m, sd_bus_message *call, sd_bus_error *error);
 
 int bus_forward_agent_released(Manager *m, const char *path);
 

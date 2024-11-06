@@ -16,6 +16,7 @@
 #include "sd-bus.h"
 #include "sd-device.h"
 #include "sd-id128.h"
+#include "sd-json.h"
 #include "sd-messages.h"
 
 #include "battery-capacity.h"
@@ -36,7 +37,6 @@
 #include "hibernate-util.h"
 #include "id128-util.h"
 #include "io-util.h"
-#include "json.h"
 #include "log.h"
 #include "main-func.h"
 #include "os-util.h"
@@ -57,7 +57,7 @@ static int write_efi_hibernate_location(const HibernationDevice *hibernation_dev
         int log_level = required ? LOG_ERR : LOG_DEBUG;
 
 #if ENABLE_EFI
-        _cleanup_(json_variant_unrefp) JsonVariant *v = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
         _cleanup_free_ char *formatted = NULL, *id = NULL, *image_id = NULL,
                        *version_id = NULL, *image_version = NULL;
         _cleanup_(sd_device_unrefp) sd_device *device = NULL;
@@ -98,22 +98,23 @@ static int write_efi_hibernate_location(const HibernationDevice *hibernation_dev
         if (r < 0)
                 log_full_errno(log_level_ignore, r, "Failed to parse os-release, ignoring: %m");
 
-        r = json_build(&v, JSON_BUILD_OBJECT(
-                               JSON_BUILD_PAIR_UUID("uuid", uuid),
-                               JSON_BUILD_PAIR_UNSIGNED("offset", hibernation_device->offset),
-                               JSON_BUILD_PAIR_CONDITION(!isempty(uts.release), "kernelVersion", JSON_BUILD_STRING(uts.release)),
-                               JSON_BUILD_PAIR_CONDITION(id, "osReleaseId", JSON_BUILD_STRING(id)),
-                               JSON_BUILD_PAIR_CONDITION(image_id, "osReleaseImageId", JSON_BUILD_STRING(image_id)),
-                               JSON_BUILD_PAIR_CONDITION(version_id, "osReleaseVersionId", JSON_BUILD_STRING(version_id)),
-                               JSON_BUILD_PAIR_CONDITION(image_version, "osReleaseImageVersion", JSON_BUILD_STRING(image_version))));
+        r = sd_json_buildo(
+                        &v,
+                        SD_JSON_BUILD_PAIR_UUID("uuid", uuid),
+                        SD_JSON_BUILD_PAIR_UNSIGNED("offset", hibernation_device->offset),
+                        SD_JSON_BUILD_PAIR_CONDITION(!isempty(uts.release), "kernelVersion", SD_JSON_BUILD_STRING(uts.release)),
+                        SD_JSON_BUILD_PAIR_CONDITION(!!id, "osReleaseId", SD_JSON_BUILD_STRING(id)),
+                        SD_JSON_BUILD_PAIR_CONDITION(!!image_id, "osReleaseImageId", SD_JSON_BUILD_STRING(image_id)),
+                        SD_JSON_BUILD_PAIR_CONDITION(!!version_id, "osReleaseVersionId", SD_JSON_BUILD_STRING(version_id)),
+                        SD_JSON_BUILD_PAIR_CONDITION(!!image_version, "osReleaseImageVersion", SD_JSON_BUILD_STRING(image_version)));
         if (r < 0)
                 return log_full_errno(log_level, r, "Failed to build JSON object: %m");
 
-        r = json_variant_format(v, 0, &formatted);
+        r = sd_json_variant_format(v, 0, &formatted);
         if (r < 0)
                 return log_full_errno(log_level, r, "Failed to format JSON object: %m");
 
-        r = efi_set_variable_string(EFI_SYSTEMD_VARIABLE(HibernateLocation), formatted);
+        r = efi_set_variable_string(EFI_SYSTEMD_VARIABLE_STR("HibernateLocation"), formatted);
         if (r < 0)
                 return log_full_errno(log_level, r, "Failed to set EFI variable HibernateLocation: %m");
 
@@ -389,7 +390,15 @@ static int custom_timer_suspend(const SleepConfig *sleep_config) {
                         }
                 }
 
-                /* Do not suspend more than HibernateDelaySec= */
+                /* Do not suspend more than HibernateDelaySec= unless HibernateOnACPower=no and currently on AC power */
+                if (!sleep_config->hibernate_on_ac_power) {
+                        /* Do not allow "decay" to suspend if the system has no battery. */
+                        if (hashmap_isempty(last_capacity))
+                                log_once(LOG_WARNING, "HibernateOnACPower=no was ignored because the system does not have a battery.");
+                        else if (on_ac_power() > 0)
+                                hibernate_timestamp = usec_add(now(CLOCK_BOOTTIME), sleep_config->hibernate_delay_usec);
+                }
+
                 usec_t before_timestamp = now(CLOCK_BOOTTIME);
                 suspend_interval = MIN(suspend_interval, usec_sub_unsigned(hibernate_timestamp, before_timestamp));
                 if (suspend_interval <= 0)
@@ -602,10 +611,14 @@ static int run(int argc, char *argv[]) {
         /* Freeze the user sessions */
         r = getenv_bool("SYSTEMD_SLEEP_FREEZE_USER_SESSIONS");
         if (r < 0 && r != -ENXIO)
-                log_warning_errno(r, "Cannot parse value of $SYSTEMD_SLEEP_FREEZE_USER_SESSIONS, ignoring.");
-        if (r != 0)
-                (void) unit_freezer_new_freeze(SPECIAL_USER_SLICE, &user_slice_freezer);
-        else
+                log_warning_errno(r, "Cannot parse value of $SYSTEMD_SLEEP_FREEZE_USER_SESSIONS, ignoring: %m");
+        if (r != 0) {
+                r = unit_freezer_new(SPECIAL_USER_SLICE, &user_slice_freezer);
+                if (r < 0)
+                        return r;
+
+                (void) unit_freezer_freeze(user_slice_freezer);
+        } else
                 log_notice("User sessions remain unfrozen on explicit request ($SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=0).\n"
                            "This is not recommended, and might result in unexpected behavior, particularly\n"
                            "in suspend-then-hibernate operations or setups with encrypted home directories.");
@@ -630,10 +643,13 @@ static int run(int argc, char *argv[]) {
 
                 break;
 
-        default:
+        case SLEEP_SUSPEND:
+        case SLEEP_HIBERNATE:
                 r = execute(sleep_config, arg_operation, NULL);
                 break;
 
+        default:
+                assert_not_reached();
         }
 
         if (user_slice_freezer)

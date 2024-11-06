@@ -44,9 +44,9 @@ typedef enum ObjectType {
 
 /* Object flags (note that src/basic/compress.h uses the same values for the compression types) */
 enum {
-        OBJECT_COMPRESSED_XZ   = 1 << 0,
-        OBJECT_COMPRESSED_LZ4  = 1 << 1,
-        OBJECT_COMPRESSED_ZSTD = 1 << 2,
+        OBJECT_COMPRESSED_XZ    = 1 << 0,
+        OBJECT_COMPRESSED_LZ4   = 1 << 1,
+        OBJECT_COMPRESSED_ZSTD  = 1 << 2,
         _OBJECT_COMPRESSED_MASK = OBJECT_COMPRESSED_XZ | OBJECT_COMPRESSED_LZ4 | OBJECT_COMPRESSED_ZSTD,
 };
 
@@ -164,7 +164,7 @@ enum {
         STATE_OFFLINE = 0,
         STATE_ONLINE = 1,
         STATE_ARCHIVED = 2,
-        _STATE_MAX
+        _STATE_MAX,
 };
 
 /* Header flags */
@@ -188,7 +188,6 @@ enum {
                                               HEADER_INCOMPATIBLE_COMPACT,
 };
 
-
 enum {
         HEADER_COMPATIBLE_SEALED             = 1 << 0,
         HEADER_COMPATIBLE_TAIL_ENTRY_BOOT_ID = 1 << 1, /* if set, the last_entry_boot_id field in the header is exclusively refreshed when an entry is appended */
@@ -200,7 +199,6 @@ enum {
         HEADER_COMPATIBLE_SUPPORTED          = (HAVE_GCRYPT ? HEADER_COMPATIBLE_SEALED | HEADER_COMPATIBLE_SEALED_CONTINUOUS : 0) |
                                                HEADER_COMPATIBLE_TAIL_ENTRY_BOOT_ID,
 };
-
 
 #define HEADER_SIGNATURE                                                \
         ((const uint8_t[]) { 'L', 'P', 'K', 'S', 'H', 'H', 'R', 'H' })

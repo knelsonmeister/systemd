@@ -162,11 +162,11 @@
 
           <itemizedlist>
             <listitem><para>If set to <option>simple</option> (the default if <varname>ExecStart=</varname>
-            is specified but neither <varname>Type=</varname> nor <varname>BusName=</varname> are), the
-            service manager will consider the unit started immediately after the main service process has
-            been forked off (i.e. immediately after <function>fork()</function>, and before various process
-            attributes have been configured and in particular before the new process has called
-            <function>execve()</function> to invoke the actual service binary). Typically,
+            is specified but neither <varname>Type=</varname> nor <varname>BusName=</varname> are, and
+            credentials are not used), the service manager will consider the unit started immediately after
+            the main service process has been forked off (i.e. immediately after <function>fork()</function>,
+            and before various process attributes have been configured and in particular before the new process
+            has called <function>execve()</function> to invoke the actual service binary). Typically,
             <varname>Type=</varname><option>exec</option> is the better choice, see below.</para>
 
             <para>It is expected that the process configured with <varname>ExecStart=</varname> is the main
@@ -188,7 +188,9 @@
             Note that this means <command>systemctl start</command> command lines for <option>exec</option>
             services will report failure when the service's binary cannot be invoked successfully (for
             example because the selected <varname>User=</varname> doesn't exist, or the service binary is
-            missing).</para></listitem>
+            missing). This type is implied if credentials are used (refer to <varname>LoadCredential=</varname>
+            in <citerefentry><refentrytitle>systemd.exec</refentrytitle><manvolnum>5</manvolnum></citerefentry>
+            for details).</para></listitem>
 
             <listitem><para>If set to <option>forking</option>, the manager will consider the unit started
             immediately after the binary that forked off by the manager exits. <emphasis>The use of this type
@@ -407,12 +409,11 @@
       <varlistentry>
         <term><varname>ExecStartPre=</varname></term>
         <term><varname>ExecStartPost=</varname></term>
-        <listitem><para>Additional commands that are executed before
-        or after the command in <varname>ExecStart=</varname>,
-        respectively. Syntax is the same as for
-        <varname>ExecStart=</varname>, except that multiple command
-        lines are allowed and the commands are executed one after the
-        other, serially.</para>
+
+        <listitem><para>Additional commands that are executed before or after the command in
+        <varname>ExecStart=</varname>, respectively. Syntax is the same as for <varname>ExecStart=</varname>.
+        Multiple command lines are allowed, regardless of the service type (i.e. <varname>Type=</varname>),
+        and the commands are executed one after the other, serially.</para>
 
         <para>If any of those commands (not prefixed with
         <literal>-</literal>) fail, the rest are not executed and the
@@ -448,8 +449,9 @@
 
       <varlistentry>
         <term><varname>ExecCondition=</varname></term>
-        <listitem><para>Optional commands that are executed before the commands in <varname>ExecStartPre=</varname>.
-        Syntax is the same as for <varname>ExecStart=</varname>, except that multiple command lines are allowed and the
+        <listitem><para>Optional commands that are executed before the commands in
+        <varname>ExecStartPre=</varname>. Syntax is the same as for <varname>ExecStart=</varname>. Multiple
+        command lines are allowed, regardless of the service type (i.e. <varname>Type=</varname>), and the
         commands are executed one after the other, serially.</para>
 
         <para>The behavior is like an <varname>ExecStartPre=</varname> and condition check hybrid: when an
@@ -549,11 +551,11 @@
         <varname>ExecStop=</varname> – commands specified with this setting are invoked when a service failed to start
         up correctly and is shut down again.</para>
 
-        <para>It is recommended to use this setting for clean-up operations that shall be executed even when the
-        service failed to start up correctly. Commands configured with this setting need to be able to operate even if
-        the service failed starting up half-way and left incompletely initialized data around. As the service's
-        processes have been terminated already when the commands specified with this setting are executed they should
-        not attempt to communicate with them.</para>
+        <para>It is recommended to use this setting for clean-up operations that shall be executed even when
+        the service failed to start up correctly. Commands configured with this setting need to be able to
+        operate even if the service failed starting up half-way and left incompletely initialized data
+        around. As the service's processes have likely exited already when the commands specified with this
+        setting are executed they should not attempt to communicate with them.</para>
 
         <para>Note that all commands that are configured with this setting are invoked with the result code of the
         service, as well as the main process' exit code and status, set in the <varname>$SERVICE_RESULT</varname>,
@@ -930,19 +932,39 @@
         <listitem>
           <para>Takes a string value that specifies how a service should restart:
             <itemizedlist>
-              <listitem><para>If set to <option>normal</option> (the default), the service restarts by
-              going through a failed/inactive state.</para></listitem>
+              <listitem>
+                <para>If set to <option>normal</option> (the default), the service restarts by going through
+                a failed/inactive state.</para>
 
-              <listitem><para>If set to <option>direct</option>, the service transitions to the activating
-              state directly during auto-restart, skipping failed/inactive state.
-              <varname>ExecStopPost=</varname> is invoked.
-              <varname>OnSuccess=</varname> and <varname>OnFailure=</varname> are skipped.</para></listitem>
+                <xi:include href="version-info.xml" xpointer="v254"/>
+              </listitem>
+
+              <listitem>
+                <para>If set to <option>direct</option>, the service transitions to the activating
+                state directly during auto-restart, skipping failed/inactive state.
+                <varname>ExecStopPost=</varname> is still invoked.
+                <varname>OnSuccess=</varname> and <varname>OnFailure=</varname> are skipped.</para>
+
+                <para>This option is useful in cases where a dependency can fail temporarily but we don't
+                want these temporary failures to make the dependent units fail. Dependent units are not
+                notified of these temporary failures.</para>
+
+                <xi:include href="version-info.xml" xpointer="v254"/>
+              </listitem>
+
+              <listitem>
+                <para>If set to <option>debug</option>, the service manager will log messages that are
+                related to this unit at debug level while automated restarts are attempted, until either the
+                service hits the rate limit or it succeeds, and the <varname>$DEBUG_INVOCATION=1</varname>
+                environment variable will be set for the unit. This is useful to be able to get additional
+                information when a service fails to start, without needing to proactively or permanently
+                enable debug level logging in systemd, which is very verbose. This is otherwise equivalent
+                to <option>normal</option> mode.</para>
+
+                <xi:include href="version-info.xml" xpointer="v257"/>
+              </listitem>
             </itemizedlist>
           </para>
-
-          <para>This option is useful in cases where a dependency can fail temporarily
-          but we don't want these temporary failures to make the dependent units fail.
-          When this option is set to <option>direct</option>, dependent units are not notified of these temporary failures.</para>
 
           <xi:include href="version-info.xml" xpointer="v254"/>
         </listitem>

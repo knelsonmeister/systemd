@@ -84,7 +84,7 @@ typedef struct Worker {
         Manager *manager;
         pid_t pid;
         sd_event_source *child_event_source;
-        sd_device_monitor *monitor;
+        union sockaddr_union address;
         WorkerState state;
         Event *event;
 } Worker;
@@ -125,7 +125,6 @@ static Worker *worker_free(Worker *worker) {
                 hashmap_remove(worker->manager->workers, PID_TO_PTR(worker->pid));
 
         sd_event_source_unref(worker->child_event_source);
-        sd_device_monitor_unref(worker->monitor);
         event_free(worker->event);
 
         return mfree(worker);
@@ -154,8 +153,6 @@ Manager* manager_free(Manager *manager) {
 
         sd_event_source_unref(manager->inotify_event);
         sd_event_source_unref(manager->kill_workers_event);
-        sd_event_source_unref(manager->memory_pressure_event_source);
-        sd_event_source_unref(manager->sigrtmin18_event_source);
         sd_event_unref(manager->event);
 
         free(manager->cgroup);
@@ -173,17 +170,17 @@ static int worker_new(Worker **ret, Manager *manager, sd_device_monitor *worker_
         assert(worker_monitor);
         assert(pid > 1);
 
-        /* close monitor, but keep address around */
-        device_monitor_disconnect(worker_monitor);
-
         worker = new(Worker, 1);
         if (!worker)
                 return -ENOMEM;
 
         *worker = (Worker) {
-                .monitor = sd_device_monitor_ref(worker_monitor),
                 .pid = pid,
         };
+
+        r = device_monitor_get_address(worker_monitor, &worker->address);
+        if (r < 0)
+                return r;
 
         r = sd_event_add_child(manager->event, &worker->child_event_source, pid, WEXITED, on_sigchld, worker);
         if (r < 0)
@@ -398,10 +395,6 @@ static int worker_spawn(Manager *manager, Event *event) {
         if (r < 0)
                 return log_error_errno(r, "Worker: Failed to set unicast sender: %m");
 
-        r = device_monitor_enable_receiving(worker_monitor);
-        if (r < 0)
-                return log_error_errno(r, "Worker: Failed to enable receiving of device: %m");
-
         r = safe_fork("(udev-worker)", FORK_DEATHSIG_SIGTERM, &pid);
         if (r < 0) {
                 event->state = EVENT_QUEUED;
@@ -455,7 +448,7 @@ static int event_run(Event *event) {
                 if (worker->state != WORKER_IDLE)
                         continue;
 
-                r = device_monitor_send_device(manager->monitor, worker->monitor, event->dev);
+                r = device_monitor_send(manager->monitor, &worker->address, event->dev);
                 if (r < 0) {
                         log_device_error_errno(event->dev, r, "Worker ["PID_FMT"] did not accept message, killing the worker: %m",
                                                worker->pid);
@@ -589,9 +582,6 @@ static int event_queue_start(Manager *manager) {
 
         if (!manager->events || manager->exit || manager->stop_exec_queue)
                 return 0;
-
-        /* To make the stack directory /run/udev/links cleaned up later. */
-        manager->udev_node_needs_cleanup = true;
 
         r = event_source_disable(manager->kill_workers_event);
         if (r < 0)
@@ -734,7 +724,7 @@ static int event_queue_insert(Manager *manager, sd_device *dev) {
         if (r < 0 && r != -ENOENT)
                 return r;
 
-        r = device_get_device_id(dev, &id);
+        r = sd_device_get_device_id(dev, &id);
         if (r < 0 && r != -ENOENT)
                 return r;
 
@@ -1188,11 +1178,6 @@ static int on_post(sd_event_source *s, void *userdata) {
 
         /* There are no idle workers. */
 
-        if (manager->udev_node_needs_cleanup) {
-                (void) udev_node_cleanup();
-                manager->udev_node_needs_cleanup = false;
-        }
-
         if (manager->exit)
                 return sd_event_exit(manager->event, 0);
 
@@ -1261,10 +1246,6 @@ int manager_init(Manager *manager, int fd_ctrl, int fd_uevent) {
                 return log_error_errno(r, "Failed to initialize device monitor: %m");
 
         (void) sd_device_monitor_set_description(manager->monitor, "manager");
-
-        r = device_monitor_enable_receiving(manager->monitor);
-        if (r < 0)
-                return log_error_errno(r, "Failed to bind netlink socket: %m");
 
         manager->log_level = log_get_max_level();
 
@@ -1361,13 +1342,13 @@ int manager_main(Manager *manager) {
                 return log_error_errno(r, "Failed to create post event source: %m");
 
         /* Eventually, we probably want to do more here on memory pressure, for example, kill idle workers immediately */
-        r = sd_event_add_memory_pressure(manager->event, &manager->memory_pressure_event_source, NULL, NULL);
+        r = sd_event_add_memory_pressure(manager->event, /* ret_event_source= */ NULL, /* callback= */ NULL, /* userdata= */ NULL);
         if (r < 0)
                 log_full_errno(ERRNO_IS_NOT_SUPPORTED(r) || ERRNO_IS_PRIVILEGE(r) || (r == -EHOSTDOWN) ? LOG_DEBUG : LOG_WARNING, r,
                                "Failed to allocate memory pressure watch, ignoring: %m");
 
-        r = sd_event_add_signal(manager->event, &manager->memory_pressure_event_source,
-                                (SIGRTMIN+18) | SD_EVENT_SIGNAL_PROCMASK, sigrtmin18_handler, NULL);
+        r = sd_event_add_signal(manager->event, /* ret_event_source= */ NULL,
+                                (SIGRTMIN+18) | SD_EVENT_SIGNAL_PROCMASK, sigrtmin18_handler, /* userdata= */ NULL);
         if (r < 0)
                 return log_error_errno(r, "Failed to allocate SIGRTMIN+18 event source, ignoring: %m");
 

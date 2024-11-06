@@ -32,6 +32,7 @@
 #include "os-util.h"
 #include "path-lookup.h"
 #include "portable.h"
+#include "portable-util.h"
 #include "process-util.h"
 #include "rm-rf.h"
 #include "selinux-util.h"
@@ -267,7 +268,7 @@ static int extract_now(
 
                 FOREACH_DIRENT(de, d, return log_debug_errno(errno, "Failed to read directory: %m")) {
                         _cleanup_(portable_metadata_unrefp) PortableMetadata *m = NULL;
-                        _cleanup_(mac_selinux_freep) char *con = NULL;
+                        _cleanup_freecon_ char *con = NULL;
                         _cleanup_close_ int fd = -EBADF;
                         struct stat st;
 
@@ -721,13 +722,7 @@ static int extract_image_and_extensions(
 
                 e = strv_env_pairs_get(extension_release, "PORTABLE_PREFIXES");
                 if (e) {
-                        _cleanup_strv_free_ char **l = NULL;
-
-                        l = strv_split(e, WHITESPACE);
-                        if (!l)
-                                return -ENOMEM;
-
-                        r = strv_extend_strv(&valid_prefixes, l, true);
+                        r = strv_split_and_extend(&valid_prefixes, e, WHITESPACE, /* filter_duplicates = */ true);
                         if (r < 0)
                                 return r;
                 }
@@ -909,7 +904,6 @@ static int portable_changes_add(
                 const char *source) {
 
         _cleanup_free_ char *p = NULL, *s = NULL;
-        PortableChange *c;
         int r;
 
         assert(path);
@@ -923,10 +917,8 @@ static int portable_changes_add(
         if (!changes)
                 return 0;
 
-        c = reallocarray(*changes, *n_changes + 1, sizeof(PortableChange));
-        if (!c)
+        if (!GREEDY_REALLOC(*changes, *n_changes + 1))
                 return -ENOMEM;
-        *changes = c;
 
         r = path_simplify_alloc(path, &p);
         if (r < 0)
@@ -936,7 +928,7 @@ static int portable_changes_add(
         if (r < 0)
                 return r;
 
-        c[(*n_changes)++] = (PortableChange) {
+        (*changes)[(*n_changes)++] = (PortableChange) {
                 .type_or_errno = type_or_errno,
                 .path = TAKE_PTR(p),
                 .source = TAKE_PTR(s),

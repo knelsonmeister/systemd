@@ -15,6 +15,7 @@
 #include "in-addr-util.h"
 #include "net-condition.h"
 #include "netdev/macvlan.h"
+#include "network-util.h"
 #include "networkd-address-label.h"
 #include "networkd-address.h"
 #include "networkd-bridge-fdb.h"
@@ -388,6 +389,7 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                 .dhcp_use_sip = true,
                 .dhcp_use_captive_portal = true,
                 .dhcp_use_dns = -1,
+                .dhcp_use_dnr = -1,
                 .dhcp_routes_to_dns = true,
                 .dhcp_use_domains = _USE_DOMAINS_INVALID,
                 .dhcp_use_hostname = true,
@@ -402,10 +404,12 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                 .dhcp_ip_service_type = -1,
                 .dhcp_broadcast = -1,
                 .dhcp_ipv6_only_mode = -1,
+                .dhcp_6rd_prefix_route_type = RTN_UNREACHABLE,
 
                 .dhcp6_use_address = true,
                 .dhcp6_use_pd_prefix = true,
                 .dhcp6_use_dns = -1,
+                .dhcp6_use_dnr = -1,
                 .dhcp6_use_domains = _USE_DOMAINS_INVALID,
                 .dhcp6_use_hostname = true,
                 .dhcp6_use_ntp = -1,
@@ -415,6 +419,7 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                 .dhcp6_duid.type = _DUID_TYPE_INVALID,
                 .dhcp6_client_start_mode = _DHCP6_CLIENT_START_MODE_INVALID,
                 .dhcp6_send_release = true,
+                .dhcp6_pd_prefix_route_type = RTN_UNREACHABLE,
 
                 .dhcp_pd = -1,
                 .dhcp_pd_announce = true,
@@ -476,10 +481,12 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                 .proxy_arp = -1,
                 .proxy_arp_pvlan = -1,
                 .ipv4_rp_filter = _IP_REVERSE_PATH_FILTER_INVALID,
+                .ipv4_force_igmp_version = _IPV4_FORCE_IGMP_VERSION_INVALID,
 
                 .ndisc = -1,
                 .ndisc_use_redirect = true,
                 .ndisc_use_dns = -1,
+                .ndisc_use_dnr = -1,
                 .ndisc_use_gateway = true,
                 .ndisc_use_captive_portal = true,
                 .ndisc_use_route_prefix = true,
@@ -549,6 +556,8 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                         "HeavyHitterFilter\0"
                         "HierarchyTokenBucket\0"
                         "HierarchyTokenBucketClass\0"
+                        "ClassfulMultiQueueing\0"
+                        "BandMultiQueueing\0"
                         "NetworkEmulator\0"
                         "PFIFO\0"
                         "PFIFOFast\0"
@@ -586,25 +595,49 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                 return log_warning_errno(r, "%s: Failed to store configuration into hashmap: %m", filename);
 
         TAKE_PTR(network);
+        log_syntax(/* unit = */ NULL, LOG_DEBUG, filename, /* config_line = */ 0, /* error = */ 0, "Successfully loaded.");
         return 0;
 }
 
-int network_load(Manager *manager, OrderedHashmap **networks) {
+int network_load(Manager *manager, OrderedHashmap **ret) {
         _cleanup_strv_free_ char **files = NULL;
+        OrderedHashmap *networks = NULL;
         int r;
 
         assert(manager);
-
-        ordered_hashmap_clear_with_destructor(*networks, network_unref);
+        assert(ret);
 
         r = conf_files_list_strv(&files, ".network", NULL, 0, NETWORK_DIRS);
         if (r < 0)
                 return log_error_errno(r, "Failed to enumerate network files: %m");
 
         STRV_FOREACH(f, files)
-                (void) network_load_one(manager, networks, *f);
+                (void) network_load_one(manager, &networks, *f);
 
+        *ret = TAKE_PTR(networks);
         return 0;
+}
+
+static bool network_netdev_equal(Network *a, Network *b) {
+        assert(a);
+        assert(b);
+
+        if (a->batadv != b->batadv ||
+            a->bridge != b->bridge ||
+            a->bond != b->bond ||
+            a->vrf != b->vrf ||
+            a->xfrm != b->xfrm)
+                return false;
+
+        if (hashmap_size(a->stacked_netdevs) != hashmap_size(b->stacked_netdevs))
+                return false;
+
+        NetDev *n;
+        HASHMAP_FOREACH(n, a->stacked_netdevs)
+                if (hashmap_get(b->stacked_netdevs, n->ifname) != n)
+                        return false;
+
+        return true;
 }
 
 int network_reload(Manager *manager) {
@@ -621,15 +654,21 @@ int network_reload(Manager *manager) {
         ORDERED_HASHMAP_FOREACH(n, new_networks) {
                 r = network_get_by_name(manager, n->name, &old);
                 if (r < 0) {
-                        log_debug("Found new .network file: %s", n->filename);
+                        log_debug("%s: Found new .network file.", n->filename);
                         continue;
                 }
 
                 if (!stats_by_path_equal(n->stats_by_path, old->stats_by_path)) {
-                        log_debug("Found updated .network file: %s", n->filename);
+                        log_debug("%s: Found updated .network file.", n->filename);
                         continue;
                 }
 
+                if (!network_netdev_equal(n, old)) {
+                        log_debug("%s: Detected update of referenced .netdev file(s).", n->filename);
+                        continue;
+                }
+
+                /* Nothing updated, use the existing Network object, and drop the new one. */
                 r = ordered_hashmap_replace(new_networks, old->name, old);
                 if (r < 0)
                         goto failure;
@@ -792,15 +831,15 @@ static Network *network_free(Network *network) {
         hashmap_free_with_destructor(network->bridge_fdb_entries_by_section, bridge_fdb_free);
         hashmap_free_with_destructor(network->bridge_mdb_entries_by_section, bridge_mdb_free);
         ordered_hashmap_free(network->neighbors_by_section);
-        hashmap_free_with_destructor(network->address_labels_by_section, address_label_free);
+        hashmap_free(network->address_labels_by_section);
         hashmap_free_with_destructor(network->prefixes_by_section, prefix_free);
         hashmap_free_with_destructor(network->route_prefixes_by_section, route_prefix_free);
         hashmap_free_with_destructor(network->pref64_prefixes_by_section, prefix64_free);
-        hashmap_free_with_destructor(network->rules_by_section, routing_policy_rule_free);
+        hashmap_free(network->rules_by_section);
         hashmap_free_with_destructor(network->dhcp_static_leases_by_section, dhcp_static_lease_free);
         ordered_hashmap_free_with_destructor(network->sr_iov_by_section, sr_iov_free);
-        hashmap_free_with_destructor(network->qdiscs_by_section, qdisc_free);
-        hashmap_free_with_destructor(network->tclasses_by_section, tclass_free);
+        hashmap_free(network->qdiscs_by_section);
+        hashmap_free(network->tclasses_by_section);
 
         return mfree(network);
 }
@@ -849,7 +888,7 @@ bool network_has_static_ipv6_configurations(Network *network) {
                         return true;
 
         ORDERED_HASHMAP_FOREACH(neighbor, network->neighbors_by_section)
-                if (neighbor->family == AF_INET6)
+                if (neighbor->dst_addr.family == AF_INET6)
                         return true;
 
         if (!hashmap_isempty(network->address_labels_by_section))
@@ -1054,11 +1093,8 @@ int config_parse_ignore_carrier_loss(
         return 0;
 }
 
-DEFINE_CONFIG_PARSE_ENUM(config_parse_required_family_for_online, link_required_address_family, AddressFamily,
-                         "Failed to parse RequiredFamilyForOnline= setting");
-
-DEFINE_CONFIG_PARSE_ENUM(config_parse_keep_configuration, keep_configuration, KeepConfiguration,
-                         "Failed to parse KeepConfiguration= setting");
+DEFINE_CONFIG_PARSE_ENUM(config_parse_required_family_for_online, link_required_address_family, AddressFamily);
+DEFINE_CONFIG_PARSE_ENUM(config_parse_keep_configuration, keep_configuration, KeepConfiguration);
 
 static const char* const keep_configuration_table[_KEEP_CONFIGURATION_MAX] = {
         [KEEP_CONFIGURATION_NO]           = "no",
@@ -1071,13 +1107,13 @@ static const char* const keep_configuration_table[_KEEP_CONFIGURATION_MAX] = {
 DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(keep_configuration, KeepConfiguration, KEEP_CONFIGURATION_YES);
 
 static const char* const activation_policy_table[_ACTIVATION_POLICY_MAX] = {
-        [ACTIVATION_POLICY_UP] =          "up",
-        [ACTIVATION_POLICY_ALWAYS_UP] =   "always-up",
-        [ACTIVATION_POLICY_MANUAL] =      "manual",
+        [ACTIVATION_POLICY_UP]          = "up",
+        [ACTIVATION_POLICY_ALWAYS_UP]   = "always-up",
+        [ACTIVATION_POLICY_MANUAL]      = "manual",
         [ACTIVATION_POLICY_ALWAYS_DOWN] = "always-down",
-        [ACTIVATION_POLICY_DOWN] =        "down",
-        [ACTIVATION_POLICY_BOUND] =       "bound",
+        [ACTIVATION_POLICY_DOWN]        = "down",
+        [ACTIVATION_POLICY_BOUND]       = "bound",
 };
 
 DEFINE_STRING_TABLE_LOOKUP(activation_policy, ActivationPolicy);
-DEFINE_CONFIG_PARSE_ENUM(config_parse_activation_policy, activation_policy, ActivationPolicy, "Failed to parse activation policy");
+DEFINE_CONFIG_PARSE_ENUM(config_parse_activation_policy, activation_policy, ActivationPolicy);

@@ -35,7 +35,7 @@
       <funcprototype>
         <funcdef>int <function>sd_event_get_exit_code</function></funcdef>
         <paramdef>sd_event *<parameter>event</parameter></paramdef>
-        <paramdef>int *<parameter>code</parameter></paramdef>
+        <paramdef>int *<parameter>ret</parameter></paramdef>
       </funcprototype>
 
     </funcsynopsis>
@@ -66,7 +66,7 @@
     otherwise no further operation is executed.</para>
 
     <para><function>sd_event_get_exit_code()</function> may be used to query the exit code passed to an
-    earlier call of <function>sd_event_exit()</function>. The return parameter <parameter>code</parameter>
+    earlier call of <function>sd_event_exit()</function>. The return parameter <parameter>ret</parameter>
     may be set to <constant>NULL</constant>, in order to simply check if <function>sd_event_exit()</function>
     has been called before (as <function>sd_event_get_exit_code()</function> fails with
     <constant>-ENODATA</constant> if that's not the case, see below).</para>
@@ -83,7 +83,7 @@
     <citerefentry><refentrytitle>sd_event_add_signal</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
     …) has the effect of <function>sd_event_exit()</function> being invoked once the event source triggers,
     with the specified userdata pointer cast to an integer as the exit code parameter. This is useful to
-    automatically terminate an event loop after some condition, such as a time-out or reception of
+    automatically terminate an event loop after some condition, such as a timeout or reception of
     <constant>SIGTERM</constant> or similar. See the documentation for the respective constructor call for
     details.</para>
   </refsect1>

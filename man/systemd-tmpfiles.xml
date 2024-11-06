@@ -152,10 +152,11 @@
       <varlistentry>
         <term><option>--purge</option></term>
 
-        <listitem><para>If this option is passed, all files and directories marked for
-        <emphasis>creation</emphasis> by the <filename>tmpfiles.d/</filename> files specified on the command
-        line will be <emphasis>deleted</emphasis>. Specifically, this acts on all files and directories
-        marked with <varname>f</varname>, <varname>F</varname>, <varname>d</varname>, <varname>D</varname>,
+        <listitem><para>If this option is passed, all files and directories declared for
+        <emphasis>creation</emphasis> and marked with the <literal>$</literal> character by the
+        <filename>tmpfiles.d/</filename> files specified on the command line will be
+        <emphasis>deleted</emphasis>. Specifically, this acts on all files and directories marked with
+        <varname>f</varname>, <varname>F</varname>, <varname>d</varname>, <varname>D</varname>,
         <varname>v</varname>, <varname>q</varname>, <varname>Q</varname>, <varname>p</varname>,
         <varname>L</varname>, <varname>c</varname>, <varname>b</varname>, <varname>C</varname>,
         <varname>w</varname>, <varname>e</varname>. If this switch is used at least one
@@ -164,7 +165,7 @@
         much of the installed system files might be removed).</para>
 
         <para>The primary usecase for this option is to automatically remove files and directories that
-        originally have been created on behalf of an installed packaged at package removal time.</para>
+        originally have been created on behalf of an installed package at package removal time.</para>
 
         <para>It is recommended to first run this command in combination with <option>--dry-run</option>
         (see below) to verify which files and directories will be deleted.</para>
@@ -177,7 +178,7 @@
 
       <varlistentry>
         <term><option>--user</option></term>
-        <listitem><para>Execute "user" configuration, i.e. <filename>tmpfiles.d</filename>
+        <listitem><para>Execute "user" configuration, i.e. <filename>tmpfiles.d/</filename>
         files in user configuration directories.</para>
 
         <xi:include href="version-info.xml" xpointer="v236"/></listitem>

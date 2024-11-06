@@ -104,8 +104,8 @@ jobs:
             relabel: yes
 
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
-      - uses: systemd/mkosi@3454f7bd4ef0336ec80a117d593baaef0fe53398
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: systemd/mkosi@8976a0abb19221e65300222f2d33067970cca0f1
 
       # Freeing up disk space with rm -rf can take multiple minutes. Since we don't need the extra free space
       # immediately, we remove the files in the background. However, we first move them to a different location
@@ -140,12 +140,13 @@ jobs:
           [Output]
           # Build a disk image in CI as this logic is much more prone to breakage.
           Format=disk
+
+          [Build]
           UseSubvolumes=yes
 
           WorkspaceDirectory=$TMPDIR
           PackageCacheDirectory=$TMPDIR/cache
 
-          [Content]
           Environment=
                   # Build debuginfo packages since we'll be publishing the packages as artifacts.
                   WITH_DEBUG=1
@@ -155,6 +156,7 @@ jobs:
                   LLVM=${{ matrix.llvm }}
                   SYSEXT=1
 
+          [Content]
           SELinuxRelabel=${{ matrix.relabel }}
 
           [Host]

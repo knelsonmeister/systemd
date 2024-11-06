@@ -5,8 +5,10 @@
 
 #include "conf-parser.h"
 #include "ether-addr-util.h"
+#include "hash-funcs.h"
 #include "list.h"
 #include "log-link.h"
+#include "netdev-util.h"
 #include "networkd-link.h"
 #include "time-util.h"
 
@@ -116,6 +118,8 @@ typedef struct NetDev {
         unsigned n_ref;
 
         char *filename;
+        char **dropins;
+        Hashmap *stats_by_path;
 
         LIST_HEAD(Condition, conditions);
 
@@ -167,6 +171,26 @@ typedef struct NetDevVTable {
         /* verify that compulsory configuration options were specified */
         int (*config_verify)(NetDev *netdev, const char *filename);
 
+        /* attach/detach additional interfaces, e.g. veth peer or L2TP sessions. */
+        int (*attach)(NetDev *netdev);
+        void (*detach)(NetDev *netdev);
+
+        /* set ifindex of the created interface. */
+        int (*set_ifindex)(NetDev *netdev, const char *name, int ifindex);
+
+        /* get ifindex of the netdev. */
+        int (*get_ifindex)(NetDev *netdev, const char *name);
+
+        /* provides if MAC address can be set. If this is not set, assumed to be yes. */
+        bool (*can_set_mac)(NetDev *netdev, const struct hw_addr_data *hw_addr);
+
+        /* provides if MTU can be set. If this is not set, assumed to be yes. */
+        bool (*can_set_mtu)(NetDev *netdev, uint32_t mtu);
+
+        /* provides if the netdev needs to be reconfigured when a specified type of address on the underlying
+         * interface is updated. */
+        bool (*needs_reconfigure)(NetDev *netdev, NetDevLocalAddressType type);
+
         /* expected iftype, e.g. ARPHRD_ETHER. */
         uint16_t iftype;
 
@@ -194,25 +218,34 @@ extern const NetDevVTable * const netdev_vtable[_NETDEV_KIND_MAX];
 /* For casting the various netdev kinds into a netdev */
 #define NETDEV(n) (&(n)->meta)
 
-int netdev_load(Manager *manager, bool reload);
-int netdev_load_one(Manager *manager, const char *filename);
+int netdev_attach_name(NetDev *netdev, const char *name);
+NetDev* netdev_detach_name(NetDev *netdev, const char *name);
+void netdev_detach(NetDev *netdev);
+int netdev_set_ifindex_internal(NetDev *netdev, int ifindex);
+
+int netdev_load(Manager *manager);
+int netdev_reload(Manager *manager);
+int netdev_load_one(Manager *manager, const char *filename, NetDev **ret);
 void netdev_drop(NetDev *netdev);
 void netdev_enter_failed(NetDev *netdev);
+int netdev_enter_ready(NetDev *netdev);
 
-NetDev *netdev_unref(NetDev *netdev);
-NetDev *netdev_ref(NetDev *netdev);
+NetDev* netdev_unref(NetDev *netdev);
+NetDev* netdev_ref(NetDev *netdev);
 DEFINE_TRIVIAL_DESTRUCTOR(netdev_destroy_callback, NetDev, netdev_unref);
 DEFINE_TRIVIAL_CLEANUP_FUNC(NetDev*, netdev_unref);
 
 bool netdev_is_managed(NetDev *netdev);
 int netdev_get(Manager *manager, const char *name, NetDev **ret);
+void link_assign_netdev(Link *link);
 int netdev_set_ifindex(NetDev *netdev, sd_netlink_message *newlink);
 int netdev_generate_hw_addr(NetDev *netdev, Link *link, const char *name,
                             const struct hw_addr_data *hw_addr, struct hw_addr_data *ret);
 
+bool netdev_needs_reconfigure(NetDev *netdev, NetDevLocalAddressType type);
 int link_request_stacked_netdev(Link *link, NetDev *netdev);
 
-const char *netdev_kind_to_string(NetDevKind d) _const_;
+const char* netdev_kind_to_string(NetDevKind d) _const_;
 NetDevKind netdev_kind_from_string(const char *d) _pure_;
 
 static inline NetDevCreateType netdev_get_create_type(NetDev *netdev) {

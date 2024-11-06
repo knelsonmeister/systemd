@@ -4,7 +4,6 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/auto_dev-ioctl.h>
-#include <linux/auto_fs4.h>
 #include <sys/epoll.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
@@ -177,13 +176,13 @@ static int automount_verify(Automount *a) {
         if (!unit_has_name(UNIT(a), e))
                 return log_unit_error_errno(UNIT(a), SYNTHETIC_ERRNO(ENOEXEC), "Where= setting doesn't match unit name. Refusing.");
 
-        for (size_t i = 0; i < ELEMENTSOF(reserved_options); i++)
-                if (fstab_test_option(a->extra_options, reserved_options[i]))
+        FOREACH_ELEMENT(reserved_option, reserved_options)
+                if (fstab_test_option(a->extra_options, *reserved_option))
                         return log_unit_error_errno(
                                 UNIT(a),
                                 SYNTHETIC_ERRNO(ENOEXEC),
                                 "ExtraOptions= setting may not contain reserved option %s.",
-                                reserved_options[i]);
+                                *reserved_option);
 
         return 0;
 }
@@ -734,9 +733,6 @@ static int automount_start_expire(Automount *a) {
 static void automount_stop_expire(Automount *a) {
         assert(a);
 
-        if (!a->expire_event_source)
-                return;
-
         (void) sd_event_source_set_enabled(a->expire_event_source, SD_EVENT_OFF);
 }
 
@@ -785,7 +781,7 @@ static void automount_enter_running(Automount *a) {
                 goto fail;
         }
 
-        r = manager_add_job(UNIT(a)->manager, JOB_START, trigger, JOB_REPLACE, NULL, &error, NULL);
+        r = manager_add_job(UNIT(a)->manager, JOB_START, trigger, JOB_REPLACE, &error, /* ret = */ NULL);
         if (r < 0) {
                 log_unit_warning(UNIT(a), "Failed to queue mount startup job: %s", bus_error_message(&error, r));
                 goto fail;
@@ -1001,7 +997,7 @@ static int automount_dispatch_io(sd_event_source *s, int fd, uint32_t events, vo
                         goto fail;
                 }
 
-                r = manager_add_job(UNIT(a)->manager, JOB_STOP, trigger, JOB_REPLACE, NULL, &error, NULL);
+                r = manager_add_job(UNIT(a)->manager, JOB_STOP, trigger, JOB_REPLACE, &error, /* ret = */ NULL);
                 if (r < 0) {
                         log_unit_warning(UNIT(a), "Failed to queue unmount job: %s", bus_error_message(&error, r));
                         goto fail;

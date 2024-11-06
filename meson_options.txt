@@ -58,7 +58,7 @@ option('initrd', type : 'boolean',
 option('compat-mutable-uid-boundaries', type : 'boolean', value : false,
        description : 'look at uid boundaries in /etc/login.defs for compatibility')
 option('nscd', type : 'boolean',
-       description : 'build support for flushing of the nscd caches')
+       description : 'This option is deprecated and will be removed in a future release')
 
 option('quotaon-path', type : 'string', description : 'path to quotaon')
 option('quotacheck-path', type : 'string', description : 'path to quotacheck')
@@ -108,6 +108,10 @@ option('repart', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 
        description : 'install the systemd-repart tool')
 option('sysupdate', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
        description : 'install the systemd-sysupdate tool')
+option('sysupdated', type: 'combo', value : 'auto',
+       choices : ['auto', 'enabled', 'disabled'],
+       description : 'install the systemd-sysupdated service')
+
 option('coredump', type : 'boolean',
        description : 'install the coredump handler')
 option('pstore', type : 'boolean',
@@ -225,6 +229,8 @@ option('sshdprivsepdir', type : 'string',
        description : 'directory for SSH privilege separation ["no" disables]', value : '/run/sshd')
 option('libcryptsetup-plugins-dir', type : 'string',
        description : 'directory for libcryptsetup plugins')
+option('shellprofiledir', type : 'string',
+       description : 'directory for Shell profile drop-ins ["no" disables]')
 option('docdir', type : 'string',
        description : 'documentation directory')
 option('install-sysconfdir', type : 'combo', choices : ['true', 'no-samples', 'false'], value : 'true',
@@ -386,6 +392,8 @@ option('polkit', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 
        description : 'polkit support')
 option('ima', type : 'boolean',
        description : 'IMA support')
+option('ipe', type : 'boolean',
+       description : 'IPE support')
 
 option('acl', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
        description : 'libacl support')
@@ -484,6 +492,10 @@ option('efi-color-highlight', type : 'string', value : 'black,lightgray',
        description : 'boot loader color for selected entries')
 option('efi-color-edit', type : 'string', value : 'black,lightgray',
        description : 'boot loader color for option line edit')
+option('efi-stub-extra-sections', type : 'integer', value : 30,
+       description : 'minimum number of sections to keep free in stub PE header')
+option('efi-addon-extra-sections', type : 'integer', value : 15,
+       description : 'minimum number of sections to keep free in addon PE header')
 
 option('bashcompletiondir', type : 'string',
        description : 'directory for bash completion scripts ["no" disables]')

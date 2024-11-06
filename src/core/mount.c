@@ -11,6 +11,7 @@
 #include "dbus-mount.h"
 #include "dbus-unit.h"
 #include "device.h"
+#include "exec-credential.h"
 #include "exit-status.h"
 #include "format-util.h"
 #include "fs-util.h"
@@ -425,22 +426,6 @@ static bool mount_is_extrinsic(Unit *u) {
         return false;
 }
 
-static bool mount_is_credentials(Mount *m) {
-        const char *e;
-
-        assert(m);
-
-        /* Returns true if this is a credentials mount. We don't want automatic dependencies on credential
-         * mounts, since they are managed by us for even the earliest services, and we never want anything to
-         * be ordered before them hence. */
-
-        e = path_startswith(m->where, UNIT(m)->manager->prefix[EXEC_DIRECTORY_RUNTIME]);
-        if (!e)
-                return false;
-
-        return !isempty(path_startswith(e, "credentials"));
-}
-
 static int mount_add_default_ordering_dependencies(Mount *m, MountParameters *p, UnitDependencyMask mask) {
         const char *after, *before, *e;
         int r;
@@ -490,7 +475,7 @@ static int mount_add_default_ordering_dependencies(Mount *m, MountParameters *p,
                 return r;
 
         /* If this is a tmpfs mount then we have to unmount it before we try to deactivate swaps */
-        if (streq_ptr(p->fstype, "tmpfs") && !mount_is_credentials(m)) {
+        if (streq_ptr(p->fstype, "tmpfs")) {
                 r = unit_add_dependency_by_name(UNIT(m), UNIT_AFTER, SPECIAL_SWAP_TARGET,
                                                 /* add_reference= */ true, mask);
                 if (r < 0)
@@ -578,15 +563,16 @@ static int mount_verify(Mount *m) {
                 return log_unit_error_errno(UNIT(m), SYNTHETIC_ERRNO(ENOEXEC), "Where= setting doesn't match unit name. Refusing.");
 
         if (mount_point_is_api(m->where) || mount_point_ignore(m->where))
-                return log_unit_error_errno(UNIT(m), SYNTHETIC_ERRNO(ENOEXEC), "Cannot create mount unit for API file system %s. Refusing.", m->where);
+                return log_unit_error_errno(UNIT(m), SYNTHETIC_ERRNO(ENOEXEC),
+                                            "Cannot create mount unit for API file system '%s'. Refusing.", m->where);
+
+        if (mount_point_is_credentials(UNIT(m)->manager->prefix[EXEC_DIRECTORY_RUNTIME], m->where))
+                return log_unit_error_errno(UNIT(m), SYNTHETIC_ERRNO(ENOEXEC),
+                                            "Cannot create mount unit for credential mount '%s'. Refusing.", m->where);
 
         p = get_mount_parameters_fragment(m);
         if (p && !p->what && !UNIT(m)->perpetual)
-                return log_unit_error_errno(UNIT(m), SYNTHETIC_ERRNO(ENOEXEC),
-                                            "What= setting is missing. Refusing.");
-
-        if (m->exec_context.pam_name && m->kill_context.kill_mode != KILL_CONTROL_GROUP)
-                return log_unit_error_errno(UNIT(m), SYNTHETIC_ERRNO(ENOEXEC), "Unit has PAM enabled. Kill mode must be set to control-group'. Refusing.");
+                return log_unit_error_errno(UNIT(m), SYNTHETIC_ERRNO(ENOEXEC), "What= setting is missing. Refusing.");
 
         return 0;
 }
@@ -603,9 +589,6 @@ static int mount_add_non_exec_dependencies(Mount *m) {
 
         if (!m->where)
                 return 0;
-
-        if (mount_is_credentials(m))
-                UNIT(m)->default_dependencies = false;
 
         /* Adds in all dependencies directly responsible for ordering the mount, as opposed to dependencies
          * resulting from the ExecContext and such. */
@@ -763,10 +746,8 @@ static int mount_coldplug(Unit *u) {
                         return r;
         }
 
-        if (!IN_SET(m->deserialized_state, MOUNT_DEAD, MOUNT_FAILED)) {
+        if (!IN_SET(m->deserialized_state, MOUNT_DEAD, MOUNT_FAILED))
                 (void) unit_setup_exec_runtime(u);
-                (void) unit_setup_cgroup_runtime(u);
-        }
 
         mount_set_state(m, m->deserialized_state);
         return 0;
@@ -895,6 +876,9 @@ static int mount_spawn(Mount *m, ExecCommand *c, PidRef *ret_pid) {
         if (r < 0)
                 return r;
 
+        /* Assume the label inherited from systemd as the fallback */
+        exec_params.fallback_smack_process_label = NULL;
+
         r = exec_spawn(UNIT(m),
                        c,
                        &m->exec_context,
@@ -920,7 +904,7 @@ static void mount_enter_dead(Mount *m, MountResult f, bool flush_result) {
                 m->result = f;
 
         unit_log_result(UNIT(m), m->result == MOUNT_SUCCESS, mount_result_to_string(m->result));
-        unit_warn_leftover_processes(UNIT(m), unit_log_leftover_process_stop);
+        unit_warn_leftover_processes(UNIT(m), /* start = */ false);
 
         mount_set_state(m, m->result != MOUNT_SUCCESS ? MOUNT_FAILED : MOUNT_DEAD);
 
@@ -1177,7 +1161,7 @@ static void mount_enter_mounting(Mount *m) {
 
         if (source_is_dir)
                 unit_warn_if_dir_nonempty(UNIT(m), m->where);
-        unit_warn_leftover_processes(UNIT(m), unit_log_leftover_process_start);
+        unit_warn_leftover_processes(UNIT(m), /* start = */ true);
 
         m->control_command_id = MOUNT_EXEC_MOUNT;
         m->control_command = m->exec_command + MOUNT_EXEC_MOUNT;
@@ -1332,11 +1316,6 @@ static int mount_start(Unit *u) {
 static int mount_stop(Unit *u) {
         Mount *m = ASSERT_PTR(MOUNT(u));
 
-        /* When we directly call umount() for a path, then the state of the corresponding mount unit may be
-         * outdated. Let's re-read mountinfo now and update the state. */
-        if (m->invalidated_state)
-                (void) mount_process_proc_self_mountinfo(u->manager);
-
         switch (m->state) {
 
         case MOUNT_UNMOUNTING:
@@ -1369,11 +1348,6 @@ static int mount_stop(Unit *u) {
         case MOUNT_CLEANING:
                 /* If we are currently cleaning, then abort it, brutally. */
                 mount_enter_signal(m, MOUNT_UNMOUNTING_SIGKILL, MOUNT_SUCCESS);
-                return 0;
-
-        case MOUNT_DEAD:
-        case MOUNT_FAILED:
-                /* The mount has just been unmounted by somebody else. */
                 return 0;
 
         default:
@@ -1840,9 +1814,11 @@ static int mount_setup_unit(
         assert(options);
         assert(fstype);
 
-        /* Ignore API mount points. They should never be referenced in
-         * dependencies ever. */
-        if (mount_point_is_api(where) || mount_point_ignore(where))
+        /* Ignore API and credential mount points. They should never be referenced in dependencies ever.
+         * Furthermore, the lifetime of credential mounts is strictly bound to the owning services,
+         * so mount units make little sense for them. */
+        if (mount_point_is_api(where) || mount_point_ignore(where) ||
+            mount_point_is_credentials(m->prefix[EXEC_DIRECTORY_RUNTIME], where))
                 return 0;
 
         if (streq(fstype, "autofs"))
@@ -1884,6 +1860,7 @@ static int mount_setup_unit(
 static int mount_load_proc_self_mountinfo(Manager *m, bool set_flags) {
         _cleanup_(mnt_free_tablep) struct libmnt_table *table = NULL;
         _cleanup_(mnt_free_iterp) struct libmnt_iter *iter = NULL;
+        _cleanup_set_free_ Set *devices = NULL;
         int r;
 
         assert(m);
@@ -1910,7 +1887,11 @@ static int mount_load_proc_self_mountinfo(Manager *m, bool set_flags) {
                 if (!device || !path)
                         continue;
 
-                device_found_node(m, device, DEVICE_FOUND_MOUNT, DEVICE_FOUND_MOUNT);
+                /* Just to achieve device name uniqueness. Note that the suppression of the duplicate
+                 * processing is merely an optimization, hence in case of OOM (unlikely) we'll just process
+                 * it twice. */
+                if (set_put_strdup_full(&devices, &path_hash_ops_free, device) != 0)
+                        device_found_node(m, device, DEVICE_FOUND_MOUNT, DEVICE_FOUND_MOUNT);
 
                 (void) mount_setup_unit(m, device, path, options, fstype, set_flags);
         }
@@ -2019,6 +2000,7 @@ static void mount_enumerate(Manager *m) {
         mnt_init_debug(0);
 
         if (!m->mount_monitor) {
+                usec_t mount_rate_limit_interval = 1 * USEC_PER_SEC;
                 unsigned mount_rate_limit_burst = 5;
                 int fd;
 
@@ -2060,14 +2042,21 @@ static void mount_enumerate(Manager *m) {
                 }
 
                 /* Let users override the default (5 in 1s), as it stalls the boot sequence on busy systems. */
-                const char *e = secure_getenv("SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST");
+                const char *e = secure_getenv("SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_INTERVAL_SEC");
+                if (e) {
+                        r = parse_sec(e, &mount_rate_limit_interval);
+                        if (r < 0)
+                                log_debug_errno(r, "Invalid value in $SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_INTERVAL_SEC, ignoring: %s", e);
+                }
+
+                e = secure_getenv("SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST");
                 if (e) {
                         r = safe_atou(e, &mount_rate_limit_burst);
                         if (r < 0)
-                                log_debug("Invalid value in $SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST, ignoring: %s", e);
+                                log_debug_errno(r, "Invalid value in $SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST, ignoring: %s", e);
                 }
 
-                r = sd_event_source_set_ratelimit(m->mount_event_source, 1 * USEC_PER_SEC, mount_rate_limit_burst);
+                r = sd_event_source_set_ratelimit(m->mount_event_source, mount_rate_limit_interval, mount_rate_limit_burst);
                 if (r < 0) {
                         log_error_errno(r, "Failed to enable rate limit for mount events: %m");
                         goto fail;
@@ -2139,8 +2128,6 @@ static int mount_process_proc_self_mountinfo(Manager *m) {
 
         LIST_FOREACH(units_by_type, u, m->units_by_type[UNIT_MOUNT]) {
                 Mount *mount = MOUNT(u);
-
-                mount->invalidated_state = false;
 
                 if (!mount_is_mounted(mount)) {
 
@@ -2236,26 +2223,6 @@ static int mount_dispatch_io(sd_event_source *source, int fd, uint32_t revents, 
         assert(revents & EPOLLIN);
 
         return mount_process_proc_self_mountinfo(m);
-}
-
-int mount_invalidate_state_by_path(Manager *manager, const char *path) {
-        _cleanup_free_ char *name = NULL;
-        Unit *u;
-        int r;
-
-        assert(manager);
-        assert(path);
-
-        r = unit_name_from_path(path, ".mount", &name);
-        if (r < 0)
-                return log_debug_errno(r, "Failed to generate unit name from path \"%s\", ignoring: %m", path);
-
-        u = manager_get_unit(manager, name);
-        if (!u)
-                return -ENOENT;
-
-        MOUNT(u)->invalidated_state = true;
-        return 0;
 }
 
 static void mount_reset_failed(Unit *u) {

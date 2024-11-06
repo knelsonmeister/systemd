@@ -59,19 +59,20 @@ typedef enum MountMode {
         MOUNT_BIND,
         MOUNT_BIND_RECURSIVE,
         MOUNT_PRIVATE_TMP,
-        MOUNT_PRIVATE_TMP_READ_ONLY,
         MOUNT_PRIVATE_DEV,
         MOUNT_BIND_DEV,
         MOUNT_EMPTY_DIR,
         MOUNT_PRIVATE_SYSFS,
         MOUNT_BIND_SYSFS,
         MOUNT_PROCFS,
+        MOUNT_PRIVATE_CGROUP2FS,
         MOUNT_READ_ONLY,
         MOUNT_READ_WRITE,
         MOUNT_NOEXEC,
         MOUNT_EXEC,
         MOUNT_TMPFS,
         MOUNT_RUN,
+        MOUNT_PRIVATE_TMPFS,       /* Mounted outside the root directory, and used by subsequent mounts */
         MOUNT_EXTENSION_DIRECTORY, /* Bind-mounted outside the root directory, and used by subsequent mounts */
         MOUNT_EXTENSION_IMAGE,     /* Mounted outside the root directory, and used by subsequent mounts */
         MOUNT_MQUEUEFS,
@@ -92,11 +93,13 @@ typedef struct MountEntry {
         const char *path_const;   /* Memory allocated on stack or static */
         MountMode mode;
         bool ignore:1;            /* Ignore if path does not exist? */
-        bool has_prefix:1;        /* Already is prefixed by the root dir? */
+        bool has_prefix:1;        /* Already prefixed by the root dir? */
         bool read_only:1;         /* Shall this mount point be read-only? */
         bool nosuid:1;            /* Shall set MS_NOSUID on the mount itself */
         bool noexec:1;            /* Shall set MS_NOEXEC on the mount itself */
         bool exec:1;              /* Shall clear MS_NOEXEC on the mount itself */
+        bool create_source_dir:1; /* Create the source directory if it doesn't exist - for implicit bind mounts */
+        mode_t source_dir_mode;   /* Mode for the source directory, if it is to be created */
         MountEntryState state;    /* Whether it was already processed or skipped */
         char *path_malloc;        /* Use this instead of 'path_const' if we had to allocate memory */
         const char *unprefixed_path_const; /* If the path was amended with a prefix, these will save the original */
@@ -109,12 +112,22 @@ typedef struct MountEntry {
         unsigned n_followed;
         LIST_HEAD(MountOptions, image_options_const);
         char **overlay_layers;
+        VeritySettings verity;
+        bool idmapped;
+        uid_t idmap_uid;
+        gid_t idmap_gid;
 } MountEntry;
 
 typedef struct MountList {
         MountEntry *mounts;
         size_t n_mounts;
 } MountList;
+
+static const BindMount bind_log_sockets_table[] = {
+        { (char*) "/run/systemd/journal/socket",  (char*) "/run/systemd/journal/socket",  .read_only = true, .nosuid = true, .noexec = true, .nodev = true, .ignore_enoent = true },
+        { (char*) "/run/systemd/journal/stdout",  (char*) "/run/systemd/journal/stdout",  .read_only = true, .nosuid = true, .noexec = true, .nodev = true, .ignore_enoent = true },
+        { (char*) "/run/systemd/journal/dev-log", (char*) "/run/systemd/journal/dev-log", .read_only = true, .nosuid = true, .noexec = true, .nodev = true, .ignore_enoent = true },
+};
 
 /* If MountAPIVFS= is used, let's mount /sys, /proc, /dev and /run into the it, but only as a fallback if the user hasn't mounted
  * something there already. These mounts are hence overridden by any other explicitly configured mounts. */
@@ -190,6 +203,22 @@ static const MountEntry protect_home_yes_table[] = {
         { "/root",               MOUNT_INACCESSIBLE, true  },
 };
 
+/* ProtectControlGroups=yes table */
+static const MountEntry protect_control_groups_yes_table[] = {
+        { "/sys/fs/cgroup",      MOUNT_READ_ONLY,         false  },
+};
+
+/* ProtectControlGroups=private table. Note mount_private_apivfs() always use MS_NOSUID|MS_NOEXEC|MS_NODEV so
+ * flags is not set here. nsdelegate has been supported since kernels >= 4.13 so it is safe to use. */
+static const MountEntry protect_control_groups_private_table[] = {
+        { "/sys/fs/cgroup",      MOUNT_PRIVATE_CGROUP2FS, false, .read_only = false, .nosuid = true, .noexec = true, .options_const = "nsdelegate"  },
+};
+
+/* ProtectControlGroups=strict table */
+static const MountEntry protect_control_groups_strict_table[] = {
+        { "/sys/fs/cgroup",      MOUNT_PRIVATE_CGROUP2FS, false, .read_only = true,  .nosuid = true, .noexec = true, .options_const = "nsdelegate"  },
+};
+
 /* ProtectSystem=yes table */
 static const MountEntry protect_system_yes_table[] = {
         { "/usr",                MOUNT_READ_ONLY,     false },
@@ -211,7 +240,7 @@ static const MountEntry protect_system_full_table[] = {
  * left writable, as ProtectHome= shall manage those, orthogonally).
  */
 static const MountEntry protect_system_strict_table[] = {
-        { "/",                   MOUNT_READ_ONLY,          false },
+        { "/",                   MOUNT_READ_ONLY,           false },
         { "/proc",               MOUNT_READ_WRITE_IMPLICIT, false },      /* ProtectKernelTunables= */
         { "/sys",                MOUNT_READ_WRITE_IMPLICIT, false },      /* ProtectKernelTunables= */
         { "/dev",                MOUNT_READ_WRITE_IMPLICIT, false },      /* PrivateDevices= */
@@ -233,12 +262,12 @@ static const char * const mount_mode_table[_MOUNT_MODE_MAX] = {
         [MOUNT_BIND]                  = "bind",
         [MOUNT_BIND_RECURSIVE]        = "bind-recursive",
         [MOUNT_PRIVATE_TMP]           = "private-tmp",
-        [MOUNT_PRIVATE_TMP_READ_ONLY] = "private-tmp-read-only",
         [MOUNT_PRIVATE_DEV]           = "private-dev",
         [MOUNT_BIND_DEV]              = "bind-dev",
         [MOUNT_EMPTY_DIR]             = "empty-dir",
         [MOUNT_PRIVATE_SYSFS]         = "private-sysfs",
         [MOUNT_BIND_SYSFS]            = "bind-sysfs",
+        [MOUNT_PRIVATE_CGROUP2FS]     = "private-cgroup2fs",
         [MOUNT_PROCFS]                = "procfs",
         [MOUNT_READ_ONLY]             = "read-only",
         [MOUNT_READ_WRITE]            = "read-write",
@@ -246,6 +275,7 @@ static const char * const mount_mode_table[_MOUNT_MODE_MAX] = {
         [MOUNT_EXEC]                  = "exec",
         [MOUNT_TMPFS]                 = "tmpfs",
         [MOUNT_RUN]                   = "run",
+        [MOUNT_PRIVATE_TMPFS]         = "private-tmpfs",
         [MOUNT_EXTENSION_DIRECTORY]   = "extension-directory",
         [MOUNT_EXTENSION_IMAGE]       = "extension-image",
         [MOUNT_MQUEUEFS]              = "mqueuefs",
@@ -269,7 +299,7 @@ static const struct {
 
 DEFINE_PRIVATE_STRING_TABLE_LOOKUP_TO_STRING(mount_mode, MountMode);
 
-static const char *mount_entry_path(const MountEntry *p) {
+static const char* mount_entry_path(const MountEntry *p) {
         assert(p);
 
         /* Returns the path of this bind mount. If the malloc()-allocated ->path_buffer field is set we return that,
@@ -278,7 +308,7 @@ static const char *mount_entry_path(const MountEntry *p) {
         return p->path_malloc ?: p->path_const;
 }
 
-static const char *mount_entry_unprefixed_path(const MountEntry *p) {
+static const char* mount_entry_unprefixed_path(const MountEntry *p) {
         assert(p);
 
         /* Returns the unprefixed path (ie: before prefix_where_needed() ran), if any */
@@ -304,7 +334,7 @@ static void mount_entry_consume_prefix(MountEntry *p, char *new_path) {
 static bool mount_entry_read_only(const MountEntry *p) {
         assert(p);
 
-        return p->read_only || IN_SET(p->mode, MOUNT_READ_ONLY, MOUNT_INACCESSIBLE, MOUNT_PRIVATE_TMP_READ_ONLY);
+        return p->read_only || IN_SET(p->mode, MOUNT_READ_ONLY, MOUNT_INACCESSIBLE);
 }
 
 static bool mount_entry_noexec(const MountEntry *p) {
@@ -319,13 +349,13 @@ static bool mount_entry_exec(const MountEntry *p) {
         return p->exec || p->mode == MOUNT_EXEC;
 }
 
-static const char *mount_entry_source(const MountEntry *p) {
+static const char* mount_entry_source(const MountEntry *p) {
         assert(p);
 
         return p->source_malloc ?: p->source_const;
 }
 
-static const char *mount_entry_options(const MountEntry *p) {
+static const char* mount_entry_options(const MountEntry *p) {
         assert(p);
 
         return p->options_malloc ?: p->options_const;
@@ -339,6 +369,7 @@ static void mount_entry_done(MountEntry *p) {
         p->source_malloc = mfree(p->source_malloc);
         p->options_malloc = mfree(p->options_malloc);
         p->overlay_layers = strv_free(p->overlay_layers);
+        verity_settings_done(&p->verity);
 }
 
 static void mount_list_done(MountList *ml) {
@@ -351,7 +382,7 @@ static void mount_list_done(MountList *ml) {
         ml->n_mounts = 0;
 }
 
-static MountEntry *mount_list_extend(MountList *ml) {
+static MountEntry* mount_list_extend(MountList *ml) {
         assert(ml);
 
         if (!GREEDY_REALLOC0(ml->mounts, ml->n_mounts+1))
@@ -435,8 +466,13 @@ static int append_bind_mounts(MountList *ml, const BindMount *binds, size_t n) {
                         .mode = b->recursive ? MOUNT_BIND_RECURSIVE : MOUNT_BIND,
                         .read_only = b->read_only,
                         .nosuid = b->nosuid,
+                        .noexec = b->noexec,
+                        .flags = b->nodev ? MS_NODEV : 0,
                         .source_const = b->source,
                         .ignore = b->ignore_enoent,
+                        .idmapped = b->idmapped,
+                        .idmap_uid = b->uid,
+                        .idmap_gid = b->gid,
                 };
         }
 
@@ -467,10 +503,10 @@ static int append_mount_images(MountList *ml, const MountImage *mount_images, si
 static int append_extensions(
                 MountList *ml,
                 const char *root,
-                const char *extension_dir,
+                const char *private_namespace_dir,
                 char **hierarchies,
                 const MountImage *mount_images,
-                size_t n,
+                size_t n_mount_images,
                 char **extension_directories) {
 
         char ***overlays = NULL;
@@ -479,10 +515,10 @@ static int append_extensions(
 
         assert(ml);
 
-        if (n == 0 && strv_isempty(extension_directories))
+        if (n_mount_images == 0 && strv_isempty(extension_directories))
                 return 0;
 
-        assert(extension_dir);
+        assert(private_namespace_dir);
 
         n_overlays = strv_length(hierarchies);
         if (n_overlays == 0)
@@ -500,7 +536,8 @@ static int append_extensions(
 
         /* First, prepare a mount for each image, but these won't be visible to the unit, instead
          * they will be mounted in our propagate directory, and used as a source for the overlay. */
-        for (size_t i = 0; i < n; i++) {
+        for (size_t i = 0; i < n_mount_images; i++) {
+                _cleanup_(verity_settings_done) VeritySettings verity = VERITY_SETTINGS_DEFAULT;
                 _cleanup_(pick_result_done) PickResult result = PICK_RESULT_NULL;
                 _cleanup_free_ char *mount_point = NULL;
                 const MountImage *m = mount_images + i;
@@ -511,15 +548,25 @@ static int append_extensions(
                               &pick_filter_image_raw,
                               PICK_ARCHITECTURE|PICK_TRIES,
                               &result);
+                if (r == -ENOENT && m->ignore_enoent)
+                        continue;
                 if (r < 0)
                         return r;
-                if (!result.path)
+                if (!result.path) {
+                        if (m->ignore_enoent)
+                                continue;
+
                         return log_debug_errno(
                                         SYNTHETIC_ERRNO(ENOENT),
                                         "No matching entry in .v/ directory %s found.",
                                         m->source);
+                }
 
-                if (asprintf(&mount_point, "%s/%zu", extension_dir, i) < 0)
+                r = verity_settings_load(&verity, result.path, /* root_hash_path= */ NULL, /* root_hash_sig_path= */ NULL);
+                if (r < 0)
+                        return log_debug_errno(r, "Failed to check verity root hash of %s: %m", result.path);
+
+                if (asprintf(&mount_point, "%s/unit-extensions/%zu", private_namespace_dir, i) < 0)
                         return -ENOMEM;
 
                 for (size_t j = 0; hierarchies && hierarchies[j]; ++j) {
@@ -543,6 +590,7 @@ static int append_extensions(
                         .source_malloc = TAKE_PTR(result.path),
                         .mode = MOUNT_EXTENSION_IMAGE,
                         .has_prefix = true,
+                        .verity = TAKE_GENERIC(verity, VeritySettings, VERITY_SETTINGS_DEFAULT),
                 };
         }
 
@@ -554,10 +602,6 @@ static int append_extensions(
                 _cleanup_free_ char *mount_point = NULL;
                 const char *e = *extension_directory;
                 bool ignore_enoent = false;
-
-                /* Pick up the counter where the ExtensionImages left it. */
-                if (asprintf(&mount_point, "%s/%zu", extension_dir, n++) < 0)
-                        return -ENOMEM;
 
                 /* Look for any prefixes */
                 if (startswith(e, "-")) {
@@ -574,13 +618,23 @@ static int append_extensions(
                               &pick_filter_image_dir,
                               PICK_ARCHITECTURE|PICK_TRIES,
                               &result);
+                if (r == -ENOENT && ignore_enoent)
+                        continue;
                 if (r < 0)
                         return r;
-                if (!result.path)
+                if (!result.path) {
+                        if (ignore_enoent)
+                                continue;
+
                         return log_debug_errno(
                                         SYNTHETIC_ERRNO(ENOENT),
                                         "No matching entry in .v/ directory %s found.",
                                         e);
+                }
+
+                /* Pick up the counter where the ExtensionImages left it. */
+                if (asprintf(&mount_point, "%s/unit-extensions/%zu", private_namespace_dir, n_mount_images++) < 0)
+                        return -ENOMEM;
 
                 for (size_t j = 0; hierarchies && hierarchies[j]; ++j) {
                         char *prefixed_hierarchy = path_join(mount_point, hierarchies[j]);
@@ -682,14 +736,41 @@ static int append_static_mounts(MountList *ml, const MountEntry *mounts, size_t 
                 if (!me)
                         return log_oom_debug();
 
-                *me = (MountEntry) {
-                        .path_const = mount_entry_path(m),
-                        .mode = m->mode,
-                        .ignore = m->ignore || ignore_protect,
-                };
+                /* No dynamic values allowed. */
+                assert(m->path_const);
+                assert(!m->path_malloc);
+                assert(!m->unprefixed_path_malloc);
+                assert(!m->source_malloc);
+                assert(!m->options_malloc);
+                assert(!m->overlay_layers);
+
+                *me = *m;
+                me->ignore = me->ignore || ignore_protect;
         }
 
         return 0;
+}
+
+static int append_protect_control_groups(MountList *ml, ProtectControlGroups protect_control_groups, bool ignore_protect) {
+        assert(ml);
+
+        switch (protect_control_groups) {
+
+        case PROTECT_CONTROL_GROUPS_NO:
+                return 0;
+
+        case PROTECT_CONTROL_GROUPS_YES:
+                return append_static_mounts(ml, protect_control_groups_yes_table, ELEMENTSOF(protect_control_groups_yes_table), ignore_protect);
+
+        case PROTECT_CONTROL_GROUPS_PRIVATE:
+                return append_static_mounts(ml, protect_control_groups_private_table, ELEMENTSOF(protect_control_groups_private_table), ignore_protect);
+
+        case PROTECT_CONTROL_GROUPS_STRICT:
+                return append_static_mounts(ml, protect_control_groups_strict_table, ELEMENTSOF(protect_control_groups_strict_table), ignore_protect);
+
+        default:
+                assert_not_reached();
+        }
 }
 
 static int append_protect_home(MountList *ml, ProtectHome protect_home, bool ignore_protect) {
@@ -748,6 +829,11 @@ static int mount_path_compare(const MountEntry *a, const MountEntry *b) {
         if (d != 0)
                 return d;
 
+        /* MOUNT_PRIVATE_TMPFS needs to be set up earlier, especially than MOUNT_BIND. */
+        d = -CMP(a->mode == MOUNT_PRIVATE_TMPFS, b->mode == MOUNT_PRIVATE_TMPFS);
+        if (d != 0)
+                return d;
+
         /* If the paths are not equal, then order prefixes first */
         d = path_compare(mount_entry_path(a), mount_entry_path(b));
         if (d != 0)
@@ -778,6 +864,36 @@ static int prefix_where_needed(MountList *ml, const char *root_directory) {
         return 0;
 }
 
+static bool verity_has_later_duplicates(MountList *ml, const MountEntry *needle) {
+
+        assert(ml);
+        assert(needle);
+        assert(needle >= ml->mounts && needle < ml->mounts + ml->n_mounts);
+        assert(needle->mode == MOUNT_EXTENSION_IMAGE);
+
+        if (needle->verity.root_hash_size == 0)
+                return false;
+
+        /* Overlayfs rejects supplying the same directory inode twice as determined by filesystem UUID and
+         * file handle in lowerdir=, even if they are mounted on different paths, as it resolves each mount
+         * to its source filesystem, so drop duplicates, and keep the last one. This only covers non-DDI
+         * verity images. Note that the list is ordered, so we only check for the reminder of the list for
+         * each item, rather than the full list from the beginning, as any earlier duplicates will have
+         * already been pruned. */
+
+        for (const MountEntry *m = needle + 1; m < ml->mounts + ml->n_mounts; m++) {
+                if (m->mode != MOUNT_EXTENSION_IMAGE)
+                        continue;
+                if (memcmp_nn(m->verity.root_hash,
+                              m->verity.root_hash_size,
+                              needle->verity.root_hash,
+                              needle->verity.root_hash_size) == 0)
+                        return true;
+        }
+
+        return false;
+}
+
 static void drop_duplicates(MountList *ml) {
         MountEntry *f, *t, *previous;
 
@@ -797,6 +913,12 @@ static void drop_duplicates(MountList *ml) {
                         previous->read_only = previous->read_only || mount_entry_read_only(f);
                         previous->noexec = previous->noexec || mount_entry_noexec(f);
                         previous->exec = previous->exec || mount_entry_exec(f);
+                        mount_entry_done(f);
+                        continue;
+                }
+
+                if (f->mode == MOUNT_EXTENSION_IMAGE && verity_has_later_duplicates(ml, f)) {
+                        log_debug("Skipping duplicate extension image %s", mount_entry_source(f));
                         mount_entry_done(f);
                         continue;
                 }
@@ -888,8 +1010,12 @@ static void drop_outside_root(MountList *ml, const char *root_directory) {
 
         for (f = ml->mounts, t = ml->mounts; f < ml->mounts + ml->n_mounts; f++) {
 
-                /* ExtensionImages/Directories bases are opened in /run/systemd/unit-extensions on the host */
-                if (!IN_SET(f->mode, MOUNT_EXTENSION_IMAGE, MOUNT_EXTENSION_DIRECTORY) && !path_startswith(mount_entry_path(f), root_directory)) {
+                /* ExtensionImages/Directories bases are opened in /run/[user/xyz/]systemd/unit-extensions
+                 * on the host, and a private (invisible to the guest) tmpfs instance is mounted on
+                 * /run/[user/xyz/]systemd/unit-private-tmp as the storage backend of private /tmp and
+                 * /var/tmp. */
+                if (!IN_SET(f->mode, MOUNT_EXTENSION_IMAGE, MOUNT_EXTENSION_DIRECTORY, MOUNT_PRIVATE_TMPFS) &&
+                    !path_startswith(mount_entry_path(f), root_directory)) {
                         log_debug("%s is outside of root directory.", mount_entry_path(f));
                         mount_entry_done(f);
                         continue;
@@ -1021,7 +1147,7 @@ static int create_temporary_mount_point(RuntimeScope scope, char **ret) {
         return 0;
 }
 
-static int mount_private_dev(MountEntry *m, RuntimeScope scope) {
+static int mount_private_dev(const MountEntry *m, const NamespaceParameters *p) {
         static const char devnodes[] =
                 "/dev/null\0"
                 "/dev/zero\0"
@@ -1036,8 +1162,9 @@ static int mount_private_dev(MountEntry *m, RuntimeScope scope) {
         int r;
 
         assert(m);
+        assert(p);
 
-        r = create_temporary_mount_point(scope, &temporary_mount);
+        r = create_temporary_mount_point(p->runtime_scope, &temporary_mount);
         if (r < 0)
                 return r;
 
@@ -1082,9 +1209,15 @@ static int mount_private_dev(MountEntry *m, RuntimeScope scope) {
         FOREACH_STRING(d, "/dev/mqueue", "/dev/hugepages")
                 (void) bind_mount_device_dir(temporary_mount, d);
 
-        const char *devlog = strjoina(temporary_mount, "/dev/log");
-        if (symlink("/run/systemd/journal/dev-log", devlog) < 0)
-                log_debug_errno(errno, "Failed to create symlink '%s' to /run/systemd/journal/dev-log, ignoring: %m", devlog);
+        /* We assume /run/systemd/journal/ is available if not changing root, which isn't entirely accurate
+         * but shouldn't matter, as either way the user would get ENOENT when accessing /dev/log */
+        if ((!p->root_image && !p->root_directory) || p->bind_log_sockets) {
+                const char *devlog = strjoina(temporary_mount, "/dev/log");
+                if (symlink("/run/systemd/journal/dev-log", devlog) < 0)
+                        log_debug_errno(errno,
+                                        "Failed to create symlink '%s' to /run/systemd/journal/dev-log, ignoring: %m",
+                                        devlog);
+        }
 
         NULSTR_FOREACH(d, devnodes) {
                 r = clone_device_node(d, temporary_mount, &can_mknod);
@@ -1182,10 +1315,14 @@ static int mount_private_apivfs(
 
         r = mount_nofollow_verbose(LOG_DEBUG, fstype, temporary_mount, fstype, MS_NOSUID|MS_NOEXEC|MS_NODEV, opts);
         if (r == -EINVAL && opts)
-                /* If this failed with EINVAL then this likely means the textual hidepid= stuff for procfs is
-                 * not supported by the kernel, and thus the per-instance hidepid= neither, which means we
-                 * really don't want to use it, since it would affect our host's /proc mount. Hence let's
-                 * gracefully fallback to a classic, unrestricted version. */
+                /* If this failed with EINVAL then this likely means either:
+                 * 1. the textual hidepid= stuff for procfs is not supported by the kernel, and thus the
+                 *    per-instance hidepid= neither, which means we really don't want to use it, since it
+                 *    would affect our host's /proc mount.
+                 * 2. nsdelegate for cgroup2 is not supported by the kernel even though CLONE_NEWCGROUP
+                 *    is supported.
+                 *
+                 * Hence let's gracefully fallback to a classic, unrestricted version. */
                 r = mount_nofollow_verbose(LOG_DEBUG, fstype, temporary_mount, fstype, MS_NOSUID|MS_NOEXEC|MS_NODEV, /* opts = */ NULL);
         if (ERRNO_IS_NEG_PRIVILEGE(r)) {
                 /* When we do not have enough privileges to mount a new instance, fall back to use an
@@ -1229,6 +1366,39 @@ static int mount_private_sysfs(const MountEntry *m, const NamespaceParameters *p
         assert(m);
         assert(p);
         return mount_private_apivfs("sysfs", mount_entry_path(m), "/sys", /* opts = */ NULL, p->runtime_scope);
+}
+
+static bool check_recursiveprot_supported(void) {
+        int r;
+
+        /* memory_recursiveprot is only supported for kernels >= 5.7. Note mount_option_supported uses fsopen()
+         * and fsconfig() which are supported for kernels >= 5.2. So if mount_option_supported() returns an
+         * error, we can assume memory_recursiveprot is not supported. */
+        r = mount_option_supported("cgroup2", "memory_recursiveprot", NULL);
+        if (r < 0)
+                log_debug_errno(r, "Failed to determine whether the 'memory_recursiveprot' mount option is supported, assuming not: %m");
+        else if (r == 0)
+                log_debug("This kernel version does not support 'memory_recursiveprot', not using mount option.");
+
+        return r > 0;
+}
+
+static int mount_private_cgroup2fs(const MountEntry *m, const NamespaceParameters *p) {
+        _cleanup_free_ char *opts = NULL;
+
+        assert(m);
+        assert(p);
+
+        if (check_recursiveprot_supported()) {
+                opts = strdup(strempty(mount_entry_options(m)));
+                if (!opts)
+                        return -ENOMEM;
+
+                if (!strextend_with_separator(&opts, ",", "memory_recursiveprot"))
+                        return -ENOMEM;
+        }
+
+        return mount_private_apivfs("cgroup2", mount_entry_path(m), "/sys/fs/cgroup", opts ?: mount_entry_options(m), p->runtime_scope);
 }
 
 static int mount_procfs(const MountEntry *m, const NamespaceParameters *p) {
@@ -1334,7 +1504,7 @@ static int mount_mqueuefs(const MountEntry *m) {
 }
 
 static int mount_image(
-                const MountEntry *m,
+                MountEntry *m,
                 const char *root_directory,
                 const ImagePolicy *image_policy) {
 
@@ -1374,6 +1544,7 @@ static int mount_image(
                         host_os_release_sysext_level,
                         host_os_release_confext_level,
                         /* required_sysext_scope= */ NULL,
+                        &m->verity,
                         /* ret_image= */ NULL);
         if (r == -ENOENT && m->ignore)
                 return 0;
@@ -1624,6 +1795,14 @@ static int apply_one_mount(
                  * that bind mount source paths are always relative to the host root, hence we pass NULL as
                  * root directory to chase() here. */
 
+                /* When we create implicit mounts, we might need to create the path ourselves as it is on a
+                 * just-created tmpfs, for example. */
+                if (m->create_source_dir) {
+                        r = mkdir_p(mount_entry_source(m), m->source_dir_mode);
+                        if (r < 0)
+                                return log_debug_errno(r, "Failed to create source directory %s: %m", mount_entry_source(m));
+                }
+
                 r = chase(mount_entry_source(m), NULL, CHASE_TRAIL_SLASH, &chased, NULL);
                 if (r == -ENOENT && m->ignore) {
                         log_debug_errno(r, "Path %s does not exist, ignoring.", mount_entry_source(m));
@@ -1643,17 +1822,17 @@ static int apply_one_mount(
         }
 
         case MOUNT_EMPTY_DIR:
+        case MOUNT_PRIVATE_TMPFS:
         case MOUNT_TMPFS:
                 return mount_tmpfs(m);
 
         case MOUNT_PRIVATE_TMP:
-        case MOUNT_PRIVATE_TMP_READ_ONLY:
                 what = mount_entry_source(m);
                 make = true;
                 break;
 
         case MOUNT_PRIVATE_DEV:
-                return mount_private_dev(m, p->runtime_scope);
+                return mount_private_dev(m, p);
 
         case MOUNT_BIND_DEV:
                 return mount_bind_dev(m);
@@ -1666,6 +1845,9 @@ static int apply_one_mount(
 
         case MOUNT_PROCFS:
                 return mount_procfs(m, p);
+
+        case MOUNT_PRIVATE_CGROUP2FS:
+                return mount_private_cgroup2fs(m, p);
 
         case MOUNT_RUN:
                 return mount_run(m);
@@ -1716,6 +1898,45 @@ static int apply_one_mount(
         }
 
         log_debug("Successfully mounted %s to %s", what, mount_entry_path(m));
+
+        /* Take care of id-mapped mounts */
+        if (m->idmapped && uid_is_valid(m->idmap_uid) && gid_is_valid(m->idmap_gid)) {
+                _cleanup_close_ int userns_fd = -EBADF;
+                _cleanup_free_ char *uid_map = NULL, *gid_map = NULL;
+
+                log_debug("Setting an id-mapped mount on %s", mount_entry_path(m));
+
+                /* Do mapping from nobody (in setup_exec_directory()) -> this uid */
+                if (strextendf(&uid_map, UID_FMT " " UID_FMT " " UID_FMT "\n", UID_NOBODY, (uid_t)m->idmap_uid, (uid_t)1u) < 0)
+                        return log_oom();
+
+                /* Consider StateDirectory=xxx aaa xxx:aaa/222
+                 * To allow for later symlink creation (by root) in create_symlinks_from_tuples(), map root as well. */
+                if (m->idmap_uid != (uid_t)0) {
+                        if (strextendf(&uid_map, UID_FMT " " UID_FMT " " UID_FMT "\n", (uid_t)0, (uid_t)0, (uid_t)1u) < 0)
+                                return log_oom();
+                }
+
+                if (strextendf(&gid_map, GID_FMT " " GID_FMT " " GID_FMT "\n", GID_NOBODY, (gid_t)m->idmap_gid, (gid_t)1u) < 0)
+                        return log_oom();
+
+                if (m->idmap_gid != (gid_t)0) {
+                        if (strextendf(&gid_map, GID_FMT " " GID_FMT " " GID_FMT "\n", (gid_t)0, (gid_t)0, (gid_t)1u) < 0)
+                                return log_oom();
+                }
+
+                userns_fd = userns_acquire(uid_map, gid_map);
+                if (userns_fd < 0)
+                        return log_error_errno(userns_fd, "Failed to allocate user namespace: %m");
+
+                /* Drop SUID, add NOEXEC for the mount to avoid root exploits */
+                r = remount_idmap_fd(STRV_MAKE(mount_entry_path(m)), userns_fd, MOUNT_ATTR_NOSUID | MOUNT_ATTR_NOEXEC | MOUNT_ATTR_NODEV);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to create an id-mapped mount: %m");
+
+                log_debug("ID-mapped mount created successfully for %s from " UID_FMT " to " UID_FMT "", mount_entry_path(m), UID_NOBODY, m->idmap_uid);
+        }
+
         return 1;
 }
 
@@ -1749,7 +1970,7 @@ static int make_read_only(const MountEntry *m, char **deny_list, FILE *proc_self
          * and running Linux <= 4.17. */
         submounts =
                 mount_entry_read_only(m) &&
-                !IN_SET(m->mode, MOUNT_EMPTY_DIR, MOUNT_TMPFS);
+                !IN_SET(m->mode, MOUNT_EMPTY_DIR, MOUNT_TMPFS, MOUNT_PRIVATE_TMPFS);
         if (submounts)
                 r = bind_remount_recursive_with_mountinfo(mount_entry_path(m), new_flags, flags_mask, deny_list, proc_self_mountinfo);
         else
@@ -1789,7 +2010,7 @@ static int make_noexec(const MountEntry *m, char **deny_list, FILE *proc_self_mo
         if (flags_mask == 0) /* No Change? */
                 return 0;
 
-        submounts = !IN_SET(m->mode, MOUNT_EMPTY_DIR, MOUNT_TMPFS);
+        submounts = !IN_SET(m->mode, MOUNT_EMPTY_DIR, MOUNT_TMPFS, MOUNT_PRIVATE_TMPFS);
 
         if (submounts)
                 r = bind_remount_recursive_with_mountinfo(mount_entry_path(m), new_flags, flags_mask, deny_list, proc_self_mountinfo);
@@ -1814,7 +2035,7 @@ static int make_nosuid(const MountEntry *m, FILE *proc_self_mountinfo) {
         if (m->state != MOUNT_APPLIED)
                 return 0;
 
-        submounts = !IN_SET(m->mode, MOUNT_EMPTY_DIR, MOUNT_TMPFS);
+        submounts = !IN_SET(m->mode, MOUNT_EMPTY_DIR, MOUNT_TMPFS, MOUNT_PRIVATE_TMPFS);
         if (submounts)
                 r = bind_remount_recursive_with_mountinfo(mount_entry_path(m), MS_NOSUID, MS_NOSUID, NULL, proc_self_mountinfo);
         else
@@ -1837,10 +2058,11 @@ static bool namespace_parameters_mount_apivfs(const NamespaceParameters *p) {
          */
 
         return p->mount_apivfs ||
-                p->protect_control_groups ||
+                p->protect_control_groups != PROTECT_CONTROL_GROUPS_NO ||
                 p->protect_kernel_tunables ||
                 p->protect_proc != PROTECT_PROC_DEFAULT ||
-                p->proc_subset != PROC_SUBSET_ALL;
+                p->proc_subset != PROC_SUBSET_ALL ||
+                p->private_pids != PRIVATE_PIDS_NO;
 }
 
 /* Walk all mount entries and dropping any unused mounts. This affects all
@@ -1850,7 +2072,7 @@ static bool namespace_parameters_mount_apivfs(const NamespaceParameters *p) {
  * - that are outside of the relevant root directory
  * - which are duplicates
  */
-static void drop_unused_mounts(MountList *ml, const char *root_directory) {
+static void sort_and_drop_unused_mounts(MountList *ml, const char *root_directory) {
         assert(ml);
         assert(root_directory);
 
@@ -1894,7 +2116,7 @@ static int create_symlinks_from_tuples(const char *root, char **strv_symlinks) {
         return 0;
 }
 
-static void mount_entry_path_debug_string(const char *root, MountEntry *m, char **error_path) {
+static void mount_entry_path_debug_string(const char *root, MountEntry *m, char **ret_path) {
         assert(m);
 
         /* Create a string suitable for debugging logs, stripping for example the local working directory.
@@ -1907,23 +2129,23 @@ static void mount_entry_path_debug_string(const char *root, MountEntry *m, char 
          *
          * Note that this is an error path, so no OOM check is done on purpose. */
 
-        if (!error_path)
+        if (!ret_path)
                 return;
 
         if (!mount_entry_path(m)) {
-                *error_path = NULL;
+                *ret_path = NULL;
                 return;
         }
 
         if (root) {
                 const char *e = startswith(mount_entry_path(m), root);
                 if (e) {
-                        *error_path = strdup(e);
+                        *ret_path = strdup(e);
                         return;
                 }
         }
 
-        *error_path = strdup(mount_entry_path(m));
+        *ret_path = strdup(mount_entry_path(m));
         return;
 }
 
@@ -1931,7 +2153,7 @@ static int apply_mounts(
                 MountList *ml,
                 const char *root,
                 const NamespaceParameters *p,
-                char **error_path) {
+                char **reterr_path) {
 
         _cleanup_fclose_ FILE *proc_self_mountinfo = NULL;
         _cleanup_free_ char **deny_list = NULL;
@@ -1950,8 +2172,8 @@ static int apply_mounts(
         if (!proc_self_mountinfo) {
                 r = -errno;
 
-                if (error_path)
-                        *error_path = strdup("/proc/self/mountinfo");
+                if (reterr_path)
+                        *reterr_path = strdup("/proc/self/mountinfo");
 
                 return log_debug_errno(r, "Failed to open /proc/self/mountinfo: %m");
         }
@@ -1965,10 +2187,13 @@ static int apply_mounts(
                         if (m->state != MOUNT_PENDING)
                                 continue;
 
-                        /* ExtensionImages/Directories are first opened in the propagate directory, not in the root_directory */
-                        r = follow_symlink(!IN_SET(m->mode, MOUNT_EXTENSION_IMAGE, MOUNT_EXTENSION_DIRECTORY) ? root : NULL, m);
+                        /* ExtensionImages/Directories are first opened in the propagate directory, not in
+                         * the root_directory. A private (invisible to the guest) tmpfs instance is mounted
+                         * on /run/[user/xyz/]systemd/unit-private-tmp as the storage backend of private
+                         * /tmp and /var/tmp. */
+                        r = follow_symlink(!IN_SET(m->mode, MOUNT_EXTENSION_IMAGE, MOUNT_EXTENSION_DIRECTORY, MOUNT_PRIVATE_TMPFS) ? root : NULL, m);
                         if (r < 0) {
-                                mount_entry_path_debug_string(root, m, error_path);
+                                mount_entry_path_debug_string(root, m, reterr_path);
                                 return r;
                         }
                         if (r == 0) {
@@ -1983,7 +2208,7 @@ static int apply_mounts(
                         /* Returns 1 if the mount should be post-processed, 0 otherwise */
                         r = apply_one_mount(root, m, p);
                         if (r < 0) {
-                                mount_entry_path_debug_string(root, m, error_path);
+                                mount_entry_path_debug_string(root, m, reterr_path);
                                 return r;
                         }
                         m->state = r == 0 ? MOUNT_SKIPPED : MOUNT_APPLIED;
@@ -1992,7 +2217,7 @@ static int apply_mounts(
                 if (!again)
                         break;
 
-                drop_unused_mounts(ml, root);
+                sort_and_drop_unused_mounts(ml, root);
         }
 
         /* Now that all filesystems have been set up, but before the
@@ -2015,7 +2240,7 @@ static int apply_mounts(
         FOREACH_ARRAY(m, ml->mounts, ml->n_mounts) {
                 r = make_read_only(m, deny_list, proc_self_mountinfo);
                 if (r < 0) {
-                        mount_entry_path_debug_string(root, m, error_path);
+                        mount_entry_path_debug_string(root, m, reterr_path);
                         return r;
                 }
         }
@@ -2029,7 +2254,7 @@ static int apply_mounts(
         FOREACH_ARRAY(m, ml->mounts, ml->n_mounts) {
                 r = make_noexec(m, deny_list, proc_self_mountinfo);
                 if (r < 0) {
-                        mount_entry_path_debug_string(root, m, error_path);
+                        mount_entry_path_debug_string(root, m, reterr_path);
                         return r;
                 }
         }
@@ -2039,7 +2264,7 @@ static int apply_mounts(
                 FOREACH_ARRAY(m, ml->mounts, ml->n_mounts) {
                         r = make_nosuid(m, proc_self_mountinfo);
                         if (r < 0) {
-                                mount_entry_path_debug_string(root, m, error_path);
+                                mount_entry_path_debug_string(root, m, reterr_path);
                                 return r;
                         }
                 }
@@ -2096,7 +2321,7 @@ static bool home_read_only(
         return false;
 }
 
-int setup_namespace(const NamespaceParameters *p, char **error_path) {
+int setup_namespace(const NamespaceParameters *p, char **reterr_path) {
 
         _cleanup_(loop_device_unrefp) LoopDevice *loop_device = NULL;
         _cleanup_(dissected_image_unrefp) DissectedImage *dissected_image = NULL;
@@ -2251,39 +2476,86 @@ int setup_namespace(const NamespaceParameters *p, char **error_path) {
         if (r < 0)
                 return r;
 
-        if (p->tmp_dir) {
-                bool ro = streq(p->tmp_dir, RUN_SYSTEMD_EMPTY);
+        /* When DynamicUser=yes enforce that /tmp/ and /var/tmp/ are disconnected from the host's
+         * directories, as they are world writable and ephemeral uid/gid will be used. */
+        if (p->private_tmp == PRIVATE_TMP_DISCONNECTED) {
+                _cleanup_free_ char *tmpfs_dir = NULL, *tmp_dir = NULL, *var_tmp_dir = NULL;
+                MountEntry *tmpfs_entry, *tmp_entry, *var_tmp_entry;
 
-                MountEntry *me = mount_list_extend(&ml);
-                if (!me)
+                tmpfs_dir = path_join(p->private_namespace_dir, "unit-private-tmp");
+                tmp_dir = path_join(tmpfs_dir, "tmp");
+                var_tmp_dir = path_join(tmpfs_dir, "var-tmp");
+                if (!tmpfs_dir || !tmp_dir || !var_tmp_dir)
                         return log_oom_debug();
 
-                *me = (MountEntry) {
+                tmpfs_entry = mount_list_extend(&ml);
+                if (!tmpfs_entry)
+                        return log_oom_debug();
+                *tmpfs_entry = (MountEntry) {
+                        .path_malloc = TAKE_PTR(tmpfs_dir),
+                        .mode = MOUNT_PRIVATE_TMPFS,
+                        .options_const = "mode=0700" NESTED_TMPFS_LIMITS,
+                        .flags = MS_NODEV|MS_STRICTATIME,
+                        .has_prefix = true,
+                };
+
+                tmp_entry = mount_list_extend(&ml);
+                if (!tmp_entry)
+                        return log_oom_debug();
+                *tmp_entry = (MountEntry) {
+                        .source_malloc = TAKE_PTR(tmp_dir),
                         .path_const = "/tmp",
-                        .mode = ro ? MOUNT_PRIVATE_TMP_READ_ONLY : MOUNT_PRIVATE_TMP,
-                        .source_const = p->tmp_dir,
+                        .mode = MOUNT_BIND,
+                        .source_dir_mode = 01777,
+                        .create_source_dir = true,
                 };
-        }
 
-        if (p->var_tmp_dir) {
-                bool ro = streq(p->var_tmp_dir, RUN_SYSTEMD_EMPTY);
-
-                MountEntry *me = mount_list_extend(&ml);
-                if (!me)
+                var_tmp_entry = mount_list_extend(&ml);
+                if (!var_tmp_entry)
                         return log_oom_debug();
-
-                *me = (MountEntry) {
+                *var_tmp_entry = (MountEntry) {
+                        .source_malloc = TAKE_PTR(var_tmp_dir),
                         .path_const = "/var/tmp",
-                        .mode = ro ? MOUNT_PRIVATE_TMP_READ_ONLY : MOUNT_PRIVATE_TMP,
-                        .source_const = p->var_tmp_dir,
+                        .mode = MOUNT_BIND,
+                        .source_dir_mode = 01777,
+                        .create_source_dir = true,
                 };
+
+        } else if (p->tmp_dir || p->var_tmp_dir) {
+                assert(p->private_tmp == PRIVATE_TMP_CONNECTED);
+
+                if (p->tmp_dir) {
+                        MountEntry *me = mount_list_extend(&ml);
+                        if (!me)
+                                return log_oom_debug();
+
+                        *me = (MountEntry) {
+                                .path_const = "/tmp",
+                                .mode = MOUNT_PRIVATE_TMP,
+                                .read_only = streq(p->tmp_dir, RUN_SYSTEMD_EMPTY),
+                                .source_const = p->tmp_dir,
+                        };
+                }
+
+                if (p->var_tmp_dir) {
+                        MountEntry *me = mount_list_extend(&ml);
+                        if (!me)
+                                return log_oom_debug();
+
+                        *me = (MountEntry) {
+                                .path_const = "/var/tmp",
+                                .mode = MOUNT_PRIVATE_TMP,
+                                .read_only = streq(p->var_tmp_dir, RUN_SYSTEMD_EMPTY),
+                                .source_const = p->var_tmp_dir,
+                        };
+                }
         }
 
         r = append_mount_images(&ml, p->mount_images, p->n_mount_images);
         if (r < 0)
                 return r;
 
-        r = append_extensions(&ml, root, p->extension_dir, hierarchies, p->extension_images, p->n_extension_images, p->extension_directories);
+        r = append_extensions(&ml, root, p->private_namespace_dir, hierarchies, p->extension_images, p->n_extension_images, p->extension_directories);
         if (r < 0)
                 return r;
 
@@ -2344,16 +2616,9 @@ int setup_namespace(const NamespaceParameters *p, char **error_path) {
                         return r;
         }
 
-        if (p->protect_control_groups) {
-                MountEntry *me = mount_list_extend(&ml);
-                if (!me)
-                        return log_oom_debug();
-
-                *me = (MountEntry) {
-                        .path_const = "/sys/fs/cgroup",
-                        .mode = MOUNT_READ_ONLY,
-                };
-        }
+        r = append_protect_control_groups(&ml, p->protect_control_groups, false);
+        if (r < 0)
+                return r;
 
         r = append_protect_home(&ml, p->protect_home, p->ignore_protect_paths);
         if (r < 0)
@@ -2466,6 +2731,11 @@ int setup_namespace(const NamespaceParameters *p, char **error_path) {
                         .read_only = true,
                         .source_malloc = TAKE_PTR(q),
                 };
+
+        } else if (p->bind_log_sockets) {
+                r = append_bind_mounts(&ml, bind_log_sockets_table, ELEMENTSOF(bind_log_sockets_table));
+                if (r < 0)
+                        return r;
         }
 
         /* Will be used to add bind mounts at runtime */
@@ -2514,7 +2784,7 @@ int setup_namespace(const NamespaceParameters *p, char **error_path) {
         if (r < 0)
                 return r;
 
-        drop_unused_mounts(&ml, root);
+        sort_and_drop_unused_mounts(&ml, root);
 
         /* All above is just preparation, figuring out what to do. Let's now actually start doing something. */
 
@@ -2536,10 +2806,12 @@ int setup_namespace(const NamespaceParameters *p, char **error_path) {
         if (setup_propagate)
                 (void) mkdir_p(p->propagate_dir, 0600);
 
-        if (p->n_extension_images > 0 || !strv_isempty(p->extension_directories))
+        if (p->n_extension_images > 0 || !strv_isempty(p->extension_directories)) {
                 /* ExtensionImages/Directories mountpoint directories will be created while parsing the
                  * mounts to create, so have the parent ready */
-                (void) mkdir_p(p->extension_dir, 0600);
+                char *extension_dir = strjoina(p->private_namespace_dir, "/unit-extensions");
+                (void) mkdir_p(extension_dir, 0600);
+        }
 
         /* Remount / as SLAVE so that nothing now mounted in the namespace
          * shows up in the parent */
@@ -2594,7 +2866,7 @@ int setup_namespace(const NamespaceParameters *p, char **error_path) {
                 (void) base_filesystem_create(root, UID_INVALID, GID_INVALID);
 
         /* Now make the magic happen */
-        r = apply_mounts(&ml, root, p, error_path);
+        r = apply_mounts(&ml, root, p, reterr_path);
         if (r < 0)
                 return r;
 
@@ -2640,7 +2912,6 @@ void bind_mount_free_many(BindMount *b, size_t n) {
 
 int bind_mount_add(BindMount **b, size_t *n, const BindMount *item) {
         _cleanup_free_ char *s = NULL, *d = NULL;
-        BindMount *c;
 
         assert(b);
         assert(n);
@@ -2654,17 +2925,16 @@ int bind_mount_add(BindMount **b, size_t *n, const BindMount *item) {
         if (!d)
                 return -ENOMEM;
 
-        c = reallocarray(*b, *n + 1, sizeof(BindMount));
-        if (!c)
+        if (!GREEDY_REALLOC(*b, *n + 1))
                 return -ENOMEM;
 
-        *b = c;
-
-        c[(*n)++] = (BindMount) {
+        (*b)[(*n)++] = (BindMount) {
                 .source = TAKE_PTR(s),
                 .destination = TAKE_PTR(d),
                 .read_only = item->read_only,
+                .nodev = item->nodev,
                 .nosuid = item->nosuid,
+                .noexec = item->noexec,
                 .recursive = item->recursive,
                 .ignore_enoent = item->ignore_enoent,
         };
@@ -2690,7 +2960,6 @@ MountImage* mount_image_free_many(MountImage *m, size_t *n) {
 int mount_image_add(MountImage **m, size_t *n, const MountImage *item) {
         _cleanup_free_ char *s = NULL, *d = NULL;
         _cleanup_(mount_options_free_allp) MountOptions *options = NULL;
-        MountImage *c;
 
         assert(m);
         assert(n);
@@ -2723,13 +2992,10 @@ int mount_image_add(MountImage **m, size_t *n, const MountImage *item) {
                 LIST_APPEND(mount_options, options, TAKE_PTR(o));
         }
 
-        c = reallocarray(*m, *n + 1, sizeof(MountImage));
-        if (!c)
+        if (!GREEDY_REALLOC(*m, *n + 1))
                 return -ENOMEM;
 
-        *m = c;
-
-        c[(*n)++] = (MountImage) {
+        (*m)[(*n)++] = (MountImage) {
                 .source = TAKE_PTR(s),
                 .destination = TAKE_PTR(d),
                 .mount_options = TAKE_PTR(options),
@@ -2758,7 +3024,6 @@ int temporary_filesystem_add(
                 const char *options) {
 
         _cleanup_free_ char *p = NULL, *o = NULL;
-        TemporaryFileSystem *c;
 
         assert(t);
         assert(n);
@@ -2774,13 +3039,10 @@ int temporary_filesystem_add(
                         return -ENOMEM;
         }
 
-        c = reallocarray(*t, *n + 1, sizeof(TemporaryFileSystem));
-        if (!c)
+        if (!GREEDY_REALLOC(*t, *n + 1))
                 return -ENOMEM;
 
-        *t = c;
-
-        c[(*n)++] = (TemporaryFileSystem) {
+        (*t)[(*n)++] = (TemporaryFileSystem) {
                 .path = TAKE_PTR(p),
                 .options = TAKE_PTR(o),
         };
@@ -2811,7 +3073,7 @@ static int make_tmp_prefix(const char *prefix) {
 
         /* umask will corrupt this access mode, but that doesn't matter, we need to call chmod() anyway for
          * the suid bit, below. */
-        fd = open_mkdir_at(AT_FDCWD, t, O_EXCL|O_CLOEXEC, 0777);
+        fd = open_mkdir(t, O_EXCL|O_CLOEXEC, 0777);
         if (fd < 0)
                 return fd;
 
@@ -3052,6 +3314,15 @@ static const char *const protect_system_table[_PROTECT_SYSTEM_MAX] = {
 
 DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(protect_system, ProtectSystem, PROTECT_SYSTEM_YES);
 
+static const char *const protect_control_groups_table[_PROTECT_CONTROL_GROUPS_MAX] = {
+        [PROTECT_CONTROL_GROUPS_NO]      = "no",
+        [PROTECT_CONTROL_GROUPS_YES]     = "yes",
+        [PROTECT_CONTROL_GROUPS_PRIVATE] = "private",
+        [PROTECT_CONTROL_GROUPS_STRICT]  = "strict",
+};
+
+DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(protect_control_groups, ProtectControlGroups, PROTECT_CONTROL_GROUPS_YES);
+
 static const char* const namespace_type_table[] = {
         [NAMESPACE_MOUNT]  = "mnt",
         [NAMESPACE_CGROUP] = "cgroup",
@@ -3080,3 +3351,26 @@ static const char* const proc_subset_table[_PROC_SUBSET_MAX] = {
 };
 
 DEFINE_STRING_TABLE_LOOKUP(proc_subset, ProcSubset);
+
+static const char* const private_tmp_table[_PRIVATE_TMP_MAX] = {
+        [PRIVATE_TMP_NO]           = "no",
+        [PRIVATE_TMP_CONNECTED]    = "connected",
+        [PRIVATE_TMP_DISCONNECTED] = "disconnected",
+};
+
+DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(private_tmp, PrivateTmp, PRIVATE_TMP_CONNECTED);
+
+static const char* const private_users_table[_PRIVATE_USERS_MAX] = {
+        [PRIVATE_USERS_NO]       = "no",
+        [PRIVATE_USERS_SELF]     = "self",
+        [PRIVATE_USERS_IDENTITY] = "identity",
+};
+
+DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(private_users, PrivateUsers, PRIVATE_USERS_SELF);
+
+static const char* const private_pids_table[_PRIVATE_PIDS_MAX] = {
+        [PRIVATE_PIDS_NO]  = "no",
+        [PRIVATE_PIDS_YES] = "yes",
+};
+
+DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(private_pids, PrivatePIDs, PRIVATE_PIDS_YES);

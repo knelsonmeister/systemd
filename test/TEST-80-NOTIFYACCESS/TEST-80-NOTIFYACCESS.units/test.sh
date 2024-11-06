@@ -39,7 +39,7 @@ sync_in b
     sync_in d
 
     # Move main process back to toplevel
-    systemd-notify --pid=parent "MAINPID=$$"
+    systemd-notify "MAINPID=$$"
 
     # Should be dropped again
     systemd-notify --status="BOGUS2" --pid=parent
@@ -54,10 +54,21 @@ sync_in b
 
 echo "toplevel again: $BASHPID"
 
-systemd-notify --ready --status="OK"
+systemd-notify --ready
+systemd-notify "ERRNO=1" "BUSERROR=org.freedesktop.DBus.Error.InvalidArgs" "VARLINKERROR=org.varlink.service.InvalidParameter"
+
+sync_out e
+sync_in f
+
+systemd-notify "ERRNO=bogus" "BUSERROR=草wwww" "VARLINKERROR=systemköttel"
+
+sync_out g
+sync_in h
+
+systemd-notify --status="OK"
 systemd-notify "NOTIFYACCESS=none"
 systemd-notify --status="BOGUS3"
 
-sync_out e
+sync_out i
 
 exec sleep infinity

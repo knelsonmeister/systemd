@@ -62,7 +62,9 @@ static int run(int argc, char *argv[]) {
                                     (1ULL << CAP_NET_ADMIN) |
                                     (1ULL << CAP_NET_BIND_SERVICE) |
                                     (1ULL << CAP_NET_BROADCAST) |
-                                    (1ULL << CAP_NET_RAW));
+                                    (1ULL << CAP_NET_RAW) |
+                                    (1ULL << CAP_SYS_ADMIN) |
+                                    (1ULL << CAP_BPF));
                 if (r < 0)
                         return log_error_errno(r, "Failed to drop privileges: %m");
         }
@@ -101,8 +103,6 @@ static int run(int argc, char *argv[]) {
         r = manager_start(m);
         if (r < 0)
                 return log_error_errno(r, "Could not start manager: %m");
-
-        log_info("Enumeration completed");
 
         notify_message = notify_start(NOTIFY_READY, NOTIFY_STOPPING);
 

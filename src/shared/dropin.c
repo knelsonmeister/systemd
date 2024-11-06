@@ -12,7 +12,7 @@
 #include "dropin.h"
 #include "escape.h"
 #include "fd-util.h"
-#include "fileio-label.h"
+#include "fileio.h"
 #include "hashmap.h"
 #include "log.h"
 #include "macro.h"
@@ -23,41 +23,59 @@
 #include "strv.h"
 #include "unit-name.h"
 
-int drop_in_file(const char *dir, const char *unit, unsigned level,
-                 const char *name, char **ret_p, char **ret_q) {
+int drop_in_file(
+                const char *dir,
+                const char *unit,
+                unsigned level,
+                const char *name,
+                char **ret_unit_dir,
+                char **ret_path) {
 
-        char prefix[DECIMAL_STR_MAX(unsigned) + 1] = {};
-        _cleanup_free_ char *b = NULL, *p = NULL, *q = NULL;
+        _cleanup_free_ char *n = NULL, *unit_dir = NULL;
 
+        assert(dir);
         assert(unit);
         assert(name);
-        assert(ret_p);
-        assert(ret_q);
 
-        if (level != UINT_MAX)
-                xsprintf(prefix, "%u-", level);
-
-        b = xescape(name, "/.");
-        if (!b)
+        n = xescape(name, "/.");
+        if (!n)
                 return -ENOMEM;
-
-        if (!filename_is_valid(b))
+        if (!filename_is_valid(n))
                 return -EINVAL;
 
-        p = strjoin(dir, "/", unit, ".d");
-        q = strjoin(p, "/", prefix, b, ".conf");
-        if (!p || !q)
-                return -ENOMEM;
+        if (ret_unit_dir || ret_path) {
+                unit_dir = path_join(dir, strjoina(unit, ".d"));
+                if (!unit_dir)
+                        return -ENOMEM;
+        }
 
-        *ret_p = TAKE_PTR(p);
-        *ret_q = TAKE_PTR(q);
+        if (ret_path) {
+                char prefix[DECIMAL_STR_MAX(unsigned) + 1] = {};
+
+                if (level != UINT_MAX)
+                        xsprintf(prefix, "%u-", level);
+
+                _cleanup_free_ char *path = strjoin(unit_dir, "/", prefix, n, ".conf");
+                if (!path)
+                        return -ENOMEM;
+
+                *ret_path = TAKE_PTR(path);
+        }
+
+        if (ret_unit_dir)
+                *ret_unit_dir = TAKE_PTR(unit_dir);
+
         return 0;
 }
 
-int write_drop_in(const char *dir, const char *unit, unsigned level,
-                  const char *name, const char *data) {
+int write_drop_in(
+                const char *dir,
+                const char *unit,
+                unsigned level,
+                const char *name,
+                const char *data) {
 
-        _cleanup_free_ char *p = NULL, *q = NULL;
+        _cleanup_free_ char *p = NULL;
         int r;
 
         assert(dir);
@@ -65,17 +83,21 @@ int write_drop_in(const char *dir, const char *unit, unsigned level,
         assert(name);
         assert(data);
 
-        r = drop_in_file(dir, unit, level, name, &p, &q);
+        r = drop_in_file(dir, unit, level, name, /* ret_unit_dir= */ NULL, &p);
         if (r < 0)
                 return r;
 
-        (void) mkdir_p(p, 0755);
-        return write_string_file_atomic_label(q, data);
+        return write_string_file(p, data, WRITE_STRING_FILE_CREATE|WRITE_STRING_FILE_ATOMIC|WRITE_STRING_FILE_MKDIR_0755|WRITE_STRING_FILE_LABEL);
 }
 
-int write_drop_in_format(const char *dir, const char *unit, unsigned level,
-                         const char *name, const char *format, ...) {
-        _cleanup_free_ char *p = NULL;
+int write_drop_in_format(
+                const char *dir,
+                const char *unit,
+                unsigned level,
+                const char *name,
+                const char *format, ...) {
+
+        _cleanup_free_ char *content = NULL;
         va_list ap;
         int r;
 
@@ -85,13 +107,13 @@ int write_drop_in_format(const char *dir, const char *unit, unsigned level,
         assert(format);
 
         va_start(ap, format);
-        r = vasprintf(&p, format, ap);
+        r = vasprintf(&content, format, ap);
         va_end(ap);
 
         if (r < 0)
                 return -ENOMEM;
 
-        return write_drop_in(dir, unit, level, name, p);
+        return write_drop_in(dir, unit, level, name, content);
 }
 
 static int unit_file_add_dir(

@@ -55,12 +55,21 @@ if [[ -z "${COVERAGE_BUILD_DIR:-}" ]]; then
         bash -xec "test ! -w /home; test ! -w /root; test ! -w /run/user; test ! -e $MARK"
     systemd-run --wait --pipe -p ProtectHome=read-only \
         bash -xec "test ! -w /home; test ! -w /root; test ! -w /run/user; test -e $MARK"
-    systemd-run --wait --pipe -p ProtectHome=tmpfs \
-        bash -xec "test -w /home; test -w /root; test -w /run/user; test ! -e $MARK"
+    systemd-run --wait --pipe -p ProtectHome=tmpfs -p TemporaryFileSystem=/home/foo \
+        bash -xec "test ! -w /home; test ! -w /root; test ! -w /run/user; test ! -e $MARK; test -w /home/foo"
     systemd-run --wait --pipe -p ProtectHome=no \
         bash -xec "test -w /home; test -w /root; test -w /run/user; test -e $MARK"
     rm -f "$MARK"
 fi
+
+systemd-run --wait --pipe -p PrivateMounts=true -p MountAPIVFS=yes \
+    bash -xec '[[ "$(findmnt --mountpoint /proc --noheadings -o FSTYPE)" == proc ]];
+               [[ "$$(findmnt --mountpoint /dev --noheadings -o FSTYPE)" =~ (devtmpfs|tmpfs) ]];
+               [[ "$$(findmnt --mountpoint /sys --noheadings -o FSTYPE)" =~ (sysfs|tmpfs) ]];
+               [[ "$$(findmnt --mountpoint /run --noheadings -o FSTYPE)" == tmpfs ]];
+               [[ "$$(findmnt --mountpoint /run --noheadings -o VFS-OPTIONS)" =~ rw ]];
+               [[ "$$(findmnt --mountpoint /run --noheadings -o VFS-OPTIONS)" =~ nosuid ]];
+               [[ "$$(findmnt --mountpoint /run --noheadings -o VFS-OPTIONS)" =~ nodev ]]'
 
 if proc_supports_option "hidepid=off"; then
     systemd-run --wait --pipe -p ProtectProc=noaccess -p User=testuser \
@@ -338,6 +347,19 @@ if [[ ! -v ASAN_OPTIONS ]] && systemctl --version | grep "+BPF_FRAMEWORK" && ker
     (! systemd-run --wait --pipe -p RestrictFileSystems="~proc devtmpfs sysfs" ls /proc)
     (! systemd-run --wait --pipe -p RestrictFileSystems="~proc devtmpfs sysfs" ls /dev)
     (! systemd-run --wait --pipe -p RestrictFileSystems="~proc devtmpfs sysfs" ls /sys)
+fi
+
+if [[ ! -v ASAN_OPTIONS ]]; then
+    # Ensure DynamicUser=yes does not imply PrivateTmp=yes if TemporaryFileSystem=/tmp /var/tmp is set
+    systemd-run --unit test-07-dynamic-user-tmp.service \
+                --service-type=notify \
+                -p DynamicUser=yes \
+                -p NotifyAccess=all \
+                sh -c 'touch /tmp/a && touch /var/tmp/b && ! test -f /tmp/b && ! test -f /var/tmp/a && systemd-notify --ready && sleep infinity'
+    (! ls /tmp/systemd-private-"$(tr -d '-' < /proc/sys/kernel/random/boot_id)"-test-07-dynamic-user-tmp.service-* &>/dev/null)
+    (! ls /var/tmp/systemd-private-"$(tr -d '-' < /proc/sys/kernel/random/boot_id)"-test-07-dynamic-user-tmp.service-* &>/dev/null)
+    systemctl is-active test-07-dynamic-user-tmp.service
+    systemctl stop test-07-dynamic-user-tmp.service
 fi
 
 # Make sure we properly (de)serialize various string arrays, including whitespaces

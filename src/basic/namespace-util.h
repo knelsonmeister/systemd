@@ -3,7 +3,11 @@
 
 #include <sys/types.h>
 
-typedef enum NamespaceType {
+typedef enum NamespaceType NamespaceType;
+
+#include "pidref.h"
+
+enum NamespaceType {
         NAMESPACE_CGROUP,
         NAMESPACE_IPC,
         NAMESPACE_NET,
@@ -14,7 +18,7 @@ typedef enum NamespaceType {
         NAMESPACE_TIME,
         _NAMESPACE_TYPE_MAX,
         _NAMESPACE_TYPE_INVALID = -EINVAL,
-} NamespaceType;
+};
 
 extern const struct namespace_info {
         const char *proc_name;
@@ -22,6 +26,13 @@ extern const struct namespace_info {
         unsigned int clone_flag;
 } namespace_info[_NAMESPACE_TYPE_MAX + 1];
 
+int pidref_namespace_open(
+                const PidRef *pidref,
+                int *ret_pidns_fd,
+                int *ret_mntns_fd,
+                int *ret_netns_fd,
+                int *ret_userns_fd,
+                int *ret_root_fd);
 int namespace_open(
                 pid_t pid,
                 int *ret_pidns_fd,
@@ -64,3 +75,5 @@ int parse_userns_uid_range(const char *s, uid_t *ret_uid_shift, uid_t *ret_uid_r
 int namespace_open_by_type(NamespaceType type);
 
 int is_our_namespace(int fd, NamespaceType type);
+
+int is_idmapping_supported(const char *path);

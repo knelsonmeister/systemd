@@ -35,6 +35,7 @@
 #include "fileio.h"
 #include "fs-util.h"
 #include "hostname-util.h"
+#include "io-util.h"
 #include "locale-util.h"
 #include "log.h"
 #include "macro.h"
@@ -56,6 +57,7 @@
 #include "string-table.h"
 #include "string-util.h"
 #include "terminal-util.h"
+#include "time-util.h"
 #include "user-util.h"
 #include "utf8.h"
 
@@ -731,7 +733,7 @@ int get_process_ppid(pid_t pid, pid_t *ret) {
         return 0;
 }
 
-int pid_get_start_time(pid_t pid, uint64_t *ret) {
+int pid_get_start_time(pid_t pid, usec_t *ret) {
         _cleanup_free_ char *line = NULL;
         const char *p;
         int r;
@@ -751,13 +753,12 @@ int pid_get_start_time(pid_t pid, uint64_t *ret) {
         p = strrchr(line, ')');
         if (!p)
                 return -EIO;
-
         p++;
 
         unsigned long llu;
 
         if (sscanf(p, " "
-                   "%*c "  /* state */
+                   "%*c " /* state */
                    "%*u " /* ppid */
                    "%*u " /* pgrp */
                    "%*u " /* session */
@@ -781,13 +782,13 @@ int pid_get_start_time(pid_t pid, uint64_t *ret) {
                 return -EIO;
 
         if (ret)
-                *ret = llu;
+                *ret = jiffies_to_usec(llu); /* CLOCK_BOOTTIME */
 
         return 0;
 }
 
-int pidref_get_start_time(const PidRef *pid, uint64_t *ret) {
-        uint64_t t;
+int pidref_get_start_time(const PidRef *pid, usec_t *ret) {
+        usec_t t;
         int r;
 
         if (!pidref_is_set(pid))
@@ -1521,11 +1522,12 @@ int safe_fork_full(
                 }
         }
 
-        if ((flags & (FORK_NEW_MOUNTNS|FORK_NEW_USERNS|FORK_NEW_NETNS)) != 0)
+        if ((flags & (FORK_NEW_MOUNTNS|FORK_NEW_USERNS|FORK_NEW_NETNS|FORK_NEW_PIDNS)) != 0)
                 pid = raw_clone(SIGCHLD|
                                 (FLAGS_SET(flags, FORK_NEW_MOUNTNS) ? CLONE_NEWNS : 0) |
                                 (FLAGS_SET(flags, FORK_NEW_USERNS) ? CLONE_NEWUSER : 0) |
-                                (FLAGS_SET(flags, FORK_NEW_NETNS) ? CLONE_NEWNET : 0));
+                                (FLAGS_SET(flags, FORK_NEW_NETNS) ? CLONE_NEWNET : 0) |
+                                (FLAGS_SET(flags, FORK_NEW_PIDNS) ? CLONE_NEWPID : 0));
         else
                 pid = fork();
         if (pid < 0)
@@ -1840,7 +1842,6 @@ int get_oom_score_adjust(int *ret) {
 int pidfd_get_pid(int fd, pid_t *ret) {
         char path[STRLEN("/proc/self/fdinfo/") + DECIMAL_STR_MAX(int)];
         _cleanup_free_ char *fdinfo = NULL;
-        char *p;
         int r;
 
         /* Converts a pidfd into a pid. Well known errors:
@@ -1852,22 +1853,21 @@ int pidfd_get_pid(int fd, pid_t *ret) {
          *    -ESRCH   → fd valid, but process is already reaped
          */
 
-        if (fd < 0)
-                return -EBADF;
+        assert(fd >= 0);
 
         xsprintf(path, "/proc/self/fdinfo/%i", fd);
 
         r = read_full_virtual_file(path, &fdinfo, NULL);
-        if (r == -ENOENT) /* if fdinfo doesn't exist we assume the process does not exist */
-                return proc_mounted() > 0 ? -EBADF : -ENOSYS;
+        if (r == -ENOENT)
+                return proc_fd_enoent_errno();
         if (r < 0)
                 return r;
 
-        p = find_line_startswith(fdinfo, "Pid:");
+        char *p = find_line_startswith(fdinfo, "Pid:");
         if (!p)
                 return -ENOTTY; /* not a pidfd? */
 
-        p += strspn(p, WHITESPACE);
+        p = skip_leading_chars(p, /* bad = */ NULL);
         p[strcspn(p, WHITESPACE)] = 0;
 
         if (streq(p, "0"))
@@ -1903,17 +1903,15 @@ static int rlimit_to_nice(rlim_t limit) {
 }
 
 int setpriority_closest(int priority) {
-        int current, limit, saved_errno;
         struct rlimit highest;
+        int r, current, limit;
 
         /* Try to set requested nice level */
-        if (setpriority(PRIO_PROCESS, 0, priority) >= 0)
+        r = RET_NERRNO(setpriority(PRIO_PROCESS, 0, priority));
+        if (r >= 0)
                 return 1;
-
-        /* Permission failed */
-        saved_errno = -errno;
-        if (!ERRNO_IS_PRIVILEGE(saved_errno))
-                return saved_errno;
+        if (!ERRNO_IS_NEG_PRIVILEGE(r))
+                return r;
 
         errno = 0;
         current = getpriority(PRIO_PROCESS, 0);
@@ -1927,24 +1925,21 @@ int setpriority_closest(int priority) {
         * then the whole setpriority() system call is blocked to us, hence let's propagate the error
         * right-away */
         if (priority > current)
-                return saved_errno;
+                return r;
 
         if (getrlimit(RLIMIT_NICE, &highest) < 0)
                 return -errno;
 
         limit = rlimit_to_nice(highest.rlim_cur);
 
-        /* We are already less nice than limit allows us */
-        if (current < limit) {
-                log_debug("Cannot raise nice level, permissions and the resource limit do not allow it.");
-                return 0;
-        }
+        /* Push to the allowed limit if we're higher than that. Note that we could also be less nice than
+         * limit allows us, but still higher than what's requested. In that case our current value is
+         * the best choice. */
+        if (current > limit)
+                if (setpriority(PRIO_PROCESS, 0, limit) < 0)
+                        return -errno;
 
-        /* Push to the allowed limit */
-        if (setpriority(PRIO_PROCESS, 0, limit) < 0)
-                return -errno;
-
-        log_debug("Cannot set requested nice level (%i), used next best (%i).", priority, limit);
+        log_debug("Cannot set requested nice level (%i), using next best (%i).", priority, MIN(current, limit));
         return 0;
 }
 
@@ -2036,7 +2031,7 @@ int posix_spawn_wrapper(
                 const char *cgroup,
                 PidRef *ret_pidref) {
 
-        short flags = POSIX_SPAWN_SETSIGMASK|POSIX_SPAWN_SETSIGDEF;
+        short flags = POSIX_SPAWN_SETSIGMASK;
         posix_spawnattr_t attr;
         sigset_t mask;
         int r;
@@ -2066,10 +2061,14 @@ int posix_spawn_wrapper(
         _unused_ _cleanup_(posix_spawnattr_destroyp) posix_spawnattr_t *attr_destructor = &attr;
 
 #if HAVE_PIDFD_SPAWN
-        static bool setcgroup_supported = true;
+        static enum {
+                CLONE_ONLY_PID,
+                CLONE_CAN_PIDFD,  /* 5.2 */
+                CLONE_CAN_CGROUP, /* 5.7 */
+        } clone_support = CLONE_CAN_CGROUP;
         _cleanup_close_ int cgroup_fd = -EBADF;
 
-        if (cgroup && setcgroup_supported) {
+        if (cgroup && clone_support >= CLONE_CAN_CGROUP) {
                 _cleanup_free_ char *resolved_cgroup = NULL;
 
                 r = cg_get_path_and_check(
@@ -2100,45 +2099,43 @@ int posix_spawn_wrapper(
                 return -r;
 
 #if HAVE_PIDFD_SPAWN
-        _cleanup_close_ int pidfd = -EBADF;
+        if (clone_support >= CLONE_CAN_PIDFD) {
+                _cleanup_close_ int pidfd = -EBADF;
 
-        r = pidfd_spawn(&pidfd, path, NULL, &attr, argv, envp);
-        if (r == E2BIG && FLAGS_SET(flags, POSIX_SPAWN_SETCGROUP)) {
-                /* Some kernels (e.g., 5.4) support clone3 but they do not support CLONE_INTO_CGROUP.
-                 * Retry pidfd_spawn() after removing the flag. */
-                flags &= ~POSIX_SPAWN_SETCGROUP;
-                r = posix_spawnattr_setflags(&attr, flags);
-                if (r != 0)
-                        return -r;
                 r = pidfd_spawn(&pidfd, path, NULL, &attr, argv, envp);
-                /* if pidfd_spawn was successful after removing SPAWN_CGROUP,
-                 * mark setcgroup_supported as false so that we do not retry every time */
-                if (r == 0)
-                        setcgroup_supported = false;
-        }
-        if (r == 0) {
-                r = pidref_set_pidfd_consume(ret_pidref, TAKE_FD(pidfd));
-                if (r < 0)
-                        return r;
-
-                return FLAGS_SET(flags, POSIX_SPAWN_SETCGROUP);
-        }
-        if (ERRNO_IS_NOT_SUPPORTED(r)) {
-                /* clone3() could also return EOPNOTSUPP if the target cgroup is in threaded mode. */
-                if (cgroup && cg_is_threaded(cgroup) > 0)
+                if (ERRNO_IS_NOT_SUPPORTED(r) && FLAGS_SET(flags, POSIX_SPAWN_SETCGROUP) &&
+                    cg_is_threaded(cgroup) > 0) /* clone3() could also return EOPNOTSUPP if the target cgroup is in threaded mode. */
                         return -EUCLEAN;
+                if ((ERRNO_IS_NOT_SUPPORTED(r) || ERRNO_IS_PRIVILEGE(r) || r == E2BIG) &&
+                    FLAGS_SET(flags, POSIX_SPAWN_SETCGROUP)) {
+                        /* Compiled on a newer host, or seccomp&friends blocking clone3()? Fallback, but
+                         * need to disable POSIX_SPAWN_SETCGROUP, which is what redirects to clone3().
+                         * Note that we might get E2BIG here since some kernels (e.g. 5.4) support clone3()
+                         * but not CLONE_INTO_CGROUP. */
 
-                /* clone3() not available? */
-        } else if (!ERRNO_IS_PRIVILEGE(r))
-                return -r;
+                        /* CLONE_INTO_CGROUP definitely won't work, hence remember the fact so that we don't
+                         * retry every time. */
+                        assert(clone_support >= CLONE_CAN_CGROUP);
+                        clone_support = CLONE_CAN_PIDFD;
 
-        /* Compiled on a newer host, or seccomp&friends blocking clone3()? Fallback, but need to change the
-         * flags to remove the cgroup one, which is what redirects to clone3() */
-        if (FLAGS_SET(flags, POSIX_SPAWN_SETCGROUP)) {
-                flags &= ~POSIX_SPAWN_SETCGROUP;
-                r = posix_spawnattr_setflags(&attr, flags);
-                if (r != 0)
+                        flags &= ~POSIX_SPAWN_SETCGROUP;
+                        r = posix_spawnattr_setflags(&attr, flags);
+                        if (r != 0)
+                                return -r;
+
+                        r = pidfd_spawn(&pidfd, path, NULL, &attr, argv, envp);
+                }
+                if (r == 0) {
+                        r = pidref_set_pidfd_consume(ret_pidref, TAKE_FD(pidfd));
+                        if (r < 0)
+                                return r;
+
+                        return FLAGS_SET(flags, POSIX_SPAWN_SETCGROUP);
+                }
+                if (!ERRNO_IS_NOT_SUPPORTED(r) && !ERRNO_IS_PRIVILEGE(r))
                         return -r;
+
+                clone_support = CLONE_ONLY_PID; /* No CLONE_PIDFD either? */
         }
 #endif
 
@@ -2242,3 +2239,18 @@ static const char* const sched_policy_table[] = {
 };
 
 DEFINE_STRING_TABLE_LOOKUP_WITH_FALLBACK(sched_policy, int, INT_MAX);
+
+_noreturn_ void report_errno_and_exit(int errno_fd, int error) {
+        int r;
+
+        if (error >= 0)
+                _exit(EXIT_SUCCESS);
+
+        assert(errno_fd >= 0);
+
+        r = loop_write(errno_fd, &error, sizeof(error));
+        if (r < 0)
+                log_debug_errno(r, "Failed to write errno to errno_fd=%d: %m", errno_fd);
+
+        _exit(EXIT_FAILURE);
+}

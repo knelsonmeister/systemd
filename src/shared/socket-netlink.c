@@ -347,6 +347,15 @@ struct in_addr_full *in_addr_full_free(struct in_addr_full *a) {
         return mfree(a);
 }
 
+void in_addr_full_array_free(struct in_addr_full *addrs[], size_t n) {
+        assert(addrs || n == 0);
+
+        FOREACH_ARRAY(a, addrs, n)
+                in_addr_full_freep(a);
+
+        free(addrs);
+}
+
 int in_addr_full_new(
                 int family,
                 const union in_addr_union *a,
@@ -397,7 +406,7 @@ int in_addr_full_new_from_string(const char *s, struct in_addr_full **ret) {
         return in_addr_full_new(family, &a, port, ifindex, server_name, ret);
 }
 
-const char *in_addr_full_to_string(struct in_addr_full *a) {
+const char* in_addr_full_to_string(struct in_addr_full *a) {
         assert(a);
 
         if (!a->cached_server_string)

@@ -16,6 +16,7 @@
 #include "bus-log-control-api.h"
 #include "bus-polkit.h"
 #include "bus-util.h"
+#include "capability-util.h"
 #include "common-signal.h"
 #include "conf-parser.h"
 #include "constants.h"
@@ -30,8 +31,10 @@
 #include "fs-util.h"
 #include "initrd-util.h"
 #include "local-addresses.h"
+#include "mount-util.h"
 #include "netlink-util.h"
 #include "network-internal.h"
+#include "networkd-address-label.h"
 #include "networkd-address-pool.h"
 #include "networkd-address.h"
 #include "networkd-dhcp-server-bus.h"
@@ -57,7 +60,6 @@
 #include "selinux-util.h"
 #include "set.h"
 #include "signal-util.h"
-#include "stat-util.h"
 #include "strv.h"
 #include "sysctl-util.h"
 #include "tclass.h"
@@ -86,13 +88,8 @@ static int match_prepare_for_sleep(sd_bus_message *message, void *userdata, sd_b
 
         log_debug("Coming back from suspend, reconfiguring all connections...");
 
-        HASHMAP_FOREACH(link, m->links_by_index) {
-                r = link_reconfigure(link, /* force = */ true);
-                if (r < 0) {
-                        log_link_warning_errno(link, r, "Failed to reconfigure interface: %m");
-                        link_enter_failed(link);
-                }
-        }
+        HASHMAP_FOREACH(link, m->links_by_index)
+                (void) link_reconfigure(link, LINK_RECONFIGURE_UNCONDITIONALLY);
 
         return 0;
 }
@@ -241,8 +238,7 @@ static int manager_listen_fds(Manager *m, int *ret_rtnl_fd) {
                 if (sd_is_socket(fd, AF_NETLINK, SOCK_RAW, -1) > 0) {
                         if (rtnl_fd >= 0) {
                                 log_debug("Received multiple netlink socket, ignoring.");
-                                safe_close(fd);
-                                continue;
+                                goto unused;
                         }
 
                         rtnl_fd = fd;
@@ -252,6 +248,7 @@ static int manager_listen_fds(Manager *m, int *ret_rtnl_fd) {
                 if (manager_add_tuntap_fd(m, fd, names[i]) >= 0)
                         continue;
 
+        unused:
                 if (m->test_mode)
                         safe_close(fd);
                 else
@@ -425,30 +422,71 @@ static int manager_connect_rtnl(Manager *m, int fd) {
 static int manager_post_handler(sd_event_source *s, void *userdata) {
         Manager *manager = ASSERT_PTR(userdata);
 
+        /* To release dynamic leases, we need to process queued remove requests before stopping networkd.
+         * This is especially important when KeepConfiguration=no. See issue #34837. */
         (void) manager_process_remove_requests(manager);
-        (void) manager_process_requests(manager);
-        (void) manager_clean_all(manager);
+
+        switch (manager->state) {
+        case MANAGER_RUNNING:
+                (void) manager_process_requests(manager);
+                (void) manager_clean_all(manager);
+                return 0;
+
+        case MANAGER_TERMINATING:
+        case MANAGER_RESTARTING:
+                if (!ordered_set_isempty(manager->remove_request_queue))
+                        return 0; /* There are some unissued remove requests. */
+
+                if (netlink_get_reply_callback_count(manager->rtnl) > 0 ||
+                    netlink_get_reply_callback_count(manager->genl) > 0 ||
+                    fw_ctx_get_reply_callback_count(manager->fw_ctx) > 0)
+                        return 0; /* There are some message calls waiting for their replies. */
+
+                manager->state = MANAGER_STOPPED;
+                return sd_event_exit(sd_event_source_get_event(s), 0);
+
+        default:
+                assert_not_reached();
+        }
+
+        return 0;
+}
+
+static int manager_stop(Manager *manager, ManagerState state) {
+        assert(manager);
+        assert(IN_SET(state, MANAGER_TERMINATING, MANAGER_RESTARTING));
+
+        if (manager->state != MANAGER_RUNNING) {
+                log_debug("Already terminating or restarting systemd-networkd, refusing further operation request.");
+                return 0;
+        }
+
+        switch (state) {
+        case MANAGER_TERMINATING:
+                log_debug("Terminate operation initiated.");
+                break;
+        case MANAGER_RESTARTING:
+                log_debug("Restart operation initiated.");
+                break;
+        default:
+                assert_not_reached();
+        }
+
+        manager->state = state;
+
+        Link *link;
+        HASHMAP_FOREACH(link, manager->links_by_index)
+                (void) link_stop_engines(link, /* may_keep_dhcp = */ true);
+
         return 0;
 }
 
 static int signal_terminate_callback(sd_event_source *s, const struct signalfd_siginfo *si, void *userdata) {
-        Manager *m = ASSERT_PTR(userdata);
-
-        m->restarting = false;
-
-        log_debug("Terminate operation initiated.");
-
-        return sd_event_exit(sd_event_source_get_event(s), 0);
+        return manager_stop(userdata, MANAGER_TERMINATING);
 }
 
 static int signal_restart_callback(sd_event_source *s, const struct signalfd_siginfo *si, void *userdata) {
-        Manager *m = ASSERT_PTR(userdata);
-
-        m->restarting = true;
-
-        log_debug("Restart operation initiated.");
-
-        return sd_event_exit(sd_event_source_get_event(s), 0);
+        return manager_stop(userdata, MANAGER_RESTARTING);
 }
 
 static int signal_reload_callback(sd_event_source *s, const struct signalfd_siginfo *si, void *userdata) {
@@ -470,9 +508,11 @@ static int manager_set_keep_configuration(Manager *m) {
                 return 0;
         }
 
-        r = path_is_network_fs("/");
-        if (r < 0)
-                return log_error_errno(r, "Failed to detect if root is network filesystem: %m");
+        r = path_is_network_fs_harder("/");
+        if (r < 0) {
+                log_warning_errno(r, "Failed to detect if root is network filesystem, assuming not: %m");
+                return 0;
+        }
         if (r == 0) {
                 m->keep_configuration = _KEEP_CONFIGURATION_INVALID;
                 return 0;
@@ -607,6 +647,9 @@ int manager_new(Manager **ret, bool test_mode) {
                 .duid_product_uuid.type = DUID_TYPE_UUID,
                 .dhcp_server_persist_leases = true,
                 .ip_forwarding = { -1, -1, },
+#if HAVE_VMLINUX_H
+                .cgroup_fd = -EBADF,
+#endif
         };
 
         *ret = TAKE_PTR(m);
@@ -614,15 +657,12 @@ int manager_new(Manager **ret, bool test_mode) {
 }
 
 Manager* manager_free(Manager *m) {
-        Link *link;
-
         if (!m)
                 return NULL;
 
-        free(m->state_file);
+        sysctl_remove_monitor(m);
 
-        HASHMAP_FOREACH(link, m->links_by_index)
-                (void) link_stop_engines(link, true);
+        free(m->state_file);
 
         m->request_queue = ordered_set_free(m->request_queue);
         m->remove_request_queue = ordered_set_free(m->remove_request_queue);
@@ -637,7 +677,11 @@ Manager* manager_free(Manager *m) {
         m->dhcp_pd_subnet_ids = set_free(m->dhcp_pd_subnet_ids);
         m->networks = ordered_hashmap_free_with_destructor(m->networks, network_unref);
 
-        m->netdevs = hashmap_free_with_destructor(m->netdevs, netdev_unref);
+        /* The same object may be registered with multiple names, and netdev_detach() may drop multiple
+         * entries. Hence, hashmap_free_with_destructor() cannot be used. */
+        for (NetDev *n; (n = hashmap_first(m->netdevs)); )
+                netdev_detach(n);
+        m->netdevs = hashmap_free(m->netdevs);
 
         m->tuntap_fds_by_name = hashmap_free(m->tuntap_fds_by_name);
 
@@ -663,6 +707,8 @@ Manager* manager_free(Manager *m) {
 
         m->nexthops_by_id = hashmap_free(m->nexthops_by_id);
         m->nexthop_ids = set_free(m->nexthop_ids);
+
+        m->address_labels_by_section = hashmap_free(m->address_labels_by_section);
 
         sd_event_source_unref(m->speed_meter_event_source);
         sd_event_unref(m->event);
@@ -690,11 +736,40 @@ int manager_start(Manager *m) {
 
         assert(m);
 
+        log_debug("Starting...");
+
+        (void) sysctl_add_monitor(m);
+
+        /* Loading BPF programs requires CAP_SYS_ADMIN and CAP_BPF.
+         * Drop the capabilities here, regardless if the load succeeds or not. */
+        r = drop_capability(CAP_SYS_ADMIN);
+        if (r < 0)
+                log_warning_errno(r, "Failed to drop CAP_SYS_ADMIN, ignoring: %m.");
+
+        r = drop_capability(CAP_BPF);
+        if (r < 0)
+                log_warning_errno(r, "Failed to drop CAP_BPF, ignoring: %m.");
+
         manager_set_sysctl(m);
+
+        r = manager_request_static_address_labels(m);
+        if (r < 0)
+                return r;
 
         r = manager_start_speed_meter(m);
         if (r < 0)
                 return log_error_errno(r, "Failed to initialize speed meter: %m");
+
+        HASHMAP_FOREACH(link, m->links_by_index) {
+                if (link->state != LINK_STATE_PENDING)
+                        continue;
+
+                r = link_check_initialized(link);
+                if (r < 0) {
+                        log_link_warning_errno(link, r, "Failed to check if link is initialized: %m");
+                        link_enter_failed(link);
+                }
+        }
 
         /* The dirty handler will deal with future serialization, but the first one
            must be done explicitly. */
@@ -709,30 +784,34 @@ int manager_start(Manager *m) {
                         log_link_warning_errno(link, r, "Failed to update link state file %s, ignoring: %m", link->state_file);
         }
 
+        log_debug("Started.");
         return 0;
 }
 
 int manager_load_config(Manager *m) {
         int r;
 
-        r = netdev_load(m, false);
+        log_debug("Loading...");
+
+        r = netdev_load(m);
         if (r < 0)
-                return r;
+                return log_debug_errno(r, "Failed to load .netdev files: %m");
 
         manager_clear_unmanaged_tuntap_fds(m);
 
         r = network_load(m, &m->networks);
         if (r < 0)
-                return r;
+                return log_debug_errno(r, "Failed to load .network files: %m");
 
         r = manager_build_dhcp_pd_subnet_ids(m);
         if (r < 0)
-                return r;
+                return log_debug_errno(r, "Failed to build DHCP-PD subnet ID map: %m");
 
         r = manager_build_nexthop_ids(m);
         if (r < 0)
-                return r;
+                return log_debug_errno(r, "Failed to build nexthop ID map: %m");
 
+        log_debug("Loaded.");
         return 0;
 }
 
@@ -962,6 +1041,8 @@ static int manager_enumerate_nl80211_mlme(Manager *m) {
 int manager_enumerate(Manager *m) {
         int r;
 
+        log_debug("Enumerating...");
+
         r = manager_enumerate_links(m);
         if (r < 0)
                 return log_error_errno(r, "Could not enumerate links: %m");
@@ -1023,6 +1104,7 @@ int manager_enumerate(Manager *m) {
         else if (r < 0)
                 return log_error_errno(r, "Could not enumerate wireless LAN stations: %m");
 
+        log_debug("Enumeration completed.");
         return 0;
 }
 
@@ -1124,27 +1206,26 @@ int manager_reload(Manager *m, sd_bus_message *message) {
 
         assert(m);
 
+        log_debug("Reloading...");
         (void) notify_reloading();
 
-        r = netdev_load(m, /* reload= */ true);
-        if (r < 0)
+        r = netdev_reload(m);
+        if (r < 0) {
+                log_debug_errno(r, "Failed to reload .netdev files: %m");
                 goto finish;
-
-        r = network_reload(m);
-        if (r < 0)
-                goto finish;
-
-        HASHMAP_FOREACH(link, m->links_by_index) {
-                if (message)
-                        r = link_reconfigure_on_bus_method_reload(link, message);
-                else
-                        r = link_reconfigure(link, /* force = */ false);
-                if (r < 0) {
-                        log_link_warning_errno(link, r, "Failed to reconfigure the interface: %m");
-                        link_enter_failed(link);
-                }
         }
 
+        r = network_reload(m);
+        if (r < 0) {
+                log_debug_errno(r, "Failed to reload .network files: %m");
+                goto finish;
+        }
+
+        HASHMAP_FOREACH(link, m->links_by_index)
+                (void) link_reconfigure_full(link, /* flags = */ 0, message,
+                                             /* counter = */ message ? &m->reloading : NULL);
+
+        log_debug("Reloaded.");
         r = 0;
 finish:
         (void) sd_notify(/* unset= */ false, NOTIFY_READY);

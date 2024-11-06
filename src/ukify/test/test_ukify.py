@@ -364,7 +364,7 @@ def test_config_priority(tmp_path):
                                     pathlib.Path('some/path8')]
     assert opts.pcr_banks == ['SHA1', 'SHA256']
     assert opts.signing_engine == 'ENGINE'
-    assert opts.signtool == 'sbsign' # from args
+    assert opts.signtool == ukify.SbSign # from args
     assert opts.sb_key == 'SBKEY' # from args
     assert opts.sb_cert == 'SBCERT' # from args
     assert opts.sb_certdir == 'some/path5' # from config
@@ -410,7 +410,7 @@ def kernel_initrd():
     if not items:
         return None
 
-    # This doesn't necessarilly give us the latest version, since we're just
+    # This doesn't necessarily give us the latest version, since we're just
     # using alphanumeric ordering. But this is fine, a predictable result is
     # enough.
     linux = items[-1]
@@ -623,7 +623,7 @@ def test_efi_signing_pesign(kernel_initrd, tmp_path):
 
     ukify.make_uki(opts)
 
-    # let's check that sbverify likes the resulting file
+    # let's check that pesign likes the resulting file
     dump = subprocess.check_output([
         'pesign', '-S',
         '-i', output,
@@ -690,7 +690,9 @@ def test_inspect(kernel_initrd, tmp_path, capsys):
 def test_pcr_signing(kernel_initrd, tmp_path):
     if kernel_initrd is None:
         pytest.skip('linux+initrd not found')
-    if systemd_measure() is None:
+    try:
+        systemd_measure()
+    except ValueError:
         pytest.skip('systemd-measure not found')
 
     ourdir = pathlib.Path(__file__).parent
@@ -757,7 +759,9 @@ def test_pcr_signing(kernel_initrd, tmp_path):
 def test_pcr_signing2(kernel_initrd, tmp_path):
     if kernel_initrd is None:
         pytest.skip('linux+initrd not found')
-    if systemd_measure() is None:
+    try:
+        systemd_measure()
+    except ValueError:
         pytest.skip('systemd-measure not found')
 
     ourdir = pathlib.Path(__file__).parent

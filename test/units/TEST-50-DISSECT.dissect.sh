@@ -9,12 +9,6 @@ set -o pipefail
 # shellcheck source=test/units/util.sh
 . "$(dirname "$0")"/util.sh
 
-BIND_LOG_SOCKETS=(
-    --property BindReadOnlyPaths=/dev/log
-    --property BindReadOnlyPaths=/run/systemd/journal/socket
-    --property BindReadOnlyPaths=/run/systemd/journal/stdout
-)
-
 systemd-dissect --json=short "$MINIMAL_IMAGE.raw" | \
     grep -q -F '{"rw":"ro","designator":"root","partition_uuid":null,"partition_label":null,"fstype":"squashfs","architecture":null,"verity":"external"'
 systemd-dissect "$MINIMAL_IMAGE.raw" | grep -q -F "MARKER=1"
@@ -80,21 +74,25 @@ fi
 systemd-dissect --umount "$IMAGE_DIR/mount"
 systemd-dissect --umount "$IMAGE_DIR/mount2"
 
-systemd-run -P -p RootImage="$MINIMAL_IMAGE.raw" "${BIND_LOG_SOCKETS[@]}" cat /usr/lib/os-release | grep -q -F "MARKER=1"
+# Test BindLogSockets=
+systemd-run --wait -p RootImage="$MINIMAL_IMAGE.raw" mountpoint /run/systemd/journal/socket
+(! systemd-run --wait -p RootImage="$MINIMAL_IMAGE.raw" -p BindLogSockets=no ls /run/systemd/journal/socket)
+(! systemd-run --wait -p RootImage="$MINIMAL_IMAGE.raw" -p MountAPIVFS=no ls /run/systemd/journal/socket)
+
+systemd-run -P -p RootImage="$MINIMAL_IMAGE.raw" cat /usr/lib/os-release | grep -q -F "MARKER=1"
 mv "$MINIMAL_IMAGE.verity" "$MINIMAL_IMAGE.fooverity"
 mv "$MINIMAL_IMAGE.roothash" "$MINIMAL_IMAGE.foohash"
 systemd-run -P \
             -p RootImage="$MINIMAL_IMAGE.raw" \
             -p RootHash="$MINIMAL_IMAGE.foohash" \
             -p RootVerity="$MINIMAL_IMAGE.fooverity" \
-            "${BIND_LOG_SOCKETS[@]}" \
+            -p BindLogSockets=yes \
             cat /usr/lib/os-release | grep -q -F "MARKER=1"
 # Let's use the long option name just here as a test
 systemd-run -P \
             --property RootImage="$MINIMAL_IMAGE.raw" \
             --property RootHash="$MINIMAL_IMAGE_ROOTHASH" \
             --property RootVerity="$MINIMAL_IMAGE.fooverity" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/os-release | grep -q -F "MARKER=1"
 mv "$MINIMAL_IMAGE.fooverity" "$MINIMAL_IMAGE.verity"
 mv "$MINIMAL_IMAGE.foohash" "$MINIMAL_IMAGE.roothash"
@@ -142,56 +140,48 @@ systemd-run --wait -P \
             -p RootImage="$MINIMAL_IMAGE.gpt" \
             -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
             -p MountAPIVFS=yes \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/os-release | grep -q -F "MARKER=1"
 systemd-run --wait -P \
             -p RootImage="$MINIMAL_IMAGE.gpt" \
             -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
             -p RootImagePolicy='*' \
             -p MountAPIVFS=yes \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/os-release | grep -q -F "MARKER=1"
 (! systemd-run --wait -P \
                -p RootImage="$MINIMAL_IMAGE.gpt" \
                -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
                -p RootImagePolicy='~' \
                -p MountAPIVFS=yes \
-               "${BIND_LOG_SOCKETS[@]}" \
                cat /usr/lib/os-release | grep -q -F "MARKER=1")
 (! systemd-run --wait -P \
                -p RootImage="$MINIMAL_IMAGE.gpt" \
                -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
                -p RootImagePolicy='-' \
                -p MountAPIVFS=yes \
-               "${BIND_LOG_SOCKETS[@]}" \
                cat /usr/lib/os-release | grep -q -F "MARKER=1")
 (! systemd-run --wait -P \
                -p RootImage="$MINIMAL_IMAGE.gpt" \
                -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
                -p RootImagePolicy='root=absent' \
                -p MountAPIVFS=yes \
-               "${BIND_LOG_SOCKETS[@]}" \
                cat /usr/lib/os-release | grep -q -F "MARKER=1")
 systemd-run --wait -P \
             -p RootImage="$MINIMAL_IMAGE.gpt" \
             -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
             -p RootImagePolicy='root=verity' \
             -p MountAPIVFS=yes \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/os-release | grep -q -F "MARKER=1"
 systemd-run --wait -P \
             -p RootImage="$MINIMAL_IMAGE.gpt" \
             -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
             -p RootImagePolicy='root=signed' \
             -p MountAPIVFS=yes \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/os-release | grep -q -F "MARKER=1"
 (! systemd-run --wait -P \
                -p RootImage="$MINIMAL_IMAGE.gpt" \
                -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
                -p RootImagePolicy='root=encrypted' \
                -p MountAPIVFS=yes \
-               "${BIND_LOG_SOCKETS[@]}" \
                cat /usr/lib/os-release | grep -q -F "MARKER=1")
 
 systemd-dissect --root-hash "$MINIMAL_IMAGE_ROOTHASH" --mount "$MINIMAL_IMAGE.gpt" "$IMAGE_DIR/mount"
@@ -211,17 +201,14 @@ systemd-run -P \
             -p RootImage="$MINIMAL_IMAGE.gpt" \
             -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
             -p MountAPIVFS=yes \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/os-release | grep -q -F "MARKER=1"
 systemd-run -P \
             -p RootImage="$MINIMAL_IMAGE.raw" \
             -p RootImageOptions="root:nosuid,dev home:ro,dev ro,noatime" \
-            "${BIND_LOG_SOCKETS[@]}" \
             mount | grep -F "squashfs" | grep -q -F "nosuid"
 systemd-run -P \
             -p RootImage="$MINIMAL_IMAGE.gpt" \
             -p RootImageOptions="root:ro,noatime root:ro,dev" \
-            "${BIND_LOG_SOCKETS[@]}" \
             mount | grep -F "squashfs" | grep -q -F "noatime"
 
 mkdir -p "$IMAGE_DIR/result"
@@ -234,7 +221,6 @@ TemporaryFileSystem=/run
 RootImage=$MINIMAL_IMAGE.raw
 RootImageOptions=root:ro,noatime home:ro,dev relatime,dev
 RootImageOptions=nosuid,dev
-BindReadOnlyPaths=/dev/log /run/systemd/journal/socket /run/systemd/journal/stdout
 EOF
 systemctl start testservice-50a.service
 grep -F "squashfs" "$IMAGE_DIR/result/a" | grep -q -F "noatime"
@@ -251,7 +237,6 @@ RootImageOptions=root:ro,noatime,nosuid home:ro,dev nosuid,dev
 RootImageOptions=home:ro,dev nosuid,dev,%%foo
 # this is the default, but let's specify once to test the parser
 MountAPIVFS=yes
-BindReadOnlyPaths=/dev/log /run/systemd/journal/socket /run/systemd/journal/stdout
 EOF
 systemctl start testservice-50b.service
 grep -F "squashfs" "$IMAGE_DIR/result/b" | grep -q -F "noatime"
@@ -284,27 +269,23 @@ systemd-run -P \
             -p TemporaryFileSystem=/run \
             -p RootImage="$MINIMAL_IMAGE.raw" \
             -p MountImages="$MINIMAL_IMAGE.gpt:/run/img1 $MINIMAL_IMAGE.raw:/run/img2" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/os-release | grep -q -F "MARKER=1"
 systemd-run -P \
             -p TemporaryFileSystem=/run \
             -p RootImage="$MINIMAL_IMAGE.raw" \
             -p MountImages="$MINIMAL_IMAGE.gpt:/run/img1 $MINIMAL_IMAGE.raw:/run/img2" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /run/img1/usr/lib/os-release | grep -q -F "MARKER=1"
 systemd-run -P \
             -p TemporaryFileSystem=/run \
             -p RootImage="$MINIMAL_IMAGE.gpt" \
             -p RootHash="$MINIMAL_IMAGE_ROOTHASH" \
             -p MountImages="$MINIMAL_IMAGE.gpt:/run/img1 $MINIMAL_IMAGE.raw:/run/img2" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /run/img2/usr/lib/os-release | grep -q -F "MARKER=1"
 cat >/run/systemd/system/testservice-50c.service <<EOF
 [Service]
 MountAPIVFS=yes
 TemporaryFileSystem=/run
 RootImage=$MINIMAL_IMAGE.raw
-BindReadOnlyPaths=/dev/log /run/systemd/journal/socket /run/systemd/journal/stdout
 MountImages=$MINIMAL_IMAGE.gpt:/run/img1:root:noatime:home:relatime
 MountImages=$MINIMAL_IMAGE.raw:/run/img2\:3:nosuid
 ExecStart=bash -c "cat /run/img1/usr/lib/os-release >/run/result/c"
@@ -352,43 +333,51 @@ systemctl is-active testservice-50d.service
 systemd-run -P \
             --property ExtensionImages=/tmp/app0.raw \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /opt/script0.sh | grep -q -F "extension-release.app0"
 systemd-run -P \
             --property ExtensionImages=/tmp/app0.raw \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/some_file | grep -q -F "MARKER=1"
 systemd-run -P \
             --property ExtensionImages="/tmp/app0.raw /tmp/app1.raw" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /opt/script0.sh | grep -q -F "extension-release.app0"
 systemd-run -P \
             --property ExtensionImages="/tmp/app0.raw /tmp/app1.raw" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/some_file | grep -q -F "MARKER=1"
 systemd-run -P \
             --property ExtensionImages="/tmp/app0.raw /tmp/app1.raw" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /opt/script1.sh | grep -q -F "extension-release.app2"
 systemd-run -P \
             --property ExtensionImages="/tmp/app0.raw /tmp/app1.raw" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/other_file | grep -q -F "MARKER=1"
 systemd-run -P \
             --property ExtensionImages=/tmp/app-nodistro.raw \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/some_file | grep -q -F "MARKER=1"
 systemd-run -P \
             --property ExtensionImages=/etc/service-scoped-test.raw \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /etc/systemd/system/some_file | grep -q -F "MARKER_CONFEXT_123"
+
+# Check that two identical verity images at different paths do not fail with -ELOOP from OverlayFS
+mkdir -p /tmp/loop
+cp /tmp/app0.raw /tmp/loop/app0.raw
+veritysetup format /tmp/loop/app0.raw /tmp/loop/app0.verity --root-hash-file /tmp/loop/app0.roothash
+cp /tmp/loop/app0.raw /tmp/loop/app0_copy.raw
+cp /tmp/loop/app0.verity /tmp/loop/app0_copy.verity
+cp /tmp/loop/app0.roothash /tmp/loop/app0_copy.roothash
+systemd-run -P \
+            --property ExtensionImages=/tmp/loop/app0.raw \
+            --property ExtensionImages=/tmp/loop/app0_copy.raw \
+            --property RootImage="$MINIMAL_IMAGE.raw" \
+            "${BIND_LOG_SOCKETS[@]}" \
+            cat /opt/script0.sh | grep -q -F "extension-release.app0"
+rm -rf /tmp/loop/
+
 # Check that using a symlink to NAME-VERSION.raw works as long as the symlink has the correct name NAME.raw
 mkdir -p /tmp/symlink-test/
 cp /tmp/app-nodistro.raw /tmp/symlink-test/app-nodistro-v1.raw
@@ -396,7 +385,6 @@ ln -fs /tmp/symlink-test/app-nodistro-v1.raw /tmp/symlink-test/app-nodistro.raw
 systemd-run -P \
             --property ExtensionImages=/tmp/symlink-test/app-nodistro.raw \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/some_file | grep -q -F "MARKER=1"
 
 # Symlink check again but for confext
@@ -406,20 +394,17 @@ ln -fs /etc/symlink-test/service-scoped-test-v1.raw /etc/symlink-test/service-sc
 systemd-run -P \
             --property ExtensionImages=/etc/symlink-test/service-scoped-test.raw \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /etc/systemd/system/some_file | grep -q -F "MARKER_CONFEXT_123"
 # And again mixing sysext and confext
 systemd-run -P \
     --property ExtensionImages=/tmp/symlink-test/app-nodistro.raw \
     --property ExtensionImages=/etc/symlink-test/service-scoped-test.raw \
     --property RootImage="$MINIMAL_IMAGE.raw" \
-    "${BIND_LOG_SOCKETS[@]}" \
     cat /etc/systemd/system/some_file | grep -q -F "MARKER_CONFEXT_123"
 systemd-run -P \
     --property ExtensionImages=/tmp/symlink-test/app-nodistro.raw \
     --property ExtensionImages=/etc/symlink-test/service-scoped-test.raw \
     --property RootImage="$MINIMAL_IMAGE.raw" \
-    "${BIND_LOG_SOCKETS[@]}" \
     cat /usr/lib/systemd/system/some_file | grep -q -F "MARKER=1"
 
 cat >/run/systemd/system/testservice-50e.service <<EOF
@@ -429,7 +414,6 @@ TemporaryFileSystem=/run /var/lib
 StateDirectory=app0
 RootImage=$MINIMAL_IMAGE.raw
 ExtensionImages=/tmp/app0.raw /tmp/app1.raw:nosuid
-BindReadOnlyPaths=/dev/log /run/systemd/journal/socket /run/systemd/journal/stdout
 # Relevant only for sanitizer runs
 UnsetEnvironment=LD_PRELOAD
 ExecStart=bash -c '/opt/script0.sh | grep ID'
@@ -443,26 +427,26 @@ systemctl is-active testservice-50e.service
 # Check vpick support in ExtensionImages=
 VBASE="vtest$RANDOM"
 VDIR="/tmp/$VBASE.v"
-mkdir "$VDIR"
+EMPTY_VDIR="/tmp/$VBASE-empty.v"
+NONEXISTENT_VDIR="/tmp/$VBASE-nonexistent.v"
+mkdir "$VDIR" "$EMPTY_VDIR"
 
 ln -s /tmp/app0.raw "$VDIR/${VBASE}_0.raw"
 ln -s /tmp/app1.raw "$VDIR/${VBASE}_1.raw"
 
-systemd-run -P -p ExtensionImages="$VDIR" bash -c '/opt/script1.sh | grep ID'
+systemd-run -P -p ExtensionImages="$VDIR -$EMPTY_VDIR -$NONEXISTENT_VDIR" bash -c '/opt/script1.sh | grep ID'
 
-rm -rf "$VDIR"
+rm -rf "$VDIR" "$EMPTY_VDIR"
 
 # ExtensionDirectories will set up an overlay
 mkdir -p "$IMAGE_DIR/app0" "$IMAGE_DIR/app1" "$IMAGE_DIR/app-nodistro" "$IMAGE_DIR/service-scoped-test"
 (! systemd-run -P \
                --property ExtensionDirectories="$IMAGE_DIR/nonexistent" \
                --property RootImage="$MINIMAL_IMAGE.raw" \
-               "${BIND_LOG_SOCKETS[@]}" \
                cat /opt/script0.sh)
 (! systemd-run -P \
                --property ExtensionDirectories="$IMAGE_DIR/app0" \
                --property RootImage="$MINIMAL_IMAGE.raw" \
-               "${BIND_LOG_SOCKETS[@]}" \
                cat /opt/script0.sh)
 systemd-dissect --mount /tmp/app0.raw "$IMAGE_DIR/app0"
 systemd-dissect --mount /tmp/app1.raw "$IMAGE_DIR/app1"
@@ -471,42 +455,34 @@ systemd-dissect --mount /etc/service-scoped-test.raw "$IMAGE_DIR/service-scoped-
 systemd-run -P \
             --property ExtensionDirectories="$IMAGE_DIR/app0" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /opt/script0.sh | grep -q -F "extension-release.app0"
 systemd-run -P \
             --property ExtensionDirectories="$IMAGE_DIR/app0" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/some_file | grep -q -F "MARKER=1"
 systemd-run -P \
             --property ExtensionDirectories="$IMAGE_DIR/app0 $IMAGE_DIR/app1" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /opt/script0.sh | grep -q -F "extension-release.app0"
 systemd-run -P \
             --property ExtensionDirectories="$IMAGE_DIR/app0 $IMAGE_DIR/app1" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/some_file | grep -q -F "MARKER=1"
 systemd-run -P \
             --property ExtensionDirectories="$IMAGE_DIR/app0 $IMAGE_DIR/app1" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /opt/script1.sh | grep -q -F "extension-release.app2"
 systemd-run -P \
             --property ExtensionDirectories="$IMAGE_DIR/app0 $IMAGE_DIR/app1" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/other_file | grep -q -F "MARKER=1"
 systemd-run -P \
             --property ExtensionDirectories="$IMAGE_DIR/app-nodistro" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /usr/lib/systemd/system/some_file | grep -q -F "MARKER=1"
 systemd-run -P \
             --property ExtensionDirectories="$IMAGE_DIR/service-scoped-test" \
             --property RootImage="$MINIMAL_IMAGE.raw" \
-            "${BIND_LOG_SOCKETS[@]}" \
             cat /etc/systemd/system/some_file | grep -q -F "MARKER_CONFEXT_123"
 cat >/run/systemd/system/testservice-50f.service <<EOF
 [Service]
@@ -514,7 +490,6 @@ MountAPIVFS=yes
 TemporaryFileSystem=/run /var/lib
 StateDirectory=app0
 RootImage=$MINIMAL_IMAGE.raw
-BindReadOnlyPaths=/dev/log /run/systemd/journal/socket /run/systemd/journal/stdout
 ExtensionDirectories=$IMAGE_DIR/app0 $IMAGE_DIR/app1
 # Relevant only for sanitizer runs
 UnsetEnvironment=LD_PRELOAD
@@ -529,14 +504,16 @@ systemctl is-active testservice-50f.service
 # Check vpick support in ExtensionDirectories=
 VBASE="vtest$RANDOM"
 VDIR="/tmp/$VBASE.v"
-mkdir "$VDIR"
+EMPTY_VDIR="/tmp/$VBASE-empty.v"
+NONEXISTENT_VDIR="/tmp/$VBASE-nonexistent.v"
+mkdir "$VDIR" "$EMPTY_VDIR"
 
 ln -s "$IMAGE_DIR/app0" "$VDIR/${VBASE}_0"
 ln -s "$IMAGE_DIR/app1" "$VDIR/${VBASE}_1"
 
-systemd-run -P --property ExtensionDirectories="$VDIR" cat /opt/script1.sh | grep -q -F "extension-release.app2"
+systemd-run -P --property ExtensionDirectories="$VDIR -$EMPTY_VDIR -$NONEXISTENT_VDIR" cat /opt/script1.sh | grep -q -F "extension-release.app2"
 
-rm -rf "$VDIR"
+rm -rf "$VDIR" "$EMPTY_VDIR"
 
 systemd-dissect --umount "$IMAGE_DIR/app0"
 systemd-dissect --umount "$IMAGE_DIR/app1"
@@ -554,7 +531,7 @@ systemd-sysext unmerge
 rmdir /etc/extensions/app-nodistro
 
 # Similar, but go via varlink
-varlinkctl call /run/systemd/io.systemd.sysext io.systemd.sysext.List '{}'
+varlinkctl call --more /run/systemd/io.systemd.sysext io.systemd.sysext.List '{}'
 (! grep -q -F "MARKER=1" /usr/lib/systemd/system/some_file )
 varlinkctl call /run/systemd/io.systemd.sysext io.systemd.sysext.Merge '{}'
 grep -q -F "MARKER=1" /usr/lib/systemd/system/some_file
@@ -584,7 +561,7 @@ ln -s "$MINIMAL_IMAGE.raw" "$VDIR/${VBASE}_33.raw"
 ln -s "$MINIMAL_IMAGE.raw" "$VDIR/${VBASE}_34.raw"
 ln -s "$MINIMAL_IMAGE.raw" "$VDIR/${VBASE}_35.raw"
 
-systemd-run -P -p RootImage="$VDIR" "${BIND_LOG_SOCKETS[@]}" cat /usr/lib/os-release | grep -q -F "MARKER=1"
+systemd-run -P -p RootImage="$VDIR" cat /usr/lib/os-release | grep -q -F "MARKER=1"
 
 rm "$VDIR/${VBASE}_33.raw" "$VDIR/${VBASE}_34.raw" "$VDIR/${VBASE}_35.raw"
 rmdir "$VDIR"
@@ -662,7 +639,6 @@ systemd-run --unit=test-root-ephemeral \
     -p RootDirectory=/tmp/img \
     -p RootEphemeral=yes \
     -p Type=exec \
-    "${BIND_LOG_SOCKETS[@]}" \
     bash -c "touch /abc && sleep infinity"
 test -n "$(ls -A /var/lib/systemd/ephemeral-trees)"
 systemctl stop test-root-ephemeral
@@ -712,7 +688,7 @@ grep -q -F "MARKER_CONFEXT_123" /etc/testfile
 systemd-confext unmerge
 rm -rf /run/confexts/ testjob/
 
-systemd-run -P -p RootImage="$MINIMAL_IMAGE.raw" "${BIND_LOG_SOCKETS[@]}" cat /run/host/os-release | cmp "$OS_RELEASE"
+systemd-run -P -p RootImage="$MINIMAL_IMAGE.raw" cat /run/host/os-release | cmp "$OS_RELEASE"
 
 # Test that systemd-sysext reloads the daemon.
 mkdir -p /var/lib/extensions/

@@ -157,9 +157,9 @@ elif [ -f /run/TEST-82-SOFTREBOOT.touch ]; then
 
     # Copy os-release away, so that we can manipulate it and check that it is updated in the propagate
     # directory across soft reboots. Try to cover corner cases by truncating it.
-    mkdir -p /tmp/nextroot-lower/usr/lib
-    grep ID /etc/os-release >/tmp/nextroot-lower/usr/lib/os-release
-    echo MARKER=1 >>/tmp/nextroot-lower/usr/lib/os-release
+    mkdir -p /tmp/nextroot-lower/etc
+    grep ID /etc/os-release >/tmp/nextroot-lower/etc/os-release
+    echo MARKER=1 >>/tmp/nextroot-lower/etc/os-release
     cmp /etc/os-release /run/systemd/propagate/.os-release-stage/os-release
     (! grep -q MARKER=1 /etc/os-release)
 
@@ -242,9 +242,6 @@ EOF
     systemd-run --service-type=exec --unit=TEST-82-SOFTREBOOT-survive.service \
         --property TemporaryFileSystem="/run /tmp /var" \
         --property RootImage=/tmp/minimal_0.raw \
-        --property BindReadOnlyPaths=/dev/log \
-        --property BindReadOnlyPaths=/run/systemd/journal/socket \
-        --property BindReadOnlyPaths=/run/systemd/journal/stdout \
         --property SurviveFinalKillSignal=yes \
         --property IgnoreOnIsolate=yes \
         --property DefaultDependencies=no \
@@ -272,6 +269,10 @@ EOF
     # Now issue the soft reboot. We should be right back soon.
     touch /run/TEST-82-SOFTREBOOT.touch
     systemctl --no-block --check-inhibitors=yes soft-reboot
+
+    # Ensure the property works too
+    type="$(busctl --json=short get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager PreparingForShutdownWithMetadata | jq -r '.data.type.data')"
+    test "$type" = "soft-reboot"
 
     # Now block until the soft-boot killing spree kills us
     exec sleep infinity

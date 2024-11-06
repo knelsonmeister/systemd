@@ -115,7 +115,13 @@ int path_strv_make_absolute_cwd(char **l);
 char** path_strv_resolve(char **l, const char *root);
 char** path_strv_resolve_uniq(char **l, const char *root);
 
-int find_executable_full(const char *name, const char *root, char **exec_search_path, bool use_path_envvar, char **ret_filename, int *ret_fd);
+int find_executable_full(
+                const char *name,
+                const char *root,
+                char * const *exec_search_path,
+                bool use_path_envvar,
+                char **ret_filename,
+                int *ret_fd);
 static inline int find_executable(const char *name, char **ret_filename) {
         return find_executable_full(name, /* root= */ NULL, NULL, true, ret_filename, NULL);
 }
@@ -203,7 +209,7 @@ bool dot_or_dot_dot(const char *path);
 
 bool path_implies_directory(const char *path);
 
-static inline const char *skip_dev_prefix(const char *p) {
+static inline const char* skip_dev_prefix(const char *p) {
         const char *e;
 
         /* Drop any /dev prefix if there is any */

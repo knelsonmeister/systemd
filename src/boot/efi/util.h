@@ -2,7 +2,9 @@
 #pragma once
 
 #include "efi.h"
+#include "efi-string.h"
 #include "log.h"
+#include "memory-util-fundamental.h"
 #include "proto/file-io.h"
 #include "string-util-fundamental.h"
 
@@ -31,6 +33,19 @@ static inline void freep(void *p) {
 _malloc_ _alloc_(1) _returns_nonnull_ _warn_unused_result_
 void *xmalloc(size_t size);
 
+_malloc_ _alloc_(1) _returns_nonnull_ _warn_unused_result_
+static inline void *xcalloc(size_t size) {
+        void *t = xmalloc(size);
+        memzero(t, size);
+        return t;
+}
+
+_malloc_ _alloc_(1, 2) _returns_nonnull_ _warn_unused_result_
+static inline void *xcalloc_multiply(size_t n, size_t size) {
+        assert_se(MUL_ASSIGN_SAFE(&size, n));
+        return xcalloc(size);
+}
+
 _malloc_ _alloc_(1, 2) _returns_nonnull_ _warn_unused_result_
 static inline void *xmalloc_multiply(size_t n, size_t size) {
         assert_se(MUL_ASSIGN_SAFE(&size, n));
@@ -54,6 +69,9 @@ static inline void* xmemdup(const void *p, size_t l) {
 }
 
 #define xnew(type, n) ((type *) xmalloc_multiply((n), sizeof(type)))
+#define xnew0(type, n) ((type *) xcalloc_multiply((n), sizeof(type)))
+
+bool free_and_xstrdup16(char16_t **p, const char16_t *s);
 
 typedef struct {
         EFI_PHYSICAL_ADDRESS addr;
@@ -81,28 +99,13 @@ static inline Pages xmalloc_pages(
         };
 }
 
-EFI_STATUS efivar_set(const EFI_GUID *vendor, const char16_t *name, const char16_t *value, uint32_t flags);
-EFI_STATUS efivar_set_raw(const EFI_GUID *vendor, const char16_t *name, const void *buf, size_t size, uint32_t flags);
-EFI_STATUS efivar_set_uint_string(const EFI_GUID *vendor, const char16_t *name, size_t i, uint32_t flags);
-EFI_STATUS efivar_set_uint32_le(const EFI_GUID *vendor, const char16_t *name, uint32_t value, uint32_t flags);
-EFI_STATUS efivar_set_uint64_le(const EFI_GUID *vendor, const char16_t *name, uint64_t value, uint32_t flags);
-void efivar_set_time_usec(const EFI_GUID *vendor, const char16_t *name, uint64_t usec);
-
-EFI_STATUS efivar_unset(const EFI_GUID *vendor, const char16_t *name, uint32_t flags);
-
-EFI_STATUS efivar_get(const EFI_GUID *vendor, const char16_t *name, char16_t **ret);
-EFI_STATUS efivar_get_raw(const EFI_GUID *vendor, const char16_t *name, char **ret, size_t *ret_size);
-EFI_STATUS efivar_get_uint_string(const EFI_GUID *vendor, const char16_t *name, size_t *ret);
-EFI_STATUS efivar_get_uint32_le(const EFI_GUID *vendor, const char16_t *name, uint32_t *ret);
-EFI_STATUS efivar_get_uint64_le(const EFI_GUID *vendor, const char16_t *name, uint64_t *ret);
-EFI_STATUS efivar_get_boolean_u8(const EFI_GUID *vendor, const char16_t *name, bool *ret);
-
 void convert_efi_path(char16_t *path);
 char16_t *xstr8_to_path(const char *stra);
 char16_t *mangle_stub_cmdline(char16_t *cmdline);
 
 EFI_STATUS chunked_read(EFI_FILE *file, size_t *size, void *buf);
-EFI_STATUS file_read(EFI_FILE *dir, const char16_t *name, uint64_t off, size_t size, char **content, size_t *content_size);
+EFI_STATUS file_read(EFI_FILE *dir, const char16_t *name, uint64_t offset, size_t size, char **content, size_t *content_size);
+EFI_STATUS file_handle_read(EFI_FILE *handle, uint64_t offset, size_t size, char **ret, size_t *ret_size);
 
 static inline void file_closep(EFI_FILE **handle) {
         if (!*handle)
@@ -115,14 +118,6 @@ static inline void unload_imagep(EFI_HANDLE *image) {
         if (*image)
                 (void) BS->UnloadImage(*image);
 }
-
-/*
- * Allocated random UUID, intended to be shared across tools that implement
- * the (ESP)\loader\entries\<vendor>-<revision>.conf convention and the
- * associated EFI variables.
- */
-#define LOADER_GUID \
-        { 0x4a67b082, 0x0a4c, 0x41cf, { 0xb6, 0xc7, 0x44, 0x0b, 0x29, 0xbb, 0x8c, 0x4f } }
 
 /* Note that GUID is evaluated multiple times! */
 #define GUID_FORMAT_STR "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X"
@@ -161,8 +156,6 @@ static inline void *PHYSICAL_ADDRESS_TO_POINTER(EFI_PHYSICAL_ADDRESS addr) {
         assert(addr <= UINTPTR_MAX);
         return (void *) (uintptr_t) addr;
 }
-
-uint64_t get_os_indications_supported(void);
 
 /* If EFI_DEBUG, print our name and version and also report the address of the image base so a debugger can
  * be attached. See debug-sd-boot.sh for how this can be done. */
@@ -211,3 +204,12 @@ static inline bool efi_guid_equal(const EFI_GUID *a, const EFI_GUID *b) {
 void *find_configuration_table(const EFI_GUID *guid);
 
 char16_t *get_extra_dir(const EFI_DEVICE_PATH *file_path);
+
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#  define be32toh(x) __builtin_bswap32(x)
+#else
+#  error "Unexpected byte order in EFI mode?"
+#endif
+
+#define bswap_16(x) __builtin_bswap16(x)
+#define bswap_32(x) __builtin_bswap32(x)

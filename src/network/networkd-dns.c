@@ -94,6 +94,37 @@ bool link_get_use_dns(Link *link, NetworkConfigSource proto) {
         return true;
 }
 
+bool link_get_use_dnr(Link *link, NetworkConfigSource proto) {
+        int n;
+
+        assert(link);
+
+        if (!link->network)
+                return false;
+
+        switch (proto) {
+        case NETWORK_CONFIG_SOURCE_DHCP4:
+                n = link->network->dhcp_use_dnr;
+                break;
+        case NETWORK_CONFIG_SOURCE_DHCP6:
+                n = link->network->dhcp6_use_dnr;
+                break;
+        case NETWORK_CONFIG_SOURCE_NDISC:
+                n = link->network->ndisc_use_dnr;
+                break;
+        default:
+                assert_not_reached();
+        }
+
+        /* If set explicitly, use that */
+        if (n >= 0)
+                return n;
+
+        /* Otherwise, default to the same as the UseDNS setting. After all,
+         * this is just another way for the server to tell us about DNS configuration. */
+        return link_get_use_dns(link, proto);
+}
+
 int config_parse_domains(
                 const char *unit,
                 const char *filename,
@@ -201,7 +232,6 @@ int config_parse_dns(
         for (const char *p = rvalue;;) {
                 _cleanup_(in_addr_full_freep) struct in_addr_full *dns = NULL;
                 _cleanup_free_ char *w = NULL;
-                struct in_addr_full **m;
 
                 r = extract_first_word(&p, &w, NULL, 0);
                 if (r == -ENOMEM)
@@ -224,12 +254,10 @@ int config_parse_dns(
                 if (IN_SET(dns->port, 53, 853))
                         dns->port = 0;
 
-                m = reallocarray(n->dns, n->n_dns + 1, sizeof(struct in_addr_full*));
-                if (!m)
+                if (!GREEDY_REALLOC(n->dns, n->n_dns + 1))
                         return log_oom();
 
-                m[n->n_dns++] = TAKE_PTR(dns);
-                n->dns = m;
+                n->dns[n->n_dns++] = TAKE_PTR(dns);
         }
 }
 
@@ -291,4 +319,4 @@ static const char* const use_domains_table[_USE_DOMAINS_MAX] = {
 };
 
 DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(use_domains, UseDomains, USE_DOMAINS_YES);
-DEFINE_CONFIG_PARSE_ENUM(config_parse_use_domains, use_domains, UseDomains, "Failed to parse UseDomains=")
+DEFINE_CONFIG_PARSE_ENUM(config_parse_use_domains, use_domains, UseDomains);

@@ -299,15 +299,13 @@ L     /tmp/foobar -    -    -     -   /dev/null</programlisting>
         <varlistentry>
           <term><varname>L</varname></term>
           <term><varname>L+</varname></term>
-          <listitem><para>Create a symlink if it does not exist
-          yet. If suffixed with <varname>+</varname> and a file or
-          directory already exists where the symlink is to be created,
-          it will be removed and be replaced by the symlink. If the
-          argument is omitted, symlinks to files with the same name
-          residing in the directory
-          <filename>/usr/share/factory/</filename> are created. Note
-          that permissions on symlinks are ignored.
-          </para></listitem>
+          <term><varname>L?</varname></term>
+          <listitem><para>Create a symlink if it does not exist yet. If suffixed with <varname>+</varname>
+          and a file or directory already exists where the symlink is to be created, it will be removed and
+          be replaced by the symlink. If suffixed with <varname>?</varname> and the source path does not
+          exist, the symlink is not created. If the argument is omitted, symlinks to files with the same name
+          residing in the directory <filename>/usr/share/factory/</filename> are created. Note that
+          permissions on symlinks are ignored.</para></listitem>
         </varlistentry>
 
         <varlistentry>
@@ -539,6 +537,10 @@ w- /proc/sys/vm/swappiness - - - - 10</programlisting></para>
       service, the line is silently skipped. If <literal>^</literal> and <literal>~</literal> are combined
       Base64 decoding is applied to the credential contents.</para>
 
+      <para>If the dollar sign (<literal>$</literal>) is used, the file becomes subject to removal when
+      <command>systemd-tmpfiles</command> is invoked with the <option>--purge</option> switch. Lines without
+      this character are unaffected by that switch.</para>
+
       <para>Note that for all line types that result in creation of any kind of file node
       (i.e. <varname>f</varname>,
       <varname>d</varname>/<varname>D</varname>/<varname>v</varname>/<varname>q</varname>/<varname>Q</varname>,
@@ -764,6 +766,7 @@ d /tmp/foo/bar - - - bmA:1h -</programlisting></para>
             <xi:include href="standard-specifiers.xml" xpointer="m"/>
             <xi:include href="standard-specifiers.xml" xpointer="M"/>
             <xi:include href="standard-specifiers.xml" xpointer="o"/>
+            <xi:include href="standard-specifiers.xml" xpointer="q"/>
             <row>
               <entry><literal>%S</literal></entry>
               <entry>System or user state directory</entry>

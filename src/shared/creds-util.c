@@ -7,6 +7,8 @@
 #endif
 
 #include "sd-id128.h"
+#include "sd-json.h"
+#include "sd-varlink.h"
 
 #include "blockdev-util.h"
 #include "capability-util.h"
@@ -18,9 +20,11 @@
 #include "env-util.h"
 #include "fd-util.h"
 #include "fileio.h"
+#include "find-esp.h"
 #include "format-util.h"
 #include "fs-util.h"
 #include "io-util.h"
+#include "json-util.h"
 #include "memory-util.h"
 #include "mkdir-label.h"
 #include "openssl-util.h"
@@ -33,7 +37,6 @@
 #include "tmpfile-util.h"
 #include "tpm2-util.h"
 #include "user-util.h"
-#include "varlink.h"
 
 #define PUBLIC_KEY_MAX (UINT32_C(1024) * UINT32_C(1024))
 
@@ -51,7 +54,7 @@ bool credential_glob_valid(const char *s) {
          * fnmatch()! We only allow trailing asterisk matches for now (simply because we want some freedom
          * with automatically extending the pattern in a systematic way to cover for unit instances getting
          * per-instance credentials or similar. Moreover, credential globbing expressions are also more
-         * restrictive then credential names: we don't allow *, ?, [, ] in them (except for the asterisk
+         * restrictive than credential names: we don't allow *, ?, [, ] in them (except for the asterisk
          * match at the end of the string), simply to not allow ambiguity. After all, we want the flexibility
          * to one day add full globbing should the need arise.  */
 
@@ -476,7 +479,7 @@ int get_credential_host_secret(CredentialSecretFlags flags, struct iovec *ret) {
         assert(filename);
 
         mkdir_parents(dirname, 0755);
-        dfd = open_mkdir_at(AT_FDCWD, dirname, O_CLOEXEC, 0755);
+        dfd = open_mkdir(dirname, O_CLOEXEC, 0755);
         if (dfd < 0)
                 return log_debug_errno(dfd, "Failed to create or open directory '%s': %m", dirname);
 
@@ -505,7 +508,6 @@ int get_credential_host_secret(CredentialSecretFlags flags, struct iovec *ret) {
                         if (errno != ENOENT || !FLAGS_SET(flags, CREDENTIAL_SECRET_GENERATE))
                                 return log_debug_errno(errno,
                                                        "Failed to open %s/%s: %m", dirname, filename);
-
 
                         r = make_credential_host_secret(dfd, machine_id, flags, dirname, filename, ret);
                         if (r == -EEXIST) {
@@ -883,7 +885,7 @@ int encrypt_credential_and_warn(
                  * container tpm2_support will detect this, and will return a different flag combination of
                  * TPM2_SUPPORT_FULL, effectively skipping the use of TPM2 when inside one. */
 
-                try_tpm2 = tpm2_support() == TPM2_SUPPORT_FULL;
+                try_tpm2 = tpm2_is_fully_supported();
                 if (!try_tpm2)
                         log_debug("System lacks TPM2 support or running in a container, not attempting to use TPM2.");
         } else
@@ -954,12 +956,18 @@ int encrypt_credential_and_warn(
                 if (r < 0)
                         return log_error_errno(r, "Could not calculate sealing policy digest: %m");
 
+                struct iovec *blobs = NULL;
+                size_t n_blobs = 0;
+                CLEANUP_ARRAY(blobs, n_blobs, iovec_array_free);
+
                 r = tpm2_seal(tpm2_context,
                               /* seal_key_handle= */ 0,
                               &tpm2_policy,
+                              /* n_policy_hash= */ 1,
                               /* pin= */ NULL,
                               &tpm2_key,
-                              &tpm2_blob,
+                              &blobs,
+                              &n_blobs,
                               &tpm2_primary_alg,
                               /* ret_srk= */ NULL);
                 if (r < 0) {
@@ -973,6 +981,9 @@ int encrypt_credential_and_warn(
 
                 if (!iovec_memdup(&IOVEC_MAKE(tpm2_policy.buffer, tpm2_policy.size), &tpm2_policy_hash))
                         return log_oom();
+
+                assert(n_blobs == 1);
+                tpm2_blob = TAKE_STRUCT(blobs[0]);
 
                 assert(tpm2_blob.iov_len <= CREDENTIAL_FIELD_SIZE_MAX);
                 assert(tpm2_policy_hash.iov_len <= CREDENTIAL_FIELD_SIZE_MAX);
@@ -1026,13 +1037,7 @@ int encrypt_credential_and_warn(
         if (ivsz > 0) {
                 assert((size_t) ivsz <= CREDENTIAL_FIELD_SIZE_MAX);
 
-                iv.iov_base = malloc(ivsz);
-                if (!iv.iov_base)
-                        return log_oom();
-
-                iv.iov_len = ivsz;
-
-                r = crypto_random_bytes(iv.iov_base, iv.iov_len);
+                r = crypto_random_bytes_allocate_iovec(ivsz, &iv);
                 if (r < 0)
                         return log_error_errno(r, "Failed to acquired randomized IV: %m");
         }
@@ -1184,7 +1189,7 @@ int decrypt_credential_and_warn(
                 struct iovec *ret) {
 
         _cleanup_(iovec_done_erase) struct iovec host_key = {}, plaintext = {}, tpm2_key = {};
-        _cleanup_(json_variant_unrefp) JsonVariant *signature_json = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *signature_json = NULL;
         _cleanup_(EVP_CIPHER_CTX_freep) EVP_CIPHER_CTX *context = NULL;
         struct encrypted_credential_header *h;
         struct metadata_credential_header *m;
@@ -1344,7 +1349,9 @@ int decrypt_credential_and_warn(
                                 /* pcrlock_policy= */ NULL,
                                 le16toh(t->primary_alg),
                                 &IOVEC_MAKE(t->policy_hash_and_blob, le32toh(t->blob_size)),
+                                /* n_blobs= */ 1,
                                 &IOVEC_MAKE(t->policy_hash_and_blob + le32toh(t->blob_size), le32toh(t->policy_hash_size)),
+                                /* n_policy_hash= */ 1,
                                 /* srk= */ NULL,
                                 &tpm2_key);
                 if (r < 0)
@@ -1529,59 +1536,57 @@ int decrypt_credential_and_warn(const char *validate_name, usec_t validate_times
 #endif
 
 int ipc_encrypt_credential(const char *name, usec_t timestamp, usec_t not_after, uid_t uid, const struct iovec *input, CredentialFlags flags, struct iovec *ret) {
-        _cleanup_(varlink_unrefp) Varlink *vl = NULL;
+        _cleanup_(sd_varlink_unrefp) sd_varlink *vl = NULL;
         int r;
 
         assert(input && iovec_is_valid(input));
         assert(ret);
 
-        r = varlink_connect_address(&vl, "/run/systemd/io.systemd.Credentials");
+        r = sd_varlink_connect_address(&vl, "/run/systemd/io.systemd.Credentials");
         if (r < 0)
                 return log_error_errno(r, "Failed to connect to io.systemd.Credentials: %m");
 
         /* Mark anything we get from the service as sensitive, given that it might use a NULL cypher, at least in theory */
-        r = varlink_set_input_sensitive(vl);
+        r = sd_varlink_set_input_sensitive(vl);
         if (r < 0)
                 return log_error_errno(r, "Failed to enable sensitive Varlink input: %m");
 
         /* Create the input data blob object separately, so that we can mark it as sensitive */
-        _cleanup_(json_variant_unrefp) JsonVariant *jinput = NULL;
-        r = json_build(&jinput, JSON_BUILD_IOVEC_BASE64(input));
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *jinput = NULL;
+        r = sd_json_build(&jinput, JSON_BUILD_IOVEC_BASE64(input));
         if (r < 0)
                 return log_error_errno(r, "Failed to create input object: %m");
 
-        json_variant_sensitive(jinput);
+        sd_json_variant_sensitive(jinput);
 
-        _cleanup_(json_variant_unrefp) JsonVariant *reply = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *reply = NULL;
         const char *error_id = NULL;
-        r = varlink_callb(vl,
-                          "io.systemd.Credentials.Encrypt",
-                          &reply,
-                          &error_id,
-                          JSON_BUILD_OBJECT(
-                                          JSON_BUILD_PAIR_CONDITION(name, "name", JSON_BUILD_STRING(name)),
-                                          JSON_BUILD_PAIR("data", JSON_BUILD_VARIANT(jinput)),
-                                          JSON_BUILD_PAIR_CONDITION(timestamp != USEC_INFINITY, "timestamp", JSON_BUILD_UNSIGNED(timestamp)),
-                                          JSON_BUILD_PAIR_CONDITION(not_after != USEC_INFINITY, "notAfter",  JSON_BUILD_UNSIGNED(not_after)),
-                                          JSON_BUILD_PAIR_CONDITION(!FLAGS_SET(flags, CREDENTIAL_ANY_SCOPE), "scope", JSON_BUILD_STRING(uid_is_valid(uid) ? "user" : "system")),
-                                          JSON_BUILD_PAIR_CONDITION(uid_is_valid(uid), "uid", JSON_BUILD_UNSIGNED(uid))));
+        r = sd_varlink_callbo(
+                        vl,
+                        "io.systemd.Credentials.Encrypt",
+                        &reply,
+                        &error_id,
+                        SD_JSON_BUILD_PAIR_CONDITION(!!name, "name", SD_JSON_BUILD_STRING(name)),
+                        SD_JSON_BUILD_PAIR("data", SD_JSON_BUILD_VARIANT(jinput)),
+                        SD_JSON_BUILD_PAIR_CONDITION(timestamp != USEC_INFINITY, "timestamp", SD_JSON_BUILD_UNSIGNED(timestamp)),
+                        SD_JSON_BUILD_PAIR_CONDITION(not_after != USEC_INFINITY, "notAfter",  SD_JSON_BUILD_UNSIGNED(not_after)),
+                        SD_JSON_BUILD_PAIR_CONDITION(!FLAGS_SET(flags, CREDENTIAL_ANY_SCOPE), "scope", SD_JSON_BUILD_STRING(uid_is_valid(uid) ? "user" : "system")),
+                        SD_JSON_BUILD_PAIR_CONDITION(uid_is_valid(uid), "uid", SD_JSON_BUILD_UNSIGNED(uid)));
         if (r < 0)
                 return log_error_errno(r, "Failed to call Encrypt() varlink call.");
         if (!isempty(error_id)) {
                 if (streq(error_id, "io.systemd.Credentials.NoSuchUser"))
                         return log_error_errno(SYNTHETIC_ERRNO(ESRCH), "No such user.");
 
-                return log_error_errno(varlink_error_to_errno(error_id, reply), "Failed to encrypt: %s", error_id);
+                return log_error_errno(sd_varlink_error_to_errno(error_id, reply), "Failed to encrypt: %s", error_id);
         }
 
-        r = json_dispatch(
-                        reply,
-                        (const JsonDispatch[]) {
-                                { "blob", JSON_VARIANT_STRING, json_dispatch_unbase64_iovec, PTR_TO_SIZE(ret), JSON_MANDATORY },
-                                {},
-                        },
-                        JSON_LOG|JSON_ALLOW_EXTENSIONS,
-                        /* userdata= */ NULL);
+        static const sd_json_dispatch_field dispatch_table[] = {
+                { "blob", SD_JSON_VARIANT_STRING, json_dispatch_unbase64_iovec, 0, SD_JSON_MANDATORY },
+                {},
+        };
+
+        r = sd_json_dispatch(reply, dispatch_table, SD_JSON_LOG|SD_JSON_ALLOW_EXTENSIONS, ret);
         if (r < 0)
                 return r;
 
@@ -1589,41 +1594,41 @@ int ipc_encrypt_credential(const char *name, usec_t timestamp, usec_t not_after,
 }
 
 int ipc_decrypt_credential(const char *validate_name, usec_t validate_timestamp, uid_t uid, const struct iovec *input, CredentialFlags flags, struct iovec *ret) {
-        _cleanup_(varlink_unrefp) Varlink *vl = NULL;
+        _cleanup_(sd_varlink_unrefp) sd_varlink *vl = NULL;
         int r;
 
         assert(input && iovec_is_valid(input));
         assert(ret);
 
-        r = varlink_connect_address(&vl, "/run/systemd/io.systemd.Credentials");
+        r = sd_varlink_connect_address(&vl, "/run/systemd/io.systemd.Credentials");
         if (r < 0)
                 return log_error_errno(r, "Failed to connect to io.systemd.Credentials: %m");
 
-        r = varlink_set_input_sensitive(vl);
+        r = sd_varlink_set_input_sensitive(vl);
         if (r < 0)
                 return log_error_errno(r, "Failed to enable sensitive Varlink input: %m");
 
         /* Create the input data blob object separately, so that we can mark it as sensitive (it's supposed
          * to be encrypted, but who knows maybe it uses the NULL cypher). */
-        _cleanup_(json_variant_unrefp) JsonVariant *jinput = NULL;
-        r = json_build(&jinput, JSON_BUILD_IOVEC_BASE64(input));
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *jinput = NULL;
+        r = sd_json_build(&jinput, JSON_BUILD_IOVEC_BASE64(input));
         if (r < 0)
                 return log_error_errno(r, "Failed to create input object: %m");
 
-        json_variant_sensitive(jinput);
+        sd_json_variant_sensitive(jinput);
 
-        _cleanup_(json_variant_unrefp) JsonVariant *reply = NULL;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *reply = NULL;
         const char *error_id = NULL;
-        r = varlink_callb(vl,
-                          "io.systemd.Credentials.Decrypt",
-                          &reply,
-                          &error_id,
-                          JSON_BUILD_OBJECT(
-                                          JSON_BUILD_PAIR_CONDITION(validate_name, "name", JSON_BUILD_STRING(validate_name)),
-                                          JSON_BUILD_PAIR("blob", JSON_BUILD_VARIANT(jinput)),
-                                          JSON_BUILD_PAIR_CONDITION(validate_timestamp != USEC_INFINITY, "timestamp", JSON_BUILD_UNSIGNED(validate_timestamp)),
-                                          JSON_BUILD_PAIR_CONDITION(!FLAGS_SET(flags, CREDENTIAL_ANY_SCOPE), "scope", JSON_BUILD_STRING(uid_is_valid(uid) ? "user" : "system")),
-                                          JSON_BUILD_PAIR_CONDITION(uid_is_valid(uid), "uid", JSON_BUILD_UNSIGNED(uid))));
+        r = sd_varlink_callbo(
+                        vl,
+                        "io.systemd.Credentials.Decrypt",
+                        &reply,
+                        &error_id,
+                        SD_JSON_BUILD_PAIR_CONDITION(!!validate_name, "name", SD_JSON_BUILD_STRING(validate_name)),
+                        SD_JSON_BUILD_PAIR("blob", SD_JSON_BUILD_VARIANT(jinput)),
+                        SD_JSON_BUILD_PAIR_CONDITION(validate_timestamp != USEC_INFINITY, "timestamp", SD_JSON_BUILD_UNSIGNED(validate_timestamp)),
+                        SD_JSON_BUILD_PAIR_CONDITION(!FLAGS_SET(flags, CREDENTIAL_ANY_SCOPE), "scope", SD_JSON_BUILD_STRING(uid_is_valid(uid) ? "user" : "system")),
+                        SD_JSON_BUILD_PAIR_CONDITION(uid_is_valid(uid), "uid", SD_JSON_BUILD_UNSIGNED(uid)));
         if (r < 0)
                 return log_error_errno(r, "Failed to call Decrypt() varlink call.");
         if (!isempty(error_id))  {
@@ -1638,21 +1643,69 @@ int ipc_decrypt_credential(const char *validate_name, usec_t validate_timestamp,
                 if (streq(error_id, "io.systemd.Credentials.BadScope"))
                         return log_error_errno(SYNTHETIC_ERRNO(EMEDIUMTYPE), "Scope mismtach.");
 
-                return log_error_errno(varlink_error_to_errno(error_id, reply), "Failed to decrypt: %s", error_id);
+                return log_error_errno(sd_varlink_error_to_errno(error_id, reply), "Failed to decrypt: %s", error_id);
         }
 
-        r = json_dispatch(
-                        reply,
-                        (const JsonDispatch[]) {
-                                { "data", JSON_VARIANT_STRING, json_dispatch_unbase64_iovec, PTR_TO_SIZE(ret), JSON_MANDATORY },
-                                {},
-                        },
-                        JSON_LOG|JSON_ALLOW_EXTENSIONS,
-                        /* userdata= */ NULL);
+        static const sd_json_dispatch_field dispatch_table[] = {
+                { "data", SD_JSON_VARIANT_STRING, json_dispatch_unbase64_iovec, 0, SD_JSON_MANDATORY },
+                {},
+        };
+
+        r = sd_json_dispatch(reply, dispatch_table, SD_JSON_LOG|SD_JSON_ALLOW_EXTENSIONS, ret);
         if (r < 0)
                 return r;
 
         return 0;
+}
+
+int get_global_boot_credentials_path(char **ret) {
+        _cleanup_free_ char *path = NULL;
+        int r;
+
+        assert(ret);
+
+        /* Determines where to put global boot credentials in. Returns the path to the "/loader/credentials/"
+         * directory below the XBOOTLDR or ESP partition. Any credentials placed in this directory can be
+         * picked up later in the initrd. */
+
+        r = find_xbootldr_and_warn(
+                        /* root= */ NULL,
+                        /* path= */ NULL,
+                        /* unprivileged_mode= */ false,
+                        &path,
+                        /* ret_uuid= */ NULL,
+                        /* ret_devid= */ NULL);
+        if (r < 0) {
+                if (r != -ENOKEY)
+                        return log_error_errno(r, "Failed to find XBOOTLDR partition: %m");
+
+                r = find_esp_and_warn(
+                                /* root= */ NULL,
+                                /* path= */ NULL,
+                                /* unprivileged_mode= */ false,
+                                &path,
+                                /* ret_part= */ NULL,
+                                /* ret_pstart= */ NULL,
+                                /* ret_psize= */ NULL,
+                                /* ret_uuid= */ NULL,
+                                /* ret_devid= */ NULL);
+                if (r < 0) {
+                        if (r != -ENOKEY)
+                                return log_error_errno(r, "Failed to find ESP partition: %m");
+
+                        *ret = NULL;
+                        return 0; /* not found! */
+                }
+        }
+
+        _cleanup_free_ char *joined = path_join(path, "loader/credentials");
+        if (!joined)
+                return log_oom();
+
+        log_debug("Determined global boot credentials path as: %s", joined);
+
+        *ret = TAKE_PTR(joined);
+        return 1; /* found! */
 }
 
 static int pick_up_credential_one(

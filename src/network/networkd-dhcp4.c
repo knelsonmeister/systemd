@@ -6,6 +6,7 @@
 #include <linux/if_arp.h>
 
 #include "alloc-util.h"
+#include "device-private.h"
 #include "dhcp-client-internal.h"
 #include "hostname-setup.h"
 #include "hostname-util.h"
@@ -325,6 +326,10 @@ int dhcp4_check_ready(Link *link) {
         if (r < 0)
                 return r;
 
+        r = link_request_stacked_netdevs(link, NETDEV_LOCAL_ADDRESS_DHCP4);
+        if (r < 0)
+                return r;
+
         r = sd_ipv4ll_stop(link->ipv4ll);
         if (r < 0)
                 return log_link_warning_errno(link, r, "Failed to drop IPv4 link-local address: %m");
@@ -337,9 +342,10 @@ static int dhcp4_route_handler(sd_netlink *rtnl, sd_netlink_message *m, Request 
         int r;
 
         assert(m);
+        assert(req);
         assert(link);
 
-        r = route_configure_handler_internal(rtnl, m, link, route, "Could not set DHCPv4 route");
+        r = route_configure_handler_internal(rtnl, m, req, "Could not set DHCPv4 route");
         if (r <= 0)
                 return r;
 
@@ -1137,14 +1143,12 @@ static int dhcp_server_is_filtered(Link *link, sd_dhcp_client *client) {
                 return log_link_debug_errno(link, r, "Failed to get DHCP server IP address: %m");
 
         if (in4_address_is_filtered(&addr, link->network->dhcp_allow_listed_ip, link->network->dhcp_deny_listed_ip)) {
-                if (DEBUG_LOGGING) {
-                        if (link->network->dhcp_allow_listed_ip)
-                                log_link_debug(link, "DHCPv4 server IP address "IPV4_ADDRESS_FMT_STR" not found in allow-list, ignoring offer.",
-                                               IPV4_ADDRESS_FMT_VAL(addr));
-                        else
-                                log_link_debug(link, "DHCPv4 server IP address "IPV4_ADDRESS_FMT_STR" found in deny-list, ignoring offer.",
-                                               IPV4_ADDRESS_FMT_VAL(addr));
-                }
+                if (link->network->dhcp_allow_listed_ip)
+                        log_link_debug(link, "DHCPv4 server IP address "IPV4_ADDRESS_FMT_STR" not found in allow-list, ignoring offer.",
+                                       IPV4_ADDRESS_FMT_VAL(addr));
+                else
+                        log_link_debug(link, "DHCPv4 server IP address "IPV4_ADDRESS_FMT_STR" found in deny-list, ignoring offer.",
+                                       IPV4_ADDRESS_FMT_VAL(addr));
 
                 return true;
         }
@@ -1164,23 +1168,17 @@ static int dhcp4_handler(sd_dhcp_client *client, int event, void *userdata) {
 
         switch (event) {
                 case SD_DHCP_CLIENT_EVENT_STOP:
-                        if (link->ipv4ll) {
-                                log_link_debug(link, "DHCP client is stopped. Acquiring IPv4 link-local address");
+                        if (FLAGS_SET(link->network->keep_configuration, KEEP_CONFIGURATION_DHCP)) {
+                                log_link_notice(link, "DHCPv4 connection considered critical, ignoring request to reconfigure it.");
+                                return 0;
+                        }
 
-                                if (in4_addr_is_set(&link->network->ipv4ll_start_address)) {
-                                        r = sd_ipv4ll_set_address(link->ipv4ll, &link->network->ipv4ll_start_address);
-                                        if (r < 0)
-                                                return log_link_warning_errno(link, r, "Could not set IPv4 link-local start address: %m");
-                                }
+                        if (link->ipv4ll && !sd_ipv4ll_is_running(link->ipv4ll)) {
+                                log_link_debug(link, "DHCP client is stopped. Acquiring IPv4 link-local address");
 
                                 r = sd_ipv4ll_start(link->ipv4ll);
                                 if (r < 0 && r != -ESTALE) /* On exit, we cannot and should not start sd-ipv4ll. */
                                         return log_link_warning_errno(link, r, "Could not acquire IPv4 link-local address: %m");
-                        }
-
-                        if (FLAGS_SET(link->network->keep_configuration, KEEP_CONFIGURATION_DHCP)) {
-                                log_link_notice(link, "DHCPv4 connection considered critical, ignoring request to reconfigure it.");
-                                return 0;
                         }
 
                         if (link->dhcp_lease) {
@@ -1255,12 +1253,6 @@ static int dhcp4_handler(sd_dhcp_client *client, int event, void *userdata) {
                 case SD_DHCP_CLIENT_EVENT_TRANSIENT_FAILURE:
                         if (link->ipv4ll && !sd_ipv4ll_is_running(link->ipv4ll)) {
                                 log_link_debug(link, "Problems acquiring DHCP lease, acquiring IPv4 link-local address");
-
-                                if (in4_addr_is_set(&link->network->ipv4ll_start_address)) {
-                                        r = sd_ipv4ll_set_address(link->ipv4ll, &link->network->ipv4ll_start_address);
-                                        if (r < 0)
-                                                return log_link_warning_errno(link, r, "Could not set IPv4 link-local start address: %m");
-                                }
 
                                 r = sd_ipv4ll_start(link->ipv4ll);
                                 if (r < 0)
@@ -1383,73 +1375,79 @@ static int dhcp4_set_client_identifier(Link *link) {
         return 0;
 }
 
-static int dhcp4_find_dynamic_address(Link *link, struct in_addr *ret) {
-        Address *a;
-
+static int dhcp4_set_request_address(Link *link) {
         assert(link);
         assert(link->network);
-        assert(ret);
+        assert(link->dhcp_client);
 
+        /* 1. Use already assigned address. */
+        Address *a;
+        SET_FOREACH(a, link->addresses) {
+                if (a->source != NETWORK_CONFIG_SOURCE_DHCP4)
+                        continue;
+
+                assert(a->family == AF_INET);
+
+                log_link_debug(link, "DHCPv4 CLIENT: requesting previously acquired address %s.",
+                               IN4_ADDR_TO_STRING(&a->in_addr.in));
+                return sd_dhcp_client_set_request_address(link->dhcp_client, &a->in_addr.in);
+        }
+
+        /* 2. If no address is assigned yet, use explicitly configured address. */
+        if (in4_addr_is_set(&link->network->dhcp_request_address)) {
+                log_link_debug(link, "DHCPv4 CLIENT: requesting address %s specified by RequestAddress=.",
+                               IN4_ADDR_TO_STRING(&link->network->dhcp_request_address));
+                return sd_dhcp_client_set_request_address(link->dhcp_client, &link->network->dhcp_request_address);
+        }
+
+        /* 3. If KeepConfiguration=dhcp, use a foreign dynamic address. */
         if (!FLAGS_SET(link->network->keep_configuration, KEEP_CONFIGURATION_DHCP))
-                return false;
+                return 0;
 
         SET_FOREACH(a, link->addresses) {
                 if (a->source != NETWORK_CONFIG_SOURCE_FOREIGN)
                         continue;
                 if (a->family != AF_INET)
                         continue;
-                if (link_address_is_dynamic(link, a))
-                        break;
+                if (!link_address_is_dynamic(link, a))
+                        continue;
+
+                log_link_debug(link, "DHCPv4 CLIENT: requesting foreign dynamic address %s.",
+                               IN4_ADDR_TO_STRING(&a->in_addr.in));
+                return sd_dhcp_client_set_request_address(link->dhcp_client, &a->in_addr.in);
         }
 
-        if (!a)
-                return false;
-
-        *ret = a->in_addr.in;
-        return true;
-}
-
-static int dhcp4_set_request_address(Link *link) {
-        struct in_addr a;
-
-        assert(link);
-        assert(link->network);
-        assert(link->dhcp_client);
-
-        a = link->network->dhcp_request_address;
-
-        if (in4_addr_is_null(&a))
-                (void) dhcp4_find_dynamic_address(link, &a);
-
-        if (in4_addr_is_null(&a))
-                return 0;
-
-        log_link_debug(link, "DHCPv4 CLIENT: requesting %s.", IN4_ADDR_TO_STRING(&a));
-        return sd_dhcp_client_set_request_address(link->dhcp_client, &a);
+        return 0;
 }
 
 static bool link_needs_dhcp_broadcast(Link *link) {
-        const char *val;
         int r;
 
         assert(link);
         assert(link->network);
 
         /* Return the setting in DHCP[4].RequestBroadcast if specified. Otherwise return the device property
-         * ID_NET_DHCP_BROADCAST setting, which may be set for interfaces requiring that the DHCPOFFER message
-         * is being broadcast because they can't  handle unicast messages while not fully configured.
-         * If neither is set or a failure occurs, return false, which is the default for this flag.
-         */
-        r = link->network->dhcp_broadcast;
-        if (r < 0 && link->dev && sd_device_get_property_value(link->dev, "ID_NET_DHCP_BROADCAST", &val) >= 0) {
-                r = parse_boolean(val);
-                if (r < 0)
-                        log_link_debug_errno(link, r, "DHCPv4 CLIENT: Failed to parse ID_NET_DHCP_BROADCAST, ignoring: %m");
-                else
-                        log_link_debug(link, "DHCPv4 CLIENT: Detected ID_NET_DHCP_BROADCAST='%d'.", r);
+         * ID_NET_DHCP_BROADCAST setting, which may be set for interfaces requiring that the DHCPOFFER
+         * message is being broadcast because they can't handle unicast messages while not fully configured.
+         * If neither is set or a failure occurs, return false, which is the default for this flag. */
 
+        r = link->network->dhcp_broadcast;
+        if (r >= 0)
+                return r;
+
+        if (!link->dev)
+                return false;
+
+        r = device_get_property_bool(link->dev, "ID_NET_DHCP_BROADCAST");
+        if (r < 0) {
+                if (r != -ENOENT)
+                        log_link_warning_errno(link, r, "DHCPv4 CLIENT: Failed to get or parse ID_NET_DHCP_BROADCAST, ignoring: %m");
+
+                return false;
         }
-        return r == true;
+
+        log_link_debug(link, "DHCPv4 CLIENT: Detected ID_NET_DHCP_BROADCAST='%d'.", r);
+        return r;
 }
 
 static bool link_dhcp4_ipv6_only_mode(Link *link) {
@@ -1558,6 +1556,13 @@ static int dhcp4_configure(Link *link) {
                         if (r < 0)
                                 return log_link_debug_errno(link, r, "DHCPv4 CLIENT: Failed to set request flag for SIP server: %m");
                 }
+
+                if (link_get_use_dnr(link, NETWORK_CONFIG_SOURCE_DHCP4)) {
+                        r = sd_dhcp_client_set_request_option(link->dhcp_client, SD_DHCP_OPTION_V4_DNR);
+                        if (r < 0)
+                                return log_link_debug_errno(link, r, "DHCPv4 CLIENT: Failed to set request flag for DNR: %m");
+                }
+
                 if (link->network->dhcp_use_captive_portal) {
                         r = sd_dhcp_client_set_request_option(link->dhcp_client, SD_DHCP_OPTION_DHCP_CAPTIVE_PORTAL);
                         if (r < 0)
@@ -1828,6 +1833,26 @@ int link_request_dhcp4_client(Link *link) {
         return 0;
 }
 
+int link_drop_dhcp4_config(Link *link, Network *network) {
+        int ret = 0;
+
+        assert(link);
+        assert(network);
+
+        if (!link_dhcp4_enabled(link))
+                return 0; /* Currently DHCPv4 client is not enabled, there is nothing we need to drop. */
+
+        if (!FLAGS_SET(network->dhcp, ADDRESS_FAMILY_IPV4))
+                /* Currently enabled but will be disabled. Stop the client and drop the lease. */
+                ret = sd_dhcp_client_stop(link->dhcp_client);
+
+        /* Even if the client is currently enabled and also enabled in the new .network file, detailed
+         * settings for the client may be different. Let's unref() the client. But do not unref() the lease.
+         * it will be unref()ed later when a new lease is acquired. */
+        link->dhcp_client = sd_dhcp_client_unref(link->dhcp_client);
+        return ret;
+}
+
 int config_parse_dhcp_max_attempts(
                 const char *unit,
                 const char *filename,
@@ -2019,5 +2044,4 @@ static const char* const dhcp_client_identifier_table[_DHCP_CLIENT_ID_MAX] = {
 };
 
 DEFINE_PRIVATE_STRING_TABLE_LOOKUP_FROM_STRING(dhcp_client_identifier, DHCPClientIdentifier);
-DEFINE_CONFIG_PARSE_ENUM(config_parse_dhcp_client_identifier, dhcp_client_identifier, DHCPClientIdentifier,
-                         "Failed to parse client identifier type");
+DEFINE_CONFIG_PARSE_ENUM(config_parse_dhcp_client_identifier, dhcp_client_identifier, DHCPClientIdentifier);

@@ -19,6 +19,7 @@
 
 #include "ether-addr-util.h"
 #include "log-link.h"
+#include "netdev.h"
 #include "netif-util.h"
 #include "network-util.h"
 #include "networkd-bridge-vlan.h"
@@ -40,6 +41,11 @@ typedef enum LinkState {
         _LINK_STATE_MAX,
         _LINK_STATE_INVALID = -EINVAL,
 } LinkState;
+
+typedef enum LinkReconfigurationFlag {
+        LINK_RECONFIGURE_UNCONDITIONALLY = 1 << 0, /* Reconfigure an interface even if .network file is unchanged. */
+        LINK_RECONFIGURE_CLEANLY         = 1 << 1, /* Drop all existing configs before reconfiguring. Otherwise, reuse existing configs as possible as we can. */
+} LinkReconfigurationFlag;
 
 typedef struct Manager Manager;
 typedef struct Network Network;
@@ -73,6 +79,9 @@ typedef struct Link {
         uint32_t original_mtu;
         sd_device *dev;
         char *driver;
+
+        sd_event_source *ipv6_mtu_wait_synced_event_source;
+        unsigned ipv6_mtu_wait_trial_count;
 
         /* bridge vlan */
         uint16_t bridge_vlan_pvid;
@@ -167,6 +176,7 @@ typedef struct Link {
         Set *ndisc_captive_portals;
         Set *ndisc_pref64;
         Set *ndisc_redirects;
+        Set *ndisc_dnr;
         uint32_t ndisc_mtu;
         unsigned ndisc_messages;
         bool ndisc_configured:1;
@@ -218,8 +228,8 @@ bool link_is_ready_to_configure(Link *link, bool allow_unmanaged);
 
 void link_ntp_settings_clear(Link *link);
 void link_dns_settings_clear(Link *link);
-Link *link_unref(Link *link);
-Link *link_ref(Link *link);
+Link* link_unref(Link *link);
+Link* link_ref(Link *link);
 DEFINE_TRIVIAL_CLEANUP_FUNC(Link*, link_unref);
 DEFINE_TRIVIAL_DESTRUCTOR(link_netlink_destroy_callback, Link, link_unref);
 
@@ -252,15 +262,21 @@ int link_stop_engines(Link *link, bool may_keep_dhcp);
 const char* link_state_to_string(LinkState s) _const_;
 LinkState link_state_from_string(const char *s) _pure_;
 
-int link_reconfigure_impl(Link *link, bool force);
-int link_reconfigure(Link *link, bool force);
-int link_reconfigure_on_bus_method_reload(Link *link, sd_bus_message *message);
+int link_request_stacked_netdevs(Link *link, NetDevLocalAddressType type);
+
+int link_reconfigure_impl(Link *link, LinkReconfigurationFlag flags);
+int link_reconfigure_full(Link *link, LinkReconfigurationFlag flags, sd_bus_message *message, unsigned *counter);
+static inline int link_reconfigure(Link *link, LinkReconfigurationFlag flags) {
+        return link_reconfigure_full(link, flags, NULL, NULL);
+}
+
+int link_check_initialized(Link *link);
 
 int manager_udev_process_link(Manager *m, sd_device *device, sd_device_action_t action);
 int manager_rtnl_process_link(sd_netlink *rtnl, sd_netlink_message *message, Manager *m);
 
 int link_flags_to_string_alloc(uint32_t flags, char **ret);
-const char *kernel_operstate_to_string(int t) _const_;
+const char* kernel_operstate_to_string(int t) _const_;
 
 void link_required_operstate_for_online(Link *link, LinkOperationalStateRange *ret);
 AddressFamily link_required_family_for_online(Link *link);

@@ -351,6 +351,13 @@ All tools:
   default is not appropriate for a given system. Defaults to `5`, accepts
   positive integers.
 
+* `$SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_INTERVAL_SEC` — can be set to override the mount
+  units interval rate limit for parsing `/proc/self/mountinfo`. Similar to
+  `$SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST`, the interval limit maybe adjusted when
+  the default is not appropriate for a given system. The default value is 1 and the
+  default application time unit is second, and the time unit can beoverriden as usual
+  by specifying it explicitly, see the systemd.time(7) man page.
+
 `systemd-remount-fs`:
 
 * `$SYSTEMD_REMOUNT_ROOT_RW=1` — if set and no entry for the root directory
@@ -404,7 +411,7 @@ All tools:
   subvolumes if the backing filesystem supports them. If set to `0`, these
   lines will always create directories.
 
-`systemd-sysusers`
+`systemd-sysusers`:
 
 * `$SOURCE_DATE_EPOCH` — if unset, the field of the date of last password change
   in `/etc/shadow` will be the number of days from Jan 1, 1970 00:00 UTC until
@@ -690,7 +697,8 @@ Tools using the Varlink protocol (such as `varlinkctl`) or sd-bus (such as
 * `$SYSTEMD_VARLINK_LISTEN` – interpreted by some tools that provide a Varlink
   service. Takes a file system path: if specified the tool will listen on an
   `AF_UNIX` stream socket on the specified path in addition to whatever else it
-  would listen on.
+  would listen on. If set to "-" the tool will turn stdin/stdout into a Varlink
+  connection.
 
 `systemd-mountfsd`:
 
@@ -721,3 +729,22 @@ Tools using the Varlink protocol (such as `varlinkctl`) or sd-bus (such as
 * `$SYSTEMD_ADJUST_TERMINAL_TITLE` – Takes a boolean. When false the terminal
   window title will not be updated for interactive invocation of the mentioned
   tools.
+
+`systemd-hostnamed`, `systemd-importd`, `systemd-localed`, `systemd-machined`,
+`systemd-portabled`, `systemd-timedated`:
+
+* `SYSTEMD_EXIT_ON_IDLE` – Takes a boolean. When false, the exit-on-idle logic
+  of these services is disabled, making it easier to debug them.
+
+`systemd-ask-password`:
+
+* `$SYSTEMD_ASK_PASSWORD_KEYRING_TIMEOUT_SEC` - takes a timespan, which controls
+  the expiration time of keys stored in the kernel keyring by `systemd-ask-password`.
+  If unset, the default expiration of 150 seconds is used. If set to `0`, keys are
+  not cached in the kernel keyring. If set to `infinity`, keys are cached without an
+  expiration time in the kernel keyring.
+
+* `SYSTEMD_ASK_PASSWORD_KEYRING_TYPE` - takes a keyring ID or one of `thread`,
+  `process`, `session`, `user`, `user-session`, or `group`. Controls the kernel
+  keyring in which `systemd-ask-password` caches the queried password. Defaults
+  to `user`.

@@ -16,33 +16,38 @@
 #include "strv.h"
 #include "sysctl-util.h"
 
-#define ROUTES_DEFAULT_MAX_PER_FAMILY 4096U
+#define ROUTES_DEFAULT_MAX_PER_FAMILY 4096
 
 unsigned routes_max(void) {
         static thread_local unsigned cached = 0;
-        _cleanup_free_ char *s4 = NULL, *s6 = NULL;
-        unsigned val4 = ROUTES_DEFAULT_MAX_PER_FAMILY, val6 = ROUTES_DEFAULT_MAX_PER_FAMILY;
+        int val4 = ROUTES_DEFAULT_MAX_PER_FAMILY, val6 = ROUTES_DEFAULT_MAX_PER_FAMILY;
 
         if (cached > 0)
                 return cached;
 
-        if (sysctl_read_ip_property(AF_INET, NULL, "route/max_size", &s4) >= 0)
-                if (safe_atou(s4, &val4) >= 0 && val4 == 2147483647U)
+        /* The kernel internally stores these maximum size in int. */
+
+        if (sysctl_read_ip_property_int(AF_INET, /* ifname = */ NULL, "route/max_size", &val4) >= 0)
+                if (val4 == INT_MAX)
                         /* This is the default "no limit" value in the kernel */
                         val4 = ROUTES_DEFAULT_MAX_PER_FAMILY;
 
-        if (sysctl_read_ip_property(AF_INET6, NULL, "route/max_size", &s6) >= 0)
-                (void) safe_atou(s6, &val6);
+        if (sysctl_read_ip_property_int(AF_INET6, /* ifname = */ NULL, "route/max_size", &val6) >= 0)
+                if (val6 == INT_MAX)
+                        /* This is the default "no limit" value in the kernel */
+                        val6 = ROUTES_DEFAULT_MAX_PER_FAMILY;
 
         cached = MAX(ROUTES_DEFAULT_MAX_PER_FAMILY, val4) +
                  MAX(ROUTES_DEFAULT_MAX_PER_FAMILY, val6);
         return cached;
 }
 
-bool route_type_is_reject(const Route *route) {
-        assert(route);
+bool route_type_is_reject(uint8_t type) {
+        return IN_SET(type, RTN_UNREACHABLE, RTN_PROHIBIT, RTN_BLACKHOLE, RTN_THROW);
+}
 
-        return IN_SET(route->type, RTN_UNREACHABLE, RTN_PROHIBIT, RTN_BLACKHOLE, RTN_THROW);
+bool route_is_reject(const Route *route) {
+        return route_type_is_reject(ASSERT_PTR(route)->type);
 }
 
 static bool route_lifetime_is_valid(const Route *route) {
@@ -259,7 +264,7 @@ int link_address_is_reachable(
                 return 0;
         }
 
-        r = link_get_address(link, route->family, &route->prefsrc, 0, &a);
+        r = link_get_address(link, route->family, &route->prefsrc, &a);
         if (r < 0)
                 return r;
 
@@ -312,7 +317,7 @@ int manager_address_is_reachable(
         if (r < 0)
                 return r;
 
-        r = link_get_address(link, found->family, &found->prefsrc, 0, &a);
+        r = link_get_address(link, found->family, &found->prefsrc, &a);
         if (r < 0)
                 return r;
 
