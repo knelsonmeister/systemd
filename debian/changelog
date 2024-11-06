@@ -1,3 +1,16 @@
+systemd (257~rc1-1) unstable; urgency=low
+
+  * gbp.conf: switch upstream branch to full upstream history
+  * Update to new upstream version v257~rc1. For a full list of changes:
+    https://github.com/systemd/systemd/releases/tag/v257-rc1
+  * Drop all patches, merged upstream
+  * Install new files
+  * List new libsystemd0 symbols
+  * Ignore Lintian warning dh-exec-script-without-dh-exec-features
+  * d/copyright: remove pattern for directory that is no longer present
+
+ -- Luca Boccassi <bluca@debian.org>  Wed, 06 Nov 2024 23:58:55 +0000
+
 systemd (256.7-3) unstable; urgency=medium
 
   [ Luca Boccassi ]
