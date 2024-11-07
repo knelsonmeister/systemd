@@ -1,0 +1,13 @@
+Author: Luca Boccassi <luca.boccassi@gmail.com>
+Description: test: fix assertion on build system
+Forwarded: https://github.com/systemd/systemd/pull/35063
+--- a/src/test/test-mount-util.c
++++ b/src/test/test-mount-util.c
+@@ -538,7 +538,6 @@ TEST(bind_mount_submounts) {
+ }
+ 
+ TEST(path_is_network_fs_harder) {
+-        ASSERT_OK(path_is_network_fs_harder("/"));
+         ASSERT_OK_ZERO(path_is_network_fs_harder("/dev"));
+         ASSERT_OK_ZERO(path_is_network_fs_harder("/sys"));
+         ASSERT_OK_ZERO(path_is_network_fs_harder("/run"));
