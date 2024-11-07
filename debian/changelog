@@ -1,3 +1,9 @@
+systemd (257~rc1-3) unstable; urgency=low
+
+  * Backport another patch to fix test failure on buildd
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 07 Nov 2024 11:13:25 +0000
+
 systemd (257~rc1-2) unstable; urgency=low
 
   * Backport patch to fix unit test failure on buildd
