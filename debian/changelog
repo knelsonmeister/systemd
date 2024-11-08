@@ -1,3 +1,9 @@
+systemd (257~rc1-4) unstable; urgency=medium
+
+  * Backport patch to fix TEST-07-PID1 integration test
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 08 Nov 2024 01:09:19 +0000
+
 systemd (257~rc1-3) unstable; urgency=low
 
   * Backport another patch to fix test failure on buildd
