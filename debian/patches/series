@@ -1,2 +1,3 @@
 test-fix-assertion-on-build-system.patch
 test-drop-path_is_network_fs_harder.patch
+Fix-PrivatePIDs-yes-integration-test-for-kernels-with-no-.patch
