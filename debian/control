@@ -659,6 +659,8 @@ Description: Provides the systemd-repart and systemd-sbsign utilities
  and dm-verity among other things.
  .
  systemd-sbsign is an EFI binary signing tool.
+ .
+ systemd-keyutil is a tool to manipulate X.509 certificates.
 
 Package: systemd-cryptsetup
 Build-Profiles: <!stage1>

@@ -1,7 +1,7 @@
 #!/usr/bin/dh-exec
 usr/bin/systemd-repart
 usr/lib/systemd/repart/
-<!stage1 pkg.systemd.upstream> usr/lib/systemd/systemd-keyutil
+<!stage1> usr/lib/systemd/systemd-keyutil
 <!stage1> usr/lib/systemd/systemd-sbsign
 usr/lib/systemd/system/initrd-root-fs.target.wants/systemd-repart.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-repart.service
