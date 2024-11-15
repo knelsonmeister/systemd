@@ -1,7 +1,7 @@
 # It's not documentation, it's test data
 systemd-tests: package-contains-documentation-outside-usr-share-doc
 # netlink keyword
-systemd-tests: spelling-error-in-binary iif if [usr/lib/systemd/tests/unit-tests/test-network]
+systemd-tests: spelling-error-in-binary iif if [usr/lib/systemd/tests/unit-tests/test-network*]
 # test binaries, we don't care about these flags
 systemd-tests: hardening-no-fortify-functions
 systemd-tests: hardening-no-bindnow
@@ -9,3 +9,5 @@ systemd-tests: hardening-no-relro
 # test payload, intentional
 systemd-tests: national-encoding [usr/lib/systemd/tests/testdata/test-fstab-generator/test-19-mounts-from-cmdline.expected/hoge-withx20space.mount]
 systemd-tests: national-encoding [usr/lib/systemd/tests/testdata/test-fstab-generator/test-19-mounts-from-cmdline.expected/remote-fs.target.requires/hoge-withx20space.mount]
+# Intentional: value of config got in a release by mistake, needs to be kept
+systemd-tests: spelling-error-in-binary anually annually [usr/lib/systemd/tests/unit-tests/*]
