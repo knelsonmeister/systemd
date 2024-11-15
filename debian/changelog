@@ -1,3 +1,25 @@
+systemd (257~rc2-1) unstable; urgency=low
+
+  * d/t/control: add more packages to dummy hint-testsuite-triggers. A
+    regression was introduced by nvme-cli in testing because the testsuite
+    doesn't depend on it anymore directly, as mkosi builds it in the
+    image. Add back all the tools/libraries that are only part of the
+    mkosi guest image, so that autopkgtest triggers when they get updated,
+    and regressions can be flagged before they migrate to testing.
+  * Update upstream source from tag 'upstream/257_rc2'
+  * Drop all patches, merged upstream
+  * Install new systemd-keyutil binary in the systemd-repart package
+  * systemd-ukify: downgrade dependency on systemd, not mandatory. It is
+    necessary for the systemd-measure binary, but its usage is optional
+    behind a specific argument, so the dependency can be downgraded
+    (Closes: #1087322)
+  * systemd-ukify: recommend systemd-repart. Needed for the systemd-sbsign
+    and systemd-keyutil binaries
+  * d/rules: adjust blhc override to account for source files being moved
+  * Update lintian override to ignore false positive typos
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 15 Nov 2024 19:49:02 +0000
+
 systemd (257~rc1-4) unstable; urgency=medium
 
   * Backport patch to fix TEST-07-PID1 integration test
