@@ -21,6 +21,11 @@
 #include "smbios.h"
 #include "util.h"
 
+/* Validate the descriptor macros a bit that they match our expectations */
+assert_cc(DEVICE_DESCRIPTOR_DEVICETREE == UINT32_C(0x1000001C));
+assert_cc(DEVICE_SIZE_FROM_DESCRIPTOR(DEVICE_DESCRIPTOR_DEVICETREE) == sizeof(Device));
+assert_cc(DEVICE_TYPE_FROM_DESCRIPTOR(DEVICE_DESCRIPTOR_DEVICETREE) == DEVICE_TYPE_DEVICETREE);
+
 /**
  * smbios_to_hashable_string() - Convert ascii smbios string to stripped char16_t.
  */
@@ -49,7 +54,7 @@ static char16_t *smbios_to_hashable_string(const char *str) {
 
 /* This has to be in a struct due to _cleanup_ in populate_board_chids */
 typedef struct SmbiosInfo {
-        const char16_t *smbios_fields[_CHID_SMBIOS_FIELDS_MAX];
+        char16_t *smbios_fields[_CHID_SMBIOS_FIELDS_MAX];
 } SmbiosInfo;
 
 static void smbios_info_populate(SmbiosInfo *ret_info) {
@@ -71,7 +76,7 @@ static void smbios_info_populate(SmbiosInfo *ret_info) {
 
 static void smbios_info_done(SmbiosInfo *info) {
         FOREACH_ELEMENT(i, info->smbios_fields)
-                free(i);
+                free(*i);
 }
 
 static EFI_STATUS populate_board_chids(EFI_GUID ret_chids[static CHID_TYPES_MAX]) {
@@ -81,7 +86,7 @@ static EFI_STATUS populate_board_chids(EFI_GUID ret_chids[static CHID_TYPES_MAX]
                 return EFI_INVALID_PARAMETER;
 
         smbios_info_populate(&info);
-        chid_calculate(info.smbios_fields, ret_chids);
+        chid_calculate((const char16_t *const *) info.smbios_fields, ret_chids);
 
         return EFI_SUCCESS;
 }
@@ -105,9 +110,10 @@ EFI_STATUS chid_match(const void *hwid_buffer, size_t hwid_length, const Device 
 
         /* Count devices and check validity */
         for (; (n_devices + 1) * sizeof(*devices) < hwid_length;) {
-                if (devices[n_devices].struct_size == 0)
+
+                if (devices[n_devices].descriptor == DEVICE_DESCRIPTOR_EOL)
                         break;
-                if (devices[n_devices].struct_size != sizeof(*devices))
+                if (devices[n_devices].descriptor != DEVICE_DESCRIPTOR_DEVICETREE)
                         return EFI_UNSUPPORTED;
                 n_devices++;
         }
