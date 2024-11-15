@@ -594,9 +594,9 @@ Build-Profiles: <!stage1 !pkg.systemd.noukify>
 Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends},
-         systemd (>= ${source:Version}),
          python3:any,
          python3-pefile,
+Recommends: systemd,
 Conflicts: systemd (<< 255.1-1~)
 Replaces: systemd (<< 255.1-1~)
 Description: tool to build Unified Kernel Images
