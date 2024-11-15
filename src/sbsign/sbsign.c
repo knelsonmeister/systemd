@@ -18,15 +18,17 @@
 #include "tmpfile-util.h"
 #include "verbs.h"
 
-static PagerFlags arg_pager_flags = 0;
 static char *arg_output = NULL;
 static char *arg_certificate = NULL;
+static CertificateSourceType arg_certificate_source_type = OPENSSL_CERTIFICATE_SOURCE_FILE;
+static char *arg_certificate_source = NULL;
 static char *arg_private_key = NULL;
 static KeySourceType arg_private_key_source_type = OPENSSL_KEY_SOURCE_FILE;
 static char *arg_private_key_source = NULL;
 
 STATIC_DESTRUCTOR_REGISTER(arg_output, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_certificate, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_certificate_source, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_private_key, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_private_key_source, freep);
 
@@ -42,13 +44,17 @@ static int help(int argc, char *argv[], void *userdata) {
                "\n%5$sSign binaries for EFI Secure Boot%6$s\n"
                "\n%3$sCommands:%4$s\n"
                "  sign EXEFILE           Sign the given binary for EFI Secure Boot\n"
-               "  validate-key           Load and validate the given private key\n"
                "\n%3$sOptions:%4$s\n"
                "  -h --help              Show this help\n"
                "     --version           Print version\n"
-               "     --no-pager          Do not pipe output into a pager\n"
                "     --output            Where to write the signed PE binary\n"
-               "     --certificate=PATH  PEM certificate to use when signing with a URI\n"
+               "     --certificate=PATH|URI\n"
+               "                         PEM certificate to use for signing, or a provider\n"
+               "                         specific designation if --certificate-source= is used\n"
+               "     --certificate-source=file|provider:PROVIDER\n"
+               "                         Specify how to interpret the certificate from\n"
+               "                         --certificate=. Allows the certificate to be loaded\n"
+               "                         from an OpenSSL provider\n"
                "     --private-key=KEY   Private key (PEM) to sign with\n"
                "     --private-key-source=file|provider:PROVIDER|engine:ENGINE\n"
                "                         Specify how to use KEY for --private-key=. Allows\n"
@@ -67,19 +73,19 @@ static int help(int argc, char *argv[], void *userdata) {
 static int parse_argv(int argc, char *argv[]) {
         enum {
                 ARG_VERSION = 0x100,
-                ARG_NO_PAGER,
                 ARG_OUTPUT,
                 ARG_CERTIFICATE,
+                ARG_CERTIFICATE_SOURCE,
                 ARG_PRIVATE_KEY,
                 ARG_PRIVATE_KEY_SOURCE,
         };
 
         static const struct option options[] = {
                 { "help",               no_argument,       NULL, 'h'                    },
-                { "no-pager",           no_argument,       NULL, ARG_NO_PAGER           },
                 { "version",            no_argument,       NULL, ARG_VERSION            },
                 { "output",             required_argument, NULL, ARG_OUTPUT             },
                 { "certificate",        required_argument, NULL, ARG_CERTIFICATE        },
+                { "certificate-source", required_argument, NULL, ARG_CERTIFICATE_SOURCE },
                 { "private-key",        required_argument, NULL, ARG_PRIVATE_KEY        },
                 { "private-key-source", required_argument, NULL, ARG_PRIVATE_KEY_SOURCE },
                 {}
@@ -90,7 +96,7 @@ static int parse_argv(int argc, char *argv[]) {
         assert(argc >= 0);
         assert(argv);
 
-        while ((c = getopt_long(argc, argv, "hjc", options, NULL)) >= 0)
+        while ((c = getopt_long(argc, argv, "h", options, NULL)) >= 0)
                 switch (c) {
 
                 case 'h':
@@ -100,10 +106,6 @@ static int parse_argv(int argc, char *argv[]) {
                 case ARG_VERSION:
                         return version();
 
-                case ARG_NO_PAGER:
-                        arg_pager_flags |= PAGER_DISABLE;
-                        break;
-
                 case ARG_OUTPUT:
                         r = parse_path_argument(optarg, /*suppress_root=*/ false, &arg_output);
                         if (r < 0)
@@ -112,10 +114,18 @@ static int parse_argv(int argc, char *argv[]) {
                         break;
 
                 case ARG_CERTIFICATE:
-                        r = parse_path_argument(optarg, /* suppress_root= */ false, &arg_certificate);
+                        r = free_and_strdup_warn(&arg_certificate, optarg);
                         if (r < 0)
                                 return r;
+                        break;
 
+                case ARG_CERTIFICATE_SOURCE:
+                        r = parse_openssl_certificate_source_argument(
+                                        optarg,
+                                        &arg_certificate_source,
+                                        &arg_certificate_source_type);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_PRIVATE_KEY:
@@ -168,7 +178,17 @@ static int verb_sign(int argc, char *argv[], void *userdata) {
         if (!arg_output)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "No output specified, use --output=");
 
-        r = openssl_load_x509_certificate(arg_certificate, &certificate);
+        if (arg_certificate_source_type == OPENSSL_CERTIFICATE_SOURCE_FILE) {
+                r = parse_path_argument(arg_certificate, /*suppress_root=*/ false, &arg_certificate);
+                if (r < 0)
+                        return r;
+        }
+
+        r = openssl_load_x509_certificate(
+                        arg_certificate_source_type,
+                        arg_certificate_source,
+                        arg_certificate,
+                        &certificate);
         if (r < 0)
                 return log_error_errno(r, "Failed to load X.509 certificate from %s: %m", arg_certificate);
 
@@ -469,44 +489,10 @@ static int verb_sign(int argc, char *argv[], void *userdata) {
         return 0;
 }
 
-static int verb_validate_key(int argc, char *argv[], void *userdata) {
-        _cleanup_(openssl_ask_password_ui_freep) OpenSSLAskPasswordUI *ui = NULL;
-        _cleanup_(EVP_PKEY_freep) EVP_PKEY *private_key = NULL;
-        int r;
-
-        if (!arg_private_key)
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                       "No private key specified, use --private-key=.");
-
-        if (arg_private_key_source_type == OPENSSL_KEY_SOURCE_FILE) {
-                r = parse_path_argument(arg_private_key, /* suppress_root= */ false, &arg_private_key);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to parse private key path %s: %m", arg_private_key);
-        }
-
-        r = openssl_load_private_key(
-                        arg_private_key_source_type,
-                        arg_private_key_source,
-                        arg_private_key,
-                        &(AskPasswordRequest) {
-                                .id = "sbsign-private-key-pin",
-                                .keyring = arg_private_key,
-                                .credential = "sbsign.private-key-pin",
-                        },
-                        &private_key,
-                        &ui);
-        if (r < 0)
-                return log_error_errno(r, "Failed to load private key from %s: %m", arg_private_key);
-
-        puts("OK");
-        return 0;
-}
-
 static int run(int argc, char *argv[]) {
         static const Verb verbs[] = {
                 { "help",         VERB_ANY, VERB_ANY, 0,    help              },
                 { "sign",         2,        2,        0,    verb_sign         },
-                { "validate-key", VERB_ANY, 1,        0,    verb_validate_key },
                 {}
         };
         int r;

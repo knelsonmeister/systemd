@@ -81,14 +81,13 @@ CHANGES WITH 257 in spe:
         * To work around limitations of X11's keyboard handling systemd's
           keyboard mapping hardware database (hwdb.d/60-keyboard.hwdb) so far
           mapped the microphone mute and touchpad on/off/toggle keys to the
-          function keys F20, F21, F22, F23 instead of their correct key
-          codes. This key code mangling will be removed in the next systemd
-          release v258. To maintain compatibility with X11 applications that
-          rely on the old function key code mappings, this mangling has now
-          been moved to the relevant X11 keyboard driver modules instead. Thus,
-          in order to ensure these keys continue to work as before, make sure
-          to update the xf86-input-evdev and xf86-input-libinput packages to
-          the newest version before updating systemd to v258.
+          function keys F20, F21, F22, F23 instead of their correct key codes.
+          This key code mangling will be removed in the next systemd release.
+          To maintain compatibility with X11 applications that rely on the old
+          function key code mappings, this mangling has now been moved to the
+          relevant X11 keyboard driver modules. In order to ensure these keys
+          continue to work, update to xf86-input-evdev >= 2.11.0 and
+          xf86-input-libinput >= 1.5.0 before updating to systemd >= 258.
 
         * Support for the SystemdOptions EFI variable is deprecated.
           'bootctl systemd-efi-options' will emit a warning when used. It seems
@@ -103,37 +102,37 @@ CHANGES WITH 257 in spe:
 
         libsystemd:
 
-        * systemd's JSON API is now available as public interface of libsystemd
-          under the name "sd-json". The purpose of the library is to allow
-          structures to be conveniently created in C code and serialized to
-          JSON, and for JSON to be conveniently deserialized into in-memory
-          structures, using callbacks to handle specific keys. Various data
-          types like integers, floats, booleans, strings, UUIDs, base64-encoded
-          and hex-encoded binary data, and arrays are supported natively. The
-          library has been part of systemd for a while as internal component,
-          and now being made publicly available, too. On major user of sd-json
-          is the JSON interface sd-varlink (see below). Note that documentation
-          on sd-json is very much incomplete for now, but the systemd codebase
-          should provide plenty code real-life code examples.
+        * systemd's JSON API is now available as public interface of
+          libsystemd, under the name "sd-json". The purpose of the library is
+          to allow structures to be conveniently created in C code and
+          serialized to JSON, and for JSON to be conveniently deserialized into
+          in-memory structures, using callbacks to handle specific
+          keys. Various data types like integers, floats, booleans, strings,
+          UUIDs, base64-encoded and hex-encoded binary data, and arrays are
+          supported natively. The library has been part of systemd for a while
+          as internal component, and is now made publicly available. One major
+          user of sd-json is sd-varlink (see below). Note that the
+          documentation of sd-json is very much incomplete for now, but the
+          systemd codebase provides plenty real-life code examples.
 
-        * libsystemd's Varlink IPC API is now available as part of libsystemd
+        * systemd's Varlink IPC API is now available as part of libsystemd,
           under the name "sd-varlink". This library is a C implementation of
           the Varlink IPC system (https://varlink.org/) that has been adopted
           by systemd for various interfaces. It relies on the sd-json JSON
-          component, see above. Note that documentation on sd-varlink is very
-          much incomplete for now, but the systemd codebase should provide
-          plenty code real-life code examples.
+          component, see above. Note that the documentation of sd-varlink is
+          very much incomplete for now, but the systemd codebase provides
+          plenty real-life code examples.
 
         * sd-bus gained a new call sd_bus_pending_method_calls() which returns
           the number of currently open asynchronous method calls initiated on
           this connection towards peers.
 
         * sd-device gained a new call sd_device_monitor_is_running() that
-          returns whener the specified monitor object is already running. It
+          returns whether the specified monitor object is already running. It
           also gained sd_device_monitor_get_fd(),
           sd_device_monitor_get_events(), sd_device_monitor_get_timeout() and
-          sd_device_monitor_receive() to permit sd-device to run on a foreign
-          event loop implementation. It also gained
+          sd_device_monitor_receive() to permit sd-device to run on top of a
+          foreign event loop implementation. It also gained
           sd_device_get_driver_subsystem() which returns the subsystem of
           driver objects. The new sd_device_get_device_id() call returns a
           short string identifying the device record.
@@ -148,8 +147,9 @@ CHANGES WITH 257 in spe:
         * Multipath TCP (MPTCP) is now supported as a socket protocol for
           .socket units.
 
-        * New /etc/fstab option x-systemd.wants= creates "Wants" dependencies.
-          (This is similar to the previously available x-systemd.requires=.)
+        * A new /etc/fstab option x-systemd.wants= creates "Wants="
+          dependencies.  (This is similar to the previously available
+          x-systemd.requires=.)
 
         * The initialization of the system clock during boot and updates has
           been simplified: both PID 1 or systemd-timesyncd will pick the latest
@@ -161,17 +161,17 @@ CHANGES WITH 257 in spe:
           shutdown, so that the user may use it to initiate a reboot if the
           system freezes otherwise.
 
-        * The new unit option PrivateUsers=identity can be used to request a
-          user namespace with an identity mapping for the first 65536
-          UIDs/GIDs.  This is analogous to the systemd-nspawn's
+        * The new value "identity" for the unit setting PrivateUsers= may be
+          used to request a user namespace with an identity mapping for the
+          first 65536 UIDs/GIDs.  This is analogous to the systemd-nspawn's
           --private-users=identity.
 
-        * The new unit option PrivateTmp=disconnected can be used to specify
-          that a separate tmpfs instance should be used for /tmp/ and /var/tmp/
-          for the unit.
+        * The new value "disconnected" for the unit setting PrivateTmp= may be
+          used to specify that a separate tmpfs instance should be used for
+          /tmp/ and /var/tmp/ for the unit.
 
-        * The manager (and various other tools too) use pidfds in more places
-          to refer to processes.
+        * The server manager (and various other tools too) use pidfds in more
+          places to refer to processes.
 
         * A build option -D link-executor-shared=false can be used to build
           the systemd-executor binary (added in a previous release) in a way
@@ -185,41 +185,41 @@ CHANGES WITH 257 in spe:
           execute.
 
         * The systemd.machine_id= kernel command line parameter interpreted by
-          PID 1 now supports an additional special value: if "firmware" is
-          specified the machine ID is initialized from the SMBIOS/DeviceTree
-          system UUID. (Previously this was already done in VM environments,
-          this extends the concept to any system, but only on explicit request
-          via this option.)
+          PID 1 now supports an additional special value: if set to "firmware"
+          the machine ID is initialized from the SMBIOS/DeviceTree system
+          UUID. (Previously this was already done automatically in VM
+          environments, this extends the concept to any system, but only on
+          explicit request via this option.)
 
         * The ImportCredential= setting in service unit files now permits
-          renaming credentials imported.
+          renaming of credentials as they are imported.
 
-        * The RestartMode= gained a new "debug" setting. If specified and the
-          service fails so that it shall be restarted it is invoked in
+        * The RestartMode= setting gained a new "debug" value. If specified and
+          the service fails so that it shall be restarted it is invoked in
           "debugging mode". Debugging mode means that the $DEBUG_INVOCATION
           environment variable will be set to "1" for the new
           invocation. Moreover, any setting LogLevelMax= will be temporarily
           changed to "debug" for the next invocation. This mode is useful to
-          repeat invocation of tools if they fail but with additional logging
-          or testing routines turned on.
+          automatically repeat invocation of tools in case they fail – but with
+          additional logging or testing routines enabled.
 
         * A new service setting BindLogSockets= has been added that
           controls whether the AF_UNIX sockets required for logging shall be
           bind mounted to the mount sandbox allocated for the service.
 
-        * PID 1 will now optionally load a policy for the new Linux IPE LSM at
-          boot.
+        * At early boot, PID 1 will now optionally load a policy for the new
+          Linux IPE LSM.
 
-        * Transient services (StartTransientUnit() D-Bus method) may now
-          receive additional, arbitrary file descriptors to pass to executed
-          service processes on activation using the new ExtraFileDescriptor=
-          unit property.
+        * Transient services (as invoked by the StartTransientUnit() D-Bus
+          method) may now receive additional, arbitrary file descriptors to
+          pass to executed service processes during activation using the new
+          ExtraFileDescriptor= unit property.
 
         * Calendar .timer units gained a new boolean DeferReactivation=
           option. If enabled and the repetitive calendar timer elapses again
           while the service the timer activates is still running, immediate
-          reactivation once it finishes is skipped, and the timer has to elapse
-          again before the service is reactivated.
+          reactivation of the service once it finishes is skipped, and the
+          timer has to elapse again before the service is reactivated.
 
         * Generator processes invoked by the service manager will now receive a
           new environment variable $SYSTEMD_SOFT_REBOOTS_COUNT that indicates
@@ -245,10 +245,10 @@ CHANGES WITH 257 in spe:
           "strict" a new cgroup namespace is allocated for the service, and
           cgroupfs is mounted read-only for the service.
 
-        * The StateDirectory=, RuntimeDirectory=, CacheDirectory=, LogsDirectory=,
-          and ConfigurationDirectory= settings gained support for configuring the
-          respective directories as read-only, via a ':ro' flag that can be
-          appended to each setting.
+        * The StateDirectory=, RuntimeDirectory=, CacheDirectory=,
+          LogsDirectory=, and ConfigurationDirectory= settings gained support
+          for configuring the respective directories as read-only, via a ':ro'
+          flag that can be appended to each setting's value.
 
         * When DynamicUser= is combined with
           StateDirectory=/RuntimeDirectory=/CacheDirectory=/LogsDirectory= and
@@ -258,15 +258,15 @@ CHANGES WITH 257 in spe:
           chown()ing.
 
         * A new service property PrivatePIDs= has been added that runs executed
-          processes as PID 1 - the init process - within their own PID namespace.
-          PrivatePIDs= also mounts /proc/ so only processes within the new PID
-          namespace are visible.
+          processes as PID 1 - the init process - within their own PID
+          namespace.  PrivatePIDs= also mounts /proc/ so only processes within
+          the new PID namespace are visible.
 
         systemd-udevd:
 
         * udev rules now set 'uaccess' for /dev/udmabuf, giving locally
-          logged-in users access to the hardware. This is necessary to support
-          IPMI cameras with libcamera.
+          logged-in users access to the hardware. This is useful in order to
+          support IPMI cameras with libcamera.
 
         * Serial port devices will no longer show up as systemd units, unless
           they have an IO port or memory assigned to them. This means that only
@@ -281,9 +281,9 @@ CHANGES WITH 257 in spe:
           searched for both on the interface's parent device (as before) and
           the device itself (new).
 
-        * Various USB hardware wallets have are now recognized by udev via a
-          .hwdb file, and get the ID_HARDWARE_WALLET= property set, which
-          enables "uaccess" for them, i.e. direct unprivileged access.
+        * Various USB hardware wallets are now recognized by udev via a .hwdb
+          file, and get the ID_HARDWARE_WALLET= property set, which enables
+          "uaccess" for them, i.e. direct unprivileged access.
 
         * udevadm info will now output the device ID string in lines prefixed
           with "J:", and the driver subsystem in lines prefixed with "B:".
@@ -293,8 +293,8 @@ CHANGES WITH 257 in spe:
 
         systemd-logind:
 
-        * New DesignatedMaintenanceTime= configuration option allows
-          shutdowns to be automatically scheduled at the specified time.
+        * New DesignatedMaintenanceTime= configuration option allows shutdowns
+          to be automatically scheduled at the specified time.
 
         * logind now reacts to Ctrl-Alt-Shift-Esc being pressed. It will send
           out a org.freedesktop.login1.SecureAttentionKey signal, indicating a
@@ -308,8 +308,8 @@ CHANGES WITH 257 in spe:
           session switches away.
 
         * systemd-logind now exposes two D-Bus properties CanLock and CanIdle
-          for all sessions that indicate whether the session's class supports
-          screen locking and idle detection.
+          for all sessions. These properties indicate whether the session's
+          class supports screen locking and idleness detection.
 
         * systemd-inhibit now allows interactive polkit authorization. It
           gained a --no-ask-password option to suppress it.
@@ -320,12 +320,13 @@ CHANGES WITH 257 in spe:
           Machines started via the systemd-vmspawn@.service unit will now be
           registered with systemd-machined.
 
-        * systemd-machined gained a pretty complete set of Varlink interfaces
-          to its functionality as alternative to the existing D-Bus interface.
+        * systemd-machined gained a pretty complete set of Varlink APIs
+          exposing its functionality. This is an alternative to the
+          pre-existing D-Bus interface.
 
         systemd-resolved:
 
-        * resolvconf command now supports '-p' switch. If specified, the
+        * The resolvconf command now supports '-p' switch. If specified, the
           interface will not be used as the default route for domain name
           lookups.
 
@@ -337,11 +338,11 @@ CHANGES WITH 257 in spe:
         * IPv6 address labels can be configured in a new [IPv6AddressLabel]
           section with Prefix= and Label= settings.
 
-        * 'networkctl edit' can now read the new contents from standard input
-          with the new --stdin option.
+        * 'networkctl edit' can now read the new file contents from standard
+          input with the new --stdin option.
 
-        * 'networkctl edit' and 'cat' now supports editing .netdev files by
-          link. 'networkctl cat' can also list all configuration files
+        * 'networkctl edit' and 'cat' now support editing/showing .netdev files
+          by link. 'networkctl cat' can also list all configuration files
           associated with an interface at once with ':all'.
 
         * networkctl gained a --no-ask-password option to suppress interactive
@@ -350,7 +351,7 @@ CHANGES WITH 257 in spe:
         * "mac" has been added to the default AlternativeNamesPolicy= setting
           for network links (via 99-default.link). This means "enx*" interface
           names will now be added to the list of alternative interface names by
-          default for all interfaces that have a MAC address assigned to them
+          default, for all interfaces that have a MAC address assigned
           by hardware.
 
         * networkd .netdev bridge devices gained a new setting FDBMaxLearned=
@@ -365,18 +366,18 @@ CHANGES WITH 257 in spe:
           thus highlighting conflict of ownership/management of these knobs.
 
         * systemd-networkd will now make RFC9463 DNR fields available to
-          systemd-resolved, for automatic DoT configuration, and similar.
+          systemd-resolved, for automatic DNS DoT configuration, and similar.
 
         systemd-boot, systemd-stub, and related tools:
 
         * The EFI stub now supports loading of .ucode sections with microcode
-          from PE add-on files. It now also supports loading .initrd sections
+          from PE add-on files. It also now supports loading .initrd sections
           from PE add-on files.
 
         * A new .profile PE section type is now documented and supported in
-          systemd-measure, ukify, systemd-stub and systemd-boot. Those new
+          systemd-measure, ukify, systemd-stub and systemd-boot. These new
           sections allow multiple "profiles" to be stored together in the UKI,
-          with .profile sections creating groupings of sections in the UKI,
+          where each .profile section creates groupings of sections in the UKI,
           allowing some sections to be shared and other sections like .cmdline
           or .initrd unique to the profile. This may be used to provide a
           single UKI that synthesizes multiple menu items in the boot menu (for
@@ -389,14 +390,23 @@ CHANGES WITH 257 in spe:
           can contain multiple .dtbauto sections, and the 'compatible' string
           therein will be compared with the equivalent field in the DTB
           provided by the firmware, if present. If absent, SMBIOS will be used
-          to calculate hardware IDs and compare them with the content of
-          .hwids. This allows including multiple DTBs in a single UKI, with
-          the bootloader automatically selecting the correct one for the
-          current hardware.
+          to calculate hardware IDs (CHIDs) and look them up in the content of
+          .hwids, hopefully revealing an fallback 'compatible' string. This
+          allows including multiple DTBs in a single UKI, with systemd-stub
+          automatically loading the correct one for the current hardware.
 
         * ukify gained an --extend switch to import an existing UKI to
           be extended, and a --measure-base= switch to support measurement
           of multi-profile UKIs.
+
+        * ukify gained a --certificate-provider switch to use an OpenSSL
+          provider to load the certificate used to sign artifacts, instead of
+          having to provide the path to a file on disk.
+
+        * bootctl, systemd-keyutil, systemd-measure, systemd-repart, and
+          systemd-sbsign gained a new --certificate-source switch that allows
+          loading the X.509 certificate from an OpenSSL provider instead of a
+          file system path.
 
         * systemd-boot's menu will now react to volume up/down rocker presses
           the same way as to arrow up/down presses: they move the menu item up
@@ -405,25 +415,26 @@ CHANGES WITH 257 in spe:
 
         * systemd-stub will report the partition UUID and image identifier its
           UKI executable is placed on separately from the data systemd-boot
-          provides about where to find its own executable. This is useful when
-          systemd-boot and UKIs are placed on distinct partitions (i.e. ESP and
-          XBOOTLDR).
+          provides about where to find its own executable, via EFI
+          variables. This is useful when systemd-boot and UKIs are placed on
+          distinct partitions (i.e. ESP and XBOOTLDR).
 
-        * bootctl --print-loader-path and --print-stub-path that output the
-          path to the boot loader or UKI used for the current boot.
+        * bootctl gained new switches --print-loader-path and --print-stub-path
+          that output the path to the boot loader or UKI used for the current
+          boot.
 
-        * bootctl kernel-identify now supports identifying EFI add-ons.
+        * bootctl kernel-identify now recognizes EFI add-ons.
 
         * bootctl gained a --random-seed=yes|no option to control provisioning
-          of the random seed file in ESP. (This is useful when producing an
-          image that will be used multiple times.)
+          of the random seed file in the ESP. (This is useful when producing an
+          image that will be used in multiple instances.)
 
         * bootctl now optionally supports installing UEFI Secure Boot databases
-          (ESLs) for systemd-boot to pick up and automatically enroll if the
-          system is booted in Setup Mode. This is controlled via bootctl's new
-          --secure-boot-auto-enroll=yes switch (and some auxiliary ones). A
-          certificate can be provided in DER format, and it is automatically
-          converted into an ESL, as needed.
+          (i.e. db/dbx/…  databases in ESL format) for systemd-boot to pick up
+          and automatically enroll if the system is booted in Setup Mode. This
+          is controlled via bootctl's new --secure-boot-auto-enroll=yes switch
+          (and some auxiliary ones). A certificate can be provided in DER
+          format, and is automatically converted into an ESL, as needed.
 
         * bootctl, systemd-measure, systemd-repart when referencing signing
           keys on OpenSSL engines may now query for PINs and similar via
@@ -431,9 +442,12 @@ CHANGES WITH 257 in spe:
           caching and UI).
 
         * A new systemd-sbsign tool has been added, that can be used to sign
-          EFI binaries (PE). This tool supports OpenSSL engines and providers,
-          with pin caching support for PKCS11. ukify supports it as an
-          alternative to sbsigntool and pesign.
+          EFI binaries (PE) for Secure Boot. This tool supports OpenSSL engines
+          and providers, with pin caching support for PKCS11. ukify supports it
+          as an alternative to sbsigntool and pesign.
+
+        * A new systemd-keyutil tool has been added, that can be used to perform
+          various operations on private keys and X.509 certificates.
 
         The journal:
 
@@ -468,22 +482,22 @@ CHANGES WITH 257 in spe:
           and AppStream metadata.
 
         * Transfer definitions for systemd-sysupdate are supposed to carry the
-          ".transfer" suffix now, changing from ".conf". The latter is
-          supported for compatibility too, but it's recommended to rename all
-          files reflecting this suffix change.
+          ".transfer" suffix now, changing from ".conf". The latter remains
+          supported for compatibility, but it's recommended to rename all files
+          reflecting this suffix change.
 
-        * systemd-sysupdate now supports a new ".feature" files that may be
+        * systemd-sysupdate now supports new ".feature" files that may be
           used in conjunction with ".transfer" files to group them together, and
           allow them to be turned off or on, individually per group.
 
         TPM & systemd-cryptsetup:
 
-        * The 'tpm2' verb which lists usable TPM2 devices has been moved from
-          systemd-creds to systemd-analyze.
+        * The 'has-tpm2' verb which reports whether TPM2 functionality is
+          available has been moved from systemd-creds to systemd-analyze.
 
         * systemd-tpm2-setup will gracefully handle TPMs that have a PIN set on
-          the TPM, and not automatically set up a Storage Root Key (SRK) in
-          that case.
+          the TPM, and not attempt to automatically set up a Storage Root Key
+          (SRK) in that case.
 
         * New crypttab option password-cache=yes|no|read-only can be used to
           customize password caching.
@@ -525,7 +539,7 @@ CHANGES WITH 257 in spe:
           start the specified executable on the remote side, and communicate
           with the remote process using the Varlink protocol.
 
-          "ssh:" address specification has been renamed to "ssh-unix:"
+          The "ssh:" address specification has been renamed to "ssh-unix:"
           (reflecting the fact it is used to connect to a remote AF_UNIX socket
           via SSH). The old syntax is still supported for backwards
           compatibility.
@@ -546,7 +560,8 @@ CHANGES WITH 257 in spe:
           to enable internal compression in filesystems created offline.
 
         * systemd-repart understands a new MakeSymlinks= option to create one
-          or more symlinks (each specified as a symlink name and target).
+          or more symlinks (each specified as a symlink name and target) within
+          a newly formatted file system.
 
         * systemd-repart gained a new SupplementFor= setting that allows
           allocating a partition only if some other existing partition cannot
@@ -559,15 +574,15 @@ CHANGES WITH 257 in spe:
 
         systemd-ssh-proxy:
 
-        * systemd-ssh-proxy now also supports the "VSOCK MUX" protocol used by
-          CloudHypervisor/Firecracker to expose AF_VSOCK sockets of the VM on
-          the host. Or in other words: it's now possible to directly connect to
-          ssh via AF_VSOCK from hosts to VMs of these two hypervisors
-          (previously this was only supported for hypervisors which expose
-          AF_VSOCK on the host as AF_VSOCK, such as qemu).
+        * systemd-ssh-proxy now also supports the AF_UNIX-based "VSOCK MUX"
+          protocol used by CloudHypervisor/Firecracker to expose AF_VSOCK
+          sockets of the VM on the host. Or in other words: it's now possible
+          to directly connect to ssh via AF_VSOCK from hosts to VMs of these
+          two hypervisors (previously this was only supported for hypervisors
+          which expose AF_VSOCK on the host as AF_VSOCK, such as qemu).
 
         * systemd-ssh-proxy can now reference local VMs by their name: connect
-          to any local VM "foobar" registered with machined via "ssh
+          to any local VM "foobar" registered with systemd-machined via "ssh
           machine/foobar" using the AF_VSOCK protocol.
 
         systemd-analyze:
@@ -591,7 +606,6 @@ CHANGES WITH 257 in spe:
 
         * 'busctl monitor' gained new options --limit-messages= and --timeout=
           to set the number of matches or limit the runtime of the command.
-          This is intended to be used in scripts.
 
         * busctl now supports doing method calls with embedded unix file
           descriptors.
@@ -609,9 +623,9 @@ CHANGES WITH 257 in spe:
 
         systemd-importd:
 
-        * A new generator sytemd-import-generator has been added to
-          synthetisize image download jobs. This provides functionality similar
-          to importctl, but configured via the kernel command line and system
+        * A new generator sytemd-import-generator has been added to synthesize
+          image download jobs. This provides functionality similar to
+          importctl, but is configured via the kernel command line and system
           credentials. It may be used to automatically download sysext,
           confext, portable service, nspawn container or vmspawn VM images at
           boot.
@@ -640,6 +654,32 @@ CHANGES WITH 257 in spe:
           systemd-homed to allow users to change selected properties of their
           own user records.
 
+        systemd-run & run0:
+
+        * run0 gained a new pair of settings --pty and --pipe that control
+          whether to invoke the specified binary on a freshly allocated pseudo
+          TTY, or whether to pass the client's STDIN/STDOUT/STDERR through
+          directly.
+
+        * run0 gained a new switch --shell-prompt-prefix= that permits passing
+          in a string to display on each shell prompt as prefix. If not
+          specified otherwise this will show a superhero emoji (🦸), in order
+          to visually communicate the temporarily elevated privileges a run0
+          session provides. This makes use of the $SHELL_PROMPT_PREFIX
+          environment variables mentioned below.
+
+        * systemd-run can output some of its runtime data in JSON format via
+          the new --json= option.
+
+        systemd-tmpfiles:
+
+        * systemd-tmpfiles --purge switch now requires specification of at
+          least one tmpfiles.d/ drop-in file.
+
+        * tmpfiles.d/ files gained a new '?' specifier for the 'L' line type to
+          create a symlink only if the source exists, and gracefully skip the
+          line otherwise.
+
         Miscellaneous:
 
         * systemctl now supports the --now option with the 'reenable' verb.
@@ -654,21 +694,13 @@ CHANGES WITH 257 in spe:
         * localectl gained a -l/--full option to show output without
           ellipsization.
 
-        * systemd-run can output some data as JSON via the new --json= option.
-
         * timedatectl now supports interactive polkit authorization.
-
-        * systemd-tmpfiles --purge switch now requires specification of at
-          least one tmpfiles.d/ drop-in file.
-
-        * tmpfiles.d gained a new '?' specifier for the 'L' type to create a
-          symlink only if the source exists, and gracefully skip otherwise.
 
         * The new Linux mseal(), listmount(), statmount() syscalls have been
           added to relevant system call groups.
 
-        * The systemd-ask-password concept has been extended with a per-user
-          concept, i.e. user programs may now ask for passwords via the same
+        * The systemd-ask-password logic has been extended with a per-user
+          scope, i.e. user programs may now ask for passwords via the same
           mechanism and the previously system-wide only mechanism.
 
         * A new set of system/service credentials are added:
@@ -681,17 +713,8 @@ CHANGES WITH 257 in spe:
           useful to visually highlight the fact a specific shell prompt
           originates from a specific system, execution context or tool. These
           credentials and environment variables are supposed to be generically
-          useful within and outside of the immediate systemd context.
-
-        * run0 gained a new pair of settings --pty and --pipe that control
-          whether to invoke the specified binary on a freshly allocated pseudo
-          TTY, or whether to pass the client's STDIN/STDOUT/STDERR through
-          directly. run0 also gained a new switch --shell-prompt-prefix= that
-          permits passing in a string to display on each shell prompt as
-          prefix. If not specified otherwise this will show a superman emoji
-          (🦸), in order to visually communicate the temporarily elevated
-          privileges a run0 session provides. This makes use of the
-          $SHELL_PROMPT_PREFIX environment variables mentioned above.
+          useful within and outside of the immediate systemd context. It is
+          also used by 'run0', see above.
 
         * New RELEASE_TYPE=, EXPERIMENT=, EXPERIMENT_URL= fields have been
           defined for the /etc/os-release file. For example,
@@ -718,59 +741,61 @@ CHANGES WITH 257 in spe:
           https://github.com/microsoft/terminal/pull/8055
           https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
 
-        * systemd-sysusers is now able to create fully locked accounts. For
-          compatibility it so far created accounts with a locked (i.e. invalid)
-          password, but not marked locked as a whole. With the new "!" modifier
-          for "u" lines, it is now possible to create fully locked
-          accounts. The distinction between accounts with a locked password and
-          fully locked accounts is relevant when considering non-password forms
-          of authentication, i.e. SSH and such. It is strongly recommended to
-          make use of this new feature for almost all system accounts, since
-          they usually do not require (and should not permit) interactive
-          logins. All of systemd's own system users have been changed to be
-          marked as fully locked.
+        * systemd-sysusers is now able to create fully locked user
+          accounts. For compatibility it so far created accounts with a locked
+          (i.e. invalid) password, but not marked locked as a whole. With the
+          new "!" modifier for "u" lines, it is now possible to create fully
+          locked accounts. The distinction between accounts with a locked
+          password and fully locked accounts is relevant when considering
+          non-password forms of authentication, i.e. SSH and such. It is
+          strongly recommended to make use of this new feature for almost all
+          system accounts, since they usually do not require (and should not
+          permit) interactive logins. All of systemd's own system users have
+          been changed to be marked as fully locked.
 
         * systemd-coredump now supports a new EnterNamespace= option, which
           defaults to off. If enabled systemd-coredump will access the mount
           namespace of any crashed process to acquire debug symbol information,
-          in order to be able to symbolized backtraces. This option is useful
-          to improve backtraces of processes of containerized
-          applications. (Note that the host systemd-coredump preferably
-          dispatches coredump processing to the container itself, if it
-          supports that. Only full-OS containers which run systemd inside will
-          support this however, in which case EnterNamespace= might be an
-          alternative approach to acquire symbolized backtraces.)
+          in order to be able to symbolize backtraces. This option is useful to
+          improve backtraces of processes of containerized applications. (Note
+          that the host systemd-coredump preferably dispatches coredump
+          processing to the container itself, if it supports that. Only full-OS
+          containers which run systemd inside will support this however, in
+          other cases EnterNamespace= might be an suitable approach to acquire
+          symbolized backtraces.)
 
-        Contributions from: A. Wilcox, Abderrahim Kitouni, Adrian Vovk,
-        Alain Greppin, Allison Karlitskaya, Alyssa Ross, Anders Jonsson,
-        Andika Triwidada, Andres Beltran, Anouk Ceyssens, Anton Golubev,
-        Antonio Alvarez Feijoo, Arian van Putten, Arnaud Patard,
-        Arthur Shau, Bastien Nocera, Benjamin ROBIN, Brenton Simpson,
-        Bryan Gurney, ButterflyOfFire, Carlo Teubner, Celeste Liu,
-        Chen Guanqiao, Chen Qi, Chengen Du, Christoph Anton Mitterer,
-        Colin Foster, Collin L, Cristian Rodríguez, Daan De Meyer,
-        Dan Nicholson, Daniel Dawson, Daniel Martinez,
-        Daniel P. Berrangé, Daniel Rusek, Darsey Litzenberger,
-        David Joaquín Shourabi Porcel, David Michael, David Rheinsberg,
-        David Tardon, Davide Cavalca, Derek J. Clark, Diego Viola,
-        Dimitrys Meliates, Diogo Ivo, DocNITE, Dominique Martinet,
-        Dr. David Alan Gilbert, Edson Juliano Drosdeck, Erik Sjölund,
-        Etienne Champetier, Etienne Cordonnier, Ettore Atalan,
-        Eugeny Shcheglov, Fabian Vogt, Filip Lewiński, Florian Schmaus,
-        Franck Bui, Frantisek Sumsal, Fábio Rodrigues Ribeiro,
-        Gabriel Elyas, Gaël PORTAY, Giovanni Baratta, Gregor Herburger,
-        Gregory Arenius, GwynBleidD, Göran Uddeborg, Hans de Goede,
-        Helmut Grohne, Henry Chen, Ian Abbott, Integral, Ivan Kruglov,
-        Ivan Shapovalov, James Coglan, James Hilliard, James Muir,
-        Jason Yundt, Jeffrey Bosboom, Johannes Schneider,
-        John A. Leuenhagen, Jose Ignacio Tornos Martinez, JoseskVolpe,
-        Joshua Grisham, Jörg Behrmann, Kai-Chuan Hsieh, Kamil Szczęk,
-        Karel Zak, Kornilios Kourtis, Kuntal Majumder, Lennart Poettering,
-        Luca Boccassi, Lucas Adriano Salles, Lucas Werkmeister,
-        Ludwig Nussel, Luke T. Shumaker, Lukáš Nykrýn, Léane GRASSER,
-        Maanya Goenka, Mantas Mikulėnas, Marc Reisner, Marcel Hellwig,
-        Marin Kresic, Marius Hoch, Martin Srebotnjak, Martin Wilck,
-        Mary Strodl, Matteo Croce, Matthias Lisin, Matthias Schiffer,
+        Contributions from: 12paper, A. Wilcox, Abderrahim Kitouni,
+        Adrian Vovk, Alain Greppin, Allison Karlitskaya, Alyssa Ross,
+        Anders Jonsson, Andika Triwidada, Andres Beltran, Anouk Ceyssens,
+        Anselm Schueler, Anton Golubev, Antonio Alvarez Feijoo,
+        Arian van Putten, Arnaud Patard, Arthur Shau, Bastien Nocera,
+        Benjamin ROBIN, Brenton Simpson, Bryan Gurney, ButterflyOfFire,
+        Carlo Teubner, Celeste Liu, Chen Guanqiao, Chen Qi, Chengen Du,
+        Christoph Anton Mitterer, Colin Foster, Collin L,
+        Cristian Rodríguez, Daan De Meyer, Dan Nicholson, Daniel Dawson,
+        Daniel Martinez, Daniel P. Berrangé, Daniel Rusek,
+        Darsey Litzenberger, David Joaquín Shourabi Porcel,
+        David Michael, David Rheinsberg, David Tardon, Davide Cavalca,
+        Derek J. Clark, Diego Viola, Dimitrys Meliates, Diogo Ivo,
+        DocNITE, Dominique Martinet, Dr. David Alan Gilbert,
+        Edson Juliano Drosdeck, Erik Sjölund, Etienne Champetier,
+        Etienne Cordonnier, Ettore Atalan, Eugeny Shcheglov, Fabian Vogt,
+        Filip Lewiński, Florian Schmaus, Franck Bui, Frantisek Sumsal,
+        Fábio Rodrigues Ribeiro, Gabriel Elyas, Gaël PORTAY,
+        Giovanni Baratta, Gregor Herburger, Gregory Arenius, GwynBleidD,
+        Göran Uddeborg, Hans de Goede, Helmut Grohne, Henry Chen,
+        Ian Abbott, Integral, Ivan Kruglov, Ivan Shapovalov, James Coglan,
+        James Hilliard, James Muir, Jason Yundt, Jeffrey Bosboom,
+        Jian Zhang, Johannes Schneider, John A. Leuenhagen,
+        Jose Ignacio Tornos Martinez, JoseskVolpe, Joshua Grisham,
+        Jörg Behrmann, Kai-Chuan Hsieh, Kamil Szczęk, Karel Zak,
+        Kornilios Kourtis, Kuntal Majumder, Lennart Poettering,
+        Lidong Zhong, Luca Boccassi, Lucas Adriano Salles,
+        Lucas Werkmeister, Ludwig Nussel, Luke T. Shumaker,
+        Lukáš Nykrýn, Luna Jernberg, Léane GRASSER, Maanya Goenka,
+        Mantas Mikulėnas, Marc Reisner, Marcel Hellwig, Marin Kresic,
+        Marius Hoch, Martin Srebotnjak, Martin Wilck, Mary Strodl,
+        Matteo Croce, Matthias Lisin, Matthias Schiffer,
         Matthieu Baerts (NGI0), Matthieu CHARETTE,
         Mauri de Souza Meneguzzo, Maximilian Wilhelm, Merlin Jehli,
         Michael Ferrari, Michal Koutný, Michal Sekletár,
@@ -784,16 +809,17 @@ CHANGES WITH 257 in spe:
         Stuart Hayhurst, Susant Sahani, Takeo Kondo, Temuri Doghonadze,
         Thomas Blume, Thorsten Scherer, Tobias Fleig, Tom Coldrick,
         Tom Yan, Tomas Bzatek, Topi Miettinen, Uday Shankar,
-        Vasiliy Kovalev, Vitaly Kuznetsov, Vito Caputo, Vladimir Panteleev,
-        Will Fancher, WilliButz, Xeonacid, Yanqing Jing, Yu Watanabe,
-        Yuri Chornoivan, ZHANG Yuntian, Zbigniew Jędrzejewski-Szmek,
-        Zhou Qiankang, anonymix007, bryango, chayleaf, chenjiayi, csp5me,
-        cvlc12, fwfy, hugo303, jan@neighbourhood.ie, jauge-technica, lumingzh,
-        maia x., marginaldev, migleeson, nerdopolis, oldherl, pyfisch, q66,
-        rajmohan r, reDBo0n, rhellstrom, rindeal, samuelvw01, sinus-x, tfg13,
-        vdovhanych, xujing, Łukasz Stelmach, Дамјан Георгиевски
+        Valentin David, Vasiliy Kovalev, Vitaly Kuznetsov, Vito Caputo,
+        Vladimir Panteleev, Vursc, Will Fancher, WilliButz, Xeonacid,
+        Yanqing Jing, Yu Watanabe, Yuri Chornoivan, ZHANG Yuntian,
+        Zbigniew Jędrzejewski-Szmek, Zhou Qiankang, andre4ik3, anonymix007,
+        bryango, chayleaf, chenjiayi, csp5me, cvlc12, fwfy, hugo303,
+        jan@neighbourhood.ie, jauge-technica, lumingzh, maia x., marginaldev,
+        migleeson, nerdopolis, oldherl, pyfisch, q66, rajmohan r, reDBo0n,
+        rhellstrom, rindeal, samuelvw01, sinus-x, tfg13, vdovhanych, xujing,
+        Łukasz Stelmach, Štěpán Němec, Дамјан Георгиевски
 
-        — Edinburgh, 2024-11-06
+        — Edinburgh, 2024-11-15
 
 CHANGES WITH 256:
 
