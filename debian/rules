@@ -226,7 +226,7 @@ execute_before_dh_auto_build:
 	# blhc false positives: C++ fuzz test program, cc -E flags listing, PE-COFF EFI binaries
 	@echo 'blhc: ignore-line-regexp: .* -o test-bus-vtable-cc.*'
 	@echo 'blhc: ignore-line-regexp: .*cc -E.*'
-	@echo 'blhc: ignore-line-regexp: .* -o src/boot/efi.*'
+	@echo 'blhc: ignore-line-regexp: .* -o src/boot/.*'
 
 execute_before_dh_auto_clean:
 ifneq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
