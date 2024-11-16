@@ -1,3 +1,9 @@
+systemd (257~rc2-2) unstable; urgency=low
+
+  * Backport patch to fix FTBFS due to failing unit test
+
+ -- Luca Boccassi <bluca@debian.org>  Sat, 16 Nov 2024 00:36:08 +0000
+
 systemd (257~rc2-1) unstable; urgency=low
 
   * d/t/control: add more packages to dummy hint-testsuite-triggers. A
