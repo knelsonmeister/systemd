@@ -1,3 +1,9 @@
+systemd (257~rc2-3) unstable; urgency=low
+
+  * Backport patch to remove faulty unit test assertion
+
+ -- Luca Boccassi <bluca@debian.org>  Sat, 16 Nov 2024 10:13:56 +0000
+
 systemd (257~rc2-2) unstable; urgency=low
 
   * Backport patch to fix FTBFS due to failing unit test
