@@ -597,6 +597,7 @@ Depends: ${misc:Depends},
          python3:any,
          python3-pefile,
 Recommends: systemd,
+            systemd-boot-efi,
             systemd-repart,
 Conflicts: systemd (<< 255.1-1~)
 Replaces: systemd (<< 255.1-1~)
