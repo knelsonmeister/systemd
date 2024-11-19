@@ -218,6 +218,13 @@ ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 CONFFLAGS += -Ddns-servers=''
 endif
 
+# Increase the minimum number of sections to keep free in stub PE header in
+# order to be able to create an UKI file with many DTBs (each of them is stored
+# in a different .dtbauto section)
+ifneq (,$(filter $(DEB_TARGET_ARCH), arm64 armhf riscv64))
+CONFFLAGS += -Defi-stub-extra-sections=500
+endif
+
 override_dh_auto_configure:
 	dh_auto_configure \
 		-- $(CONFFLAGS) $(CONFFLAGS_DISTRO) $(CONFFLAGS_UPSTREAM)
