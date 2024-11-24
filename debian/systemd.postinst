@@ -18,6 +18,12 @@ _update_binfmt() {
     fi
 }
 
+_update_sysctl() {
+    if [ "$(_systemctl show -P LoadState systemd-sysctl.service)" != "masked" ]; then
+        _systemctl restart systemd-sysctl.service || true
+    fi
+}
+
 _restart_managers() {
     _systemctl daemon-reexec || true
     # Re-exec user instances so that running user managers are updated too.
@@ -40,6 +46,9 @@ if [ "$1" = "triggered" ]; then
                 ;;
             /usr/lib/binfmt.d)
                 _update_binfmt
+                ;;
+            /usr/lib/sysctl.d)
+                _update_sysctl
                 ;;
             libc-upgrade)
                 _restart_managers
