@@ -1,3 +1,23 @@
+systemd (257~rc3-1) unstable; urgency=medium
+
+  [ Luca Boccassi ]
+  * systemd-ukify: recommend systemd-boot-efi for the stub (Closes:
+    #1087808)
+  * Increase minimum sections in stub PE header on arm64/armhf/riscv64 to
+    500. Allows riscv64 to include all current DTBs with some room to grow
+    (Closes: #1087817)
+  * Bump version in tzdata dependency due to p-u upload
+  * Update to new upstream version v257~rc3. For a full list of changes:
+    https://github.com/systemd/systemd/releases/tag/v257-rc3
+  * Drop patches, merged upstream
+  * Update symbols for 257~rc3
+
+  [ Ben Hutchings ]
+  * sysctl: Add file trigger on /usr/lib/sysctl.d to restart systemd-
+    sysctl. (Closes: #1085160)
+
+ -- Luca Boccassi <bluca@debian.org>  Wed, 27 Nov 2024 21:21:02 +0000
+
 systemd (257~rc2-3) unstable; urgency=low
 
   * Backport patch to remove faulty unit test assertion
