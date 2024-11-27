@@ -42,6 +42,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import uuid
 from collections.abc import Iterable, Iterator, Sequence
 from hashlib import sha256
 from pathlib import Path
@@ -267,7 +268,7 @@ class UkifyConfig:
     signing_engine: Optional[str]
     signing_provider: Optional[str]
     certificate_provider: Optional[str]
-    signtool: Optional[type['SignTool']]
+    signtool: Optional[str]
     splash: Optional[Path]
     stub: Path
     summary: bool
@@ -465,6 +466,17 @@ class SignTool:
     @staticmethod
     def verify(opts: UkifyConfig) -> bool:
         raise NotImplementedError()
+
+    @staticmethod
+    def from_string(name: str) -> type['SignTool']:
+        if name == 'pesign':
+            return PeSign
+        elif name == 'sbsign':
+            return SbSign
+        elif name == 'systemd-sbsign':
+            return SystemdSbSign
+        else:
+            raise ValueError(f'Invalid sign tool: {name!r}')
 
 
 class PeSign(SignTool):
@@ -1002,14 +1014,9 @@ def merge_sbat(input_pe: list[Path], input_text: list[str]) -> str:
     )
 
 
-# Keep in sync with EFI_GUID (src/boot/efi.h)
-# uint32_t Data1, uint16_t Data2, uint16_t Data3, uint8_t Data4[8]
-EFI_GUID = tuple[int, int, int, tuple[int, int, int, int, int, int, int, int]]
-EFI_GUID_STRUCT_SIZE = 4 + 2 + 2 + 1 * 8
-
 # Keep in sync with Device (DEVICE_TYPE_DEVICETREE) from src/boot/chid.h
 # uint32_t descriptor, EFI_GUID chid, uint32_t name_offset, uint32_t compatible_offset
-DEVICE_STRUCT_SIZE = 4 + EFI_GUID_STRUCT_SIZE + 4 + 4
+DEVICE_STRUCT_SIZE = 4 + 16 + 4 + 4
 NULL_DEVICE = b'\0' * DEVICE_STRUCT_SIZE
 DEVICE_TYPE_DEVICETREE = 1
 
@@ -1018,27 +1025,19 @@ def device_make_descriptor(device_type: int, size: int) -> int:
     return (size) | (device_type << 28)
 
 
-def pack_device(offsets: dict[str, int], name: str, compatible: str, chids: list[EFI_GUID]) -> bytes:
+DEVICETREE_DESCRIPTOR = device_make_descriptor(DEVICE_TYPE_DEVICETREE, DEVICE_STRUCT_SIZE)
+
+
+def pack_device(offsets: dict[str, int], name: str, compatible: str, chids: set[uuid.UUID]) -> bytes:
     data = b''
 
-    for data1, data2, data3, data4 in chids:
-        data += struct.pack(
-            '<IIHH8BII',
-            device_make_descriptor(DEVICE_TYPE_DEVICETREE, DEVICE_STRUCT_SIZE),
-            data1,
-            data2,
-            data3,
-            *data4,
-            offsets[name],
-            offsets[compatible],
-        )
+    for chid in sorted(chids):
+        data += struct.pack('<I', DEVICETREE_DESCRIPTOR)
+        data += chid.bytes_le
+        data += struct.pack('<II', offsets[name], offsets[compatible])
 
     assert len(data) == DEVICE_STRUCT_SIZE * len(chids)
     return data
-
-
-def hex_pairs_list(string: str) -> list[int]:
-    return [int(string[i : i + 2], 16) for i in range(0, len(string), 2)]
 
 
 def pack_strings(strings: set[str], base: int) -> tuple[bytes, dict[str, int]]:
@@ -1053,56 +1052,22 @@ def pack_strings(strings: set[str], base: int) -> tuple[bytes, dict[str, int]]:
 
 
 def parse_hwid_dir(path: Path) -> bytes:
-    hwid_files = path.rglob('*.txt')
+    hwid_files = path.rglob('*.json')
 
     strings: set[str] = set()
-    devices: collections.defaultdict[tuple[str, str], list[EFI_GUID]] = collections.defaultdict(list)
-
-    uuid_regexp = re.compile(
-        r'\{[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}\}', re.I
-    )
+    devices: collections.defaultdict[tuple[str, str], set[uuid.UUID]] = collections.defaultdict(set)
 
     for hwid_file in hwid_files:
-        content = hwid_file.open().readlines()
+        data = json.loads(hwid_file.read_text(encoding='UTF-8'))
 
-        data: dict[str, str] = {
-            'Manufacturer': '',
-            'Family': '',
-            'Compatible': '',
-        }
-        uuids: list[EFI_GUID] = []
-
-        for line in content:
-            for k in data:
-                if line.startswith(k):
-                    data[k] = line.split(':')[1].strip()
-                    break
-            else:
-                uuid = uuid_regexp.match(line)
-                if uuid is not None:
-                    d1, d2, d3, d4, d5 = uuid.group(0)[1:-1].split('-')
-
-                    data1 = int(d1, 16)
-                    data2 = int(d2, 16)
-                    data3 = int(d3, 16)
-                    data4 = cast(
-                        tuple[int, int, int, int, int, int, int, int],
-                        tuple(hex_pairs_list(d4) + hex_pairs_list(d5)),
-                    )
-
-                    uuids.append((data1, data2, data3, data4))
-
-        for k, v in data.items():
-            if not v:
+        for k in ['name', 'compatible', 'hwids']:
+            if k not in data:
                 raise ValueError(f'hwid description file "{hwid_file}" does not contain "{k}"')
 
-        name = data['Manufacturer'] + ' ' + data['Family']
-        compatible = data['Compatible']
+        strings |= {data['name'], data['compatible']}
 
-        strings |= set([name, compatible])
-
-        # (compatible, name) pair uniquely identifies the device
-        devices[(compatible, name)] += uuids
+        # (name, compatible) pair uniquely identifies the device
+        devices[(data['name'], data['compatible'])] |= {uuid.UUID(u) for u in data['hwids']}
 
     total_device_structs = 1
     for dev, uuids in devices.items():
@@ -1111,7 +1076,7 @@ def parse_hwid_dir(path: Path) -> bytes:
     strings_blob, offsets = pack_strings(strings, total_device_structs * DEVICE_STRUCT_SIZE)
 
     devices_blob = b''
-    for (compatible, name), uuids in devices.items():
+    for (name, compatible), uuids in devices.items():
         devices_blob += pack_device(offsets, name, compatible, uuids)
 
     devices_blob += NULL_DEVICE
@@ -1141,15 +1106,16 @@ def make_uki(opts: UkifyConfig) -> None:
 
     if opts.linux and sign_args_present:
         assert opts.signtool is not None
+        signtool = SignTool.from_string(opts.signtool)
 
         if not sign_kernel:
             # figure out if we should sign the kernel
-            sign_kernel = opts.signtool.verify(opts)
+            sign_kernel = signtool.verify(opts)
 
         if sign_kernel:
             linux_signed = tempfile.NamedTemporaryFile(prefix='linux-signed')
             linux = Path(linux_signed.name)
-            opts.signtool.sign(os.fspath(opts.linux), os.fspath(linux), opts=opts)
+            signtool.sign(os.fspath(opts.linux), os.fspath(linux), opts=opts)
 
     if opts.uname is None and opts.linux is not None:
         print('Kernel version not specified, starting autodetection 😖.')
@@ -1310,7 +1276,9 @@ def make_uki(opts: UkifyConfig) -> None:
 
     if sign_args_present:
         assert opts.signtool is not None
-        opts.signtool.sign(os.fspath(unsigned_output), os.fspath(opts.output), opts)
+        signtool = SignTool.from_string(opts.signtool)
+
+        signtool.sign(os.fspath(unsigned_output), os.fspath(opts.output), opts)
 
         # We end up with no executable bits, let's reapply them
         os.umask(umask := os.umask(0))
@@ -1663,26 +1631,6 @@ class ConfigItem:
         return (section_name, key, value)
 
 
-class SignToolAction(argparse.Action):
-    def __call__(
-        self,
-        parser: argparse.ArgumentParser,
-        namespace: argparse.Namespace,
-        values: Union[str, Sequence[Any], None] = None,
-        option_string: Optional[str] = None,
-    ) -> None:
-        if values is None:
-            setattr(namespace, 'signtool', None)
-        elif values == 'sbsign':
-            setattr(namespace, 'signtool', SbSign)
-        elif values == 'pesign':
-            setattr(namespace, 'signtool', PeSign)
-        elif values == 'systemd-sbsign':
-            setattr(namespace, 'signtool', SystemdSbSign)
-        else:
-            raise ValueError(f"Unknown signtool '{values}' (this is unreachable)")
-
-
 VERBS = ('build', 'genkey', 'inspect')
 
 CONFIG_ITEMS = [
@@ -1856,7 +1804,6 @@ CONFIG_ITEMS = [
     ConfigItem(
         '--signtool',
         choices=('sbsign', 'pesign', 'systemd-sbsign'),
-        action=SignToolAction,
         dest='signtool',
         help=(
             'whether to use sbsign or pesign. It will also be inferred by the other '
@@ -2173,24 +2120,24 @@ def finalize_options(opts: argparse.Namespace) -> None:
         )
     elif bool(opts.sb_key) and bool(opts.sb_cert):
         # both param given, infer sbsign and in case it was given, ensure signtool=sbsign
-        if opts.signtool and opts.signtool not in (SbSign, SystemdSbSign):
+        if opts.signtool and opts.signtool not in ('sbsign', 'systemd-sbsign'):
             raise ValueError(
                 f'Cannot provide --signtool={opts.signtool} with --secureboot-private-key= and --secureboot-certificate='  # noqa: E501
             )
         if not opts.signtool:
-            opts.signtool = SbSign
+            opts.signtool = 'sbsign'
     elif bool(opts.sb_cert_name):
         # sb_cert_name given, infer pesign and in case it was given, ensure signtool=pesign
-        if opts.signtool and opts.signtool != PeSign:
+        if opts.signtool and opts.signtool != 'pesign':
             raise ValueError(
                 f'Cannot provide --signtool={opts.signtool} with --secureboot-certificate-name='
             )
-        opts.signtool = PeSign
+        opts.signtool = 'pesign'
 
-    if opts.signing_provider and opts.signtool != SystemdSbSign:
+    if opts.signing_provider and opts.signtool != 'systemd-sbsign':
         raise ValueError('--signing-provider= can only be used with--signtool=systemd-sbsign')
 
-    if opts.certificate_provider and opts.signtool != SystemdSbSign:
+    if opts.certificate_provider and opts.signtool != 'systemd-sbsign':
         raise ValueError('--certificate-provider= can only be used with--signtool=systemd-sbsign')
 
     if opts.sign_kernel and not opts.sb_key and not opts.sb_cert_name:

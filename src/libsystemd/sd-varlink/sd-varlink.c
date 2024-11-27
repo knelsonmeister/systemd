@@ -1698,7 +1698,8 @@ _public_ int sd_varlink_get_events(sd_varlink *v) {
                 ret |= EPOLLIN;
 
         if (!v->write_disconnected &&
-            v->output_buffer_size > 0)
+            (v->output_queue ||
+             v->output_buffer_size > 0))
                 ret |= EPOLLOUT;
 
         return ret;
@@ -3265,7 +3266,7 @@ static sd_varlink_server* varlink_server_destroy(sd_varlink_server *s) {
         return mfree(s);
 }
 
-DEFINE_TRIVIAL_REF_UNREF_FUNC(sd_varlink_server, sd_varlink_server, varlink_server_destroy);
+DEFINE_PUBLIC_TRIVIAL_REF_UNREF_FUNC(sd_varlink_server, sd_varlink_server, varlink_server_destroy);
 
 static int validate_connection(sd_varlink_server *server, const struct ucred *ucred) {
         int allowed = -1;

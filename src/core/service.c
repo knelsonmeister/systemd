@@ -1879,7 +1879,7 @@ static int service_spawn_internal(
                 }
         }
 
-        if (s->restart_mode == SERVICE_RESTART_MODE_DEBUG && UNIT(s)->debug_invocation) {
+        if (UNIT(s)->debug_invocation) {
                 char *t = strdup("DEBUG_INVOCATION=1");
                 if (!t)
                         return -ENOMEM;
@@ -3426,14 +3426,12 @@ static int service_deserialize_item(Unit *u, const char *key, const char *value,
                         return 0;
                 }
 
-                r = service_add_fd_store(s, fd, fdn, do_poll);
+                r = service_add_fd_store(s, TAKE_FD(fd), fdn, do_poll);
                 if (r < 0) {
                         log_unit_debug_errno(u, r,
                                              "Failed to store deserialized fd '%s', ignoring: %m", fdn);
                         return 0;
                 }
-
-                TAKE_FD(fd);
         } else if (streq(key, "extra-fd")) {
                 _cleanup_free_ char *fdv = NULL, *fdn = NULL;
                 _cleanup_close_ int fd = -EBADF;
