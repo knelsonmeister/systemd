@@ -873,12 +873,14 @@ libsystemd.so.0 libsystemd0 #MINVER#
  sd_varlink_server_listen_fd@LIBSYSTEMD_257 257~rc1
  sd_varlink_server_loop_auto@LIBSYSTEMD_257 257~rc1
  sd_varlink_server_new@LIBSYSTEMD_257 257~rc1
+ sd_varlink_server_ref@LIBSYSTEMD_257 257~rc3
  sd_varlink_server_set_connections_max@LIBSYSTEMD_257 257~rc1
  sd_varlink_server_set_connections_per_uid_max@LIBSYSTEMD_257 257~rc1
  sd_varlink_server_set_description@LIBSYSTEMD_257 257~rc1
  sd_varlink_server_set_exit_on_idle@LIBSYSTEMD_257 257~rc1
  sd_varlink_server_set_userdata@LIBSYSTEMD_257 257~rc1
  sd_varlink_server_shutdown@LIBSYSTEMD_257 257~rc1
+ sd_varlink_server_unref@LIBSYSTEMD_257 257~rc3
  sd_varlink_set_allow_fd_passing_input@LIBSYSTEMD_257 257~rc1
  sd_varlink_set_allow_fd_passing_output@LIBSYSTEMD_257 257~rc1
  sd_varlink_set_description@LIBSYSTEMD_257 257~rc1
