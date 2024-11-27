@@ -128,7 +128,7 @@ Depends: systemd-tests,
   libarchive-dev,
   libgcrypt20-dev,
   libcryptsetup-dev,
-  tzdata-legacy | tzdata (<< 2024a-1),
+  tzdata-legacy | tzdata (<< 2024b-3),
 Restrictions: needs-root, isolation-container, breaks-testbed
 
 Tests: boot-smoke
