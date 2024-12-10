@@ -1,3 +1,11 @@
+systemd (257-1) unstable; urgency=medium
+
+  * Update to new upstream version v257. For a full list of changes:
+    https://github.com/systemd/systemd/releases/tag/v257-rc1
+  * Update symbols file for v257
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 10 Dec 2024 19:57:21 +0000
+
 systemd (257~rc3-1) unstable; urgency=medium
 
   [ Luca Boccassi ]
