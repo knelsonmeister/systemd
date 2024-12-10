@@ -1,6 +1,6 @@
 systemd System and Service Manager
 
-CHANGES WITH 257 in spe:
+CHANGES WITH 257:
 
         Incompatible changes:
 
@@ -335,8 +335,9 @@ CHANGES WITH 257 in spe:
 
         systemd-networkd and networkctl:
 
-        * IPv6 address labels can be configured in a new [IPv6AddressLabel]
-          section with Prefix= and Label= settings.
+        * IPv6 address labels can be also configured in a new [IPv6AddressLabel]
+          section with Prefix= and Label= settings in networkd.conf. Please see
+          networkd.conf(5) for more details.
 
         * 'networkctl edit' can now read the new file contents from standard
           input with the new --stdin option.
@@ -367,6 +368,28 @@ CHANGES WITH 257 in spe:
 
         * systemd-networkd will now make RFC9463 DNR fields available to
           systemd-resolved, for automatic DNS DoT configuration, and similar.
+
+        * The "dhcp" and "dhcp-on-stop" values for KeepConfiguration= setting in
+          .network file are replaced with "dynamic" and "dynamic-on-stop",
+          respectively. When specified, systemd-networkd will preserve all
+          dynamic configurations via DHCPv4, DHCPv6, NDISC, and IPv4LL with
+          ACD, while previously only DHCPv4 configurations were kept. Also,
+          when systemd-networkd is restarted, regardless of the setting, these
+          dynamic configurations are unconditionally kept. So, systemd-networkd
+          can be restarted without disturbing ongoing connections.
+
+        * systemd-networkd now updates traffic control configuration without
+          clearing existing settings. Thus, those settings can be updated by
+          editing relevant .network files and triggering 'networkctl reload'.
+
+        * systemd-networkd now gracefully updates netdev settings specified in
+          .netdev files when 'networkctl reload' is called. Previously, if the
+          relevant interfaces existed, new settings would not be applied. Now,
+          new settings will be applied if possible. Some settings cannot be
+          updated after a netdev is configured, e.g. VLAN ID can be only
+          specified on creation. To change such settings, user needs to remove
+          existing interfaces, and invoke 'networkctl reload' or restart
+          systemd-networkd.
 
         systemd-boot, systemd-stub, and related tools:
 
@@ -769,8 +792,8 @@ CHANGES WITH 257 in spe:
 
         Contributions from: 12paper, A. Wilcox, Abderrahim Kitouni,
         Adrian Vovk, Alain Greppin, Allison Karlitskaya, Alyssa Ross,
-        Anders Jonsson, Andika Triwidada, Andres Beltran, Ani Sinha,
-        Anouk Ceyssens, Anselm Schueler, Anton Golubev,
+        Anders Jonsson, Andika Triwidada, Andreas Schwab, Andres Beltran,
+        Ani Sinha, Anouk Ceyssens, Anselm Schueler, Anton Golubev,
         Antonio Alvarez Feijoo, Arian van Putten, Arnaud Patard,
         Arthur Shau, Bastien Nocera, Benjamin ROBIN, Brenton Simpson,
         Bryan Gurney, ButterflyOfFire, Carlo Teubner, Celeste Liu,
@@ -784,17 +807,18 @@ CHANGES WITH 257 in spe:
         Dmytro Markevych, DocNITE, Dominique Martinet,
         Dr. David Alan Gilbert, Edson Juliano Drosdeck, Erik Sjölund,
         Etienne Champetier, Etienne Cordonnier, Ettore Atalan,
-        Eugeny Shcheglov, Fabian Vogt, Federico Giovanardi,
+        Eugeny Shcheglov, Excited-bore, Fabian Vogt, Federico Giovanardi,
         Filip Lewiński, Florian Schmaus, Franck Bui, Frantisek Sumsal,
         Fábio Rodrigues Ribeiro, Gabriel Elyas, Gaël PORTAY,
-        Giovanni Baratta, Gregor Herburger, Gregory Arenius, GwynBleidD,
-        Göran Uddeborg, Hans de Goede, Helmut Grohne, Henry Chen,
-        Ian Abbott, Integral, Ivan Kruglov, Ivan Shapovalov, James Coglan,
-        James Hilliard, James Muir, Jason Yundt, Jeffrey Bosboom,
-        Jian Zhang, Jiri Grönroos, Johannes Schneider,
-        John A. Leuenhagen, Jose Ignacio Tornos Martinez, JoseskVolpe,
-        Joshua Grisham, Jörg Behrmann, Kai-Chuan Hsieh, Kamil Szczęk,
-        Karel Zak, Kornilios Kourtis, Kuntal Majumder, Lennart Poettering,
+        Geraldo S. Simião Kutz, Giovanni Baratta, Greg Heartsfield,
+        Gregor Herburger, Gregory Arenius, GwynBleidD, Göran Uddeborg,
+        Hans de Goede, Helmut Grohne, Henry Chen, Ian Abbott, Integral,
+        Ivan Kruglov, Ivan Shapovalov, James Coglan, James Hilliard,
+        James Muir, Jason Yundt, Jeffrey Bosboom, Jian Zhang,
+        Jiri Grönroos, Johannes Schneider, John A. Leuenhagen,
+        Jose Ignacio Tornos Martinez, JoseskVolpe, Joshua Grisham,
+        Jörg Behrmann, Kai-Chuan Hsieh, Kamil Szczęk, Karel Zak,
+        Kornilios Kourtis, Kuntal Majumder, Lennart Poettering,
         Lidong Zhong, Luca Boccassi, Lucas Adriano Salles,
         Lucas Werkmeister, Ludwig Nussel, Luke T. Shumaker,
         Lukáš Nykrýn, Luna Jernberg, Léane GRASSER, Maanya Goenka,
@@ -809,14 +833,15 @@ CHANGES WITH 257 in spe:
         Oğuz Ersen, Pavel Borecki, PavlNekrasov, Peter Hutterer,
         Peter Rajnoha, Piotr Drąg, Raphaël Mélotte, Renan Guilherme,
         Renjaya Raga Zenta, Ricky Tigg, Riku, Robin Lee, Ronan Pigott,
-        Ryan Wilson, Sam James, Sascha Mester, Sean Rhodes, Sergey A,
-        ShreyasMahangade, Simon Pilkington, Skye Chappelle, Steve Traylen,
-        Stuart Hayhurst, Susant Sahani, Takeo Kondo, Temuri Doghonadze,
+        Ryan Wilson, Sam James, Sascha Mester, Sean Rhodes,
+        Sebastian Gross, Septatrix, Sergey A, ShreyasMahangade,
+        Simon Pilkington, Skye Chappelle, Steve Traylen, Stuart Hayhurst,
+        SuhailAhmedVelorum, Susant Sahani, Takeo Kondo, Temuri Doghonadze,
         Thomas Blume, Thorsten Kukuk, Thorsten Scherer, Tobias Fleig,
         Tobias Zimmermann, Tom Coldrick, Tom Yan, Tomas Bzatek,
-        Topi Miettinen, Uday Shankar, Valentin David, Vasiliy Kovalev,
-        Vitaly Kuznetsov, Vito Caputo, Vladimir Panteleev, Vursc,
-        Will Fancher, WilliButz, Winterhuman, Xeonacid, Xuanjun Wen,
+        Topi Miettinen, Tristan F.-R., Uday Shankar, Valentin David,
+        Vasiliy Kovalev, Vitaly Kuznetsov, Vito Caputo, Vladimir Panteleev,
+        Vursc, Will Fancher, WilliButz, Winterhuman, Xeonacid, Xuanjun Wen,
         Yanqing Jing, Yaron Shahrabani, Yu Watanabe, Yuri Chornoivan,
         ZHANG Yuntian, Zbigniew Jędrzejewski-Szmek, Zhou Qiankang,
         andre4ik3, anonymix007, bryango, chayleaf, chenjiayi, csp5me, cvlc12,
@@ -826,7 +851,7 @@ CHANGES WITH 257 in spe:
         sinus-x, tfg13, vdovhanych, xujing, Łukasz Stelmach,
         Štěpán Němec, Дамјан Георгиевски, 白一百
 
-        — Edinburgh, 2024-11-27
+        — Edinburgh, 2024-12-10
 
 CHANGES WITH 256:
 
