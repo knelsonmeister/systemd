@@ -1,3 +1,13 @@
+systemd (257-2) unstable; urgency=medium
+
+  [ Aurelien Jarno ]
+  * udev: install dmi_memory_id and its rules on riscv64.
+
+  [ Luca Boccassi ]
+  * Backport patches to fix test failures
+
+ -- Luca Boccassi <bluca@debian.org>  Wed, 11 Dec 2024 18:31:08 +0000
+
 systemd (257-1) unstable; urgency=medium
 
   * Update to new upstream version v257. For a full list of changes:
