@@ -19,7 +19,7 @@ usr/lib/systemd/system/systemd-udev-trigger.service
 usr/lib/tmpfiles.d/static-nodes-permissions.conf
 usr/lib/udev/ata_id
 usr/lib/udev/cdrom_id
-[amd64 arm64 armel armhf ia64 i386 loong64 x32] usr/lib/udev/dmi_memory_id
+[amd64 arm64 armel armhf ia64 i386 loong64 riscv64 x32] usr/lib/udev/dmi_memory_id
 usr/lib/udev/fido_id
 usr/lib/udev/iocost
 usr/lib/udev/mtd_probe
@@ -47,7 +47,7 @@ usr/lib/udev/rules.d/60-serial.rules
 usr/lib/udev/rules.d/64-btrfs.rules
 usr/lib/udev/rules.d/70-camera.rules
 usr/lib/udev/rules.d/70-joystick.rules
-[amd64 arm64 armel armhf ia64 i386 loong64 x32] usr/lib/udev/rules.d/70-memory.rules
+[amd64 arm64 armel armhf ia64 i386 loong64 riscv64 x32] usr/lib/udev/rules.d/70-memory.rules
 usr/lib/udev/rules.d/70-mouse.rules
 usr/lib/udev/rules.d/70-power-switch.rules
 usr/lib/udev/rules.d/70-touchpad.rules
