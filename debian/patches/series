@@ -1,0 +1,4 @@
+test-set-nsec3-salt-length-8-in-knot.conf.patch
+test-capability-CAP_LINUX_IMMUTABLE-is-not-available-in-u.patch
+test-fd-util-skip-test-when-lacking-privileges-to-create-.patch
+test-fd-util-compare-FDs-to-bin-sh-instead-of-dev-null.patch

@@ -1,0 +1,15 @@
+Author: Luca Boccassi <luca.boccassi@gmail.com>
+Description: test-fd-util: skip test when lacking privileges to create a new namespace
+Origin: upstream, commit:630a2e7ee195ca96e102acac8df67a278a879124)
+Forwarded: yes
+--- a/src/test/test-fd-util.c
++++ b/src/test/test-fd-util.c
+@@ -389,6 +389,8 @@
+                         test_close_all_fds_inner();
+                 _exit(EXIT_SUCCESS);
+         }
++        if (ERRNO_IS_NEG_PRIVILEGE(r))
++                return (void) log_tests_skipped("Lacking privileges for test in namespace with /proc/ overmounted");
+         assert_se(r >= 0);
+ 
+         if (!is_seccomp_available())
