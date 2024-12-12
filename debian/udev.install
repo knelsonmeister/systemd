@@ -56,6 +56,7 @@ usr/lib/udev/rules.d/75-probe_mtd.rules
 usr/lib/udev/rules.d/78-sound-card.rules
 usr/lib/udev/rules.d/80-drivers.rules
 usr/lib/udev/rules.d/80-net-setup-link.rules
+<pkg.systemd.upstream> usr/lib/udev/rules.d/81-net-bridge.rules
 usr/lib/udev/rules.d/81-net-dhcp.rules
 usr/lib/udev/rules.d/90-iocost.rules
 usr/share/bash-completion/completions/udevadm
