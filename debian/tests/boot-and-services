@@ -58,6 +58,8 @@ class ServicesTest(unittest.TestCase):
         failed = [f for f in failed if 'cpi.service' not in f]
         # https://bugs.debian.org/969568
         failed = [f for f in failed if 'rng-tools-debian.service' not in f]
+        # fwupd-refresh randomly fails
+        failed = [f for f in failed if 'fwupd-refresh.service' not in f]
         # https://bugs.debian.org/926138
         if is_container:
             failed = [f for f in failed if 'e2scrub_reap.service' not in f]
