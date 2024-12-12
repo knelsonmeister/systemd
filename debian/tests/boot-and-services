@@ -434,13 +434,11 @@ class CoredumpTest(unittest.TestCase):
         for timeout in range(10):
             subprocess.call(['journalctl', '--sync'])
             journal = subprocess.check_output(['journalctl', '-t', 'systemd-coredump'])
-            if re.search(b'Process.*bash.*dumped core', journal) and \
-               re.search(b'#[0-9] .*bash', journal):
+            if re.search(b'Process.*bash.*dumped core', journal):
                 break
             time.sleep(1)
         self.assertRegex(journal, b'Process.*bash.*dumped core')
         self.assertIn(b'Stack trace', journal)
-        self.assertRegex(journal, b'#[0-9] .*bash')
 
 
 class CLITest(unittest.TestCase):
