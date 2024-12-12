@@ -449,6 +449,7 @@ usr/share/bash-completion/completions/systemd-cat
 usr/share/bash-completion/completions/systemd-cgls
 usr/share/bash-completion/completions/systemd-cgtop
 usr/share/bash-completion/completions/systemd-confext
+<pkg.systemd.upstream> usr/share/bash-completion/completions/systemd-creds
 usr/share/bash-completion/completions/systemd-delta
 usr/share/bash-completion/completions/systemd-detect-virt
 usr/share/bash-completion/completions/systemd-dissect
