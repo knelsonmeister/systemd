@@ -99,20 +99,22 @@ fi
 tee mkosi.local.conf <<EOF
 [Output]
 Format=disk
+
+[Build]
 WorkspaceDirectory=$workdir
 PackageCacheDirectory=$workdir/cache
+SandboxTrees=${apt_dir}:/etc/apt/
+Environment=NO_BUILD=1 NO_SYNC=1 ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS" TEST_SAVE_JOURNAL=fail TEST_SHOW_JOURNAL=warning
+Incremental=no
 
 [Distribution]
-PackageManagerTrees=${apt_dir}:/etc/apt/
 ${RELEASE:+"Release=${RELEASE}"}
 
 [Content]
-Environment=NO_BUILD=1 NO_SYNC=1 ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS" TEST_SAVE_JOURNAL=fail TEST_SHOW_JOURNAL=warning
 ${local_binaries:+"PackageDirectories=${local_binaries}"}
 
 [Host]
 RuntimeBuildSources=no
-Incremental=no
 EOF
 
 # Everything is already built and installed, but these dependencies will cause rebuilds which we want to
