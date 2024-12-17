@@ -1,0 +1,54 @@
+#!/bin/sh
+
+# run some autopkgtest tests in lxd
+
+set -eu
+
+snap install lxd
+lxd init --auto
+
+# Do this until it is the LXD upstream default.
+# https://github.com/canonical/lxd/issues/13631
+lxc profile set default security.nesting true
+
+IMAGE=autopkgtest/ubuntu/$(lsb_release -cs)/$(dpkg --print-architecture)
+
+# work around LP: #1878225 as fallback
+autopkgtest-build-lxd ubuntu-daily:$(lsb_release -cs)
+
+# help debugging if building lxd image still fails
+lxc image list | grep -q autopkgtest/ || autopkgtest-build-lxd ubuntu-daily:$(lsb_release -cs) || \
+    (lxc launch ubuntu-daily:$(lsb_release -cs) systemd-lxc
+     sleep 60
+     lxc exec systemd-lxc systemctl is-system-running || (lxc exec systemd-lxc -- systemctl list-units --failed ; lxc exec systemd-lxc systemctl list-jobs ; lxc exec systemd-lxc -- journalctl -a)
+     exit 1)
+
+# push local apt configuration to match pinning
+lxc launch $IMAGE systemd-lxc
+
+lxc file push -r /etc/apt systemd-lxc/etc/
+lxc exec systemd-lxc -- sed -i 's|/tmp/autopkgtest.[^/]*/|/root/|' /etc/apt/sources.list.d/autopkgtest.list || true
+
+if [ -d /tmp/autopkgtest.*/build.*/src ]; then
+    cd /tmp/autopkgtest.*/build.*/src
+else
+    cd /tmp/autopkgtest.*/build.*/real-tree
+fi
+
+# push potential locally built packages
+if [ -d ../../binaries ]; then
+    lxc file push -r ../../binaries systemd-lxc/root/
+fi
+
+lxc stop systemd-lxc
+lxc publish systemd-lxc --reuse --alias $IMAGE
+
+# Only test unprivileged LXD containers, since privileged LXD containers cause LoadCredential= (LP: #1950787),
+# and other things to break. According to upstream LXD, we should not worry to much about privileged LXD
+# containers anyways (see https://bugs.launchpad.net/ubuntu/+source/lxd/+bug/1950787/comments/4).
+#
+# We would like to have a simple boot smoke test for privileged LXD containers still, but cannot do
+# so until LP: #1998943 is fixed in autopkgtest.
+for t in unit-tests boot-and-services; do
+    autopkgtest -U -B . --test-name=$t -- lxd $IMAGE || [ $? = 2 ] # see Debian's #960267
+done
