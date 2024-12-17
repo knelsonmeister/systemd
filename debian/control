@@ -146,6 +146,7 @@ Conflicts: sysvinit-core,
 Replaces: sysvinit-core,
 Pre-Depends: systemd
 Depends: ${misc:Depends},
+         systemd (= ${binary:Version}),
 Recommends: libpam-systemd,
             libnss-systemd
 Description: system and service manager - SysV compatibility symlinks
