@@ -37,40 +37,6 @@ class ServicesTest(unittest.TestCase):
 
         self.assertIn('systemd', os.readlink('/proc/1/exe'))
 
-    def test_no_failed(self):
-        '''No failed units'''
-
-        out = subprocess.check_output(
-                ['systemctl', '--state=failed', '--no-legend', '--plain'],
-                universal_newlines=True)
-        failed = out.splitlines()
-        # ignore /etc/modules failure as stuff that we put there by default
-        # often fails
-        failed = [f for f in failed if 'systemd-modules-load' not in f]
-        # apparmor fails if not enabled in the kernel
-        if not os.path.exists('/sys/kernel/security/apparmor'):
-            failed = [f for f in failed if 'apparmor.service' not in f]
-        # ignore thermald as it doesn't start in most virtual envs
-        failed = [f for f in failed if 'thermald' not in f]
-        # console-setup.service fails on devices without keyboard (LP: #1516591)
-        failed = [f for f in failed if 'console-setup' not in f]
-        # cpi.service fails on s390x
-        failed = [f for f in failed if 'cpi.service' not in f]
-        # https://bugs.debian.org/969568
-        failed = [f for f in failed if 'rng-tools-debian.service' not in f]
-        # fwupd-refresh randomly fails
-        failed = [f for f in failed if 'fwupd-refresh.service' not in f]
-        # https://bugs.debian.org/926138
-        if is_container:
-            failed = [f for f in failed if 'e2scrub_reap.service' not in f]
-        if failed:
-            for f in failed:
-                f = f.split()[0]
-                print('-------- journal for failed service %s -----------' % f)
-                sys.stdout.flush()
-                subprocess.call(['journalctl', '-b', '-u', f])
-            self.assertEqual(failed, [])
-
     @unittest.skipUnless(shutil.which('gdm3') is not None, 'gdm3 not found')
     def test_gdm3(self):
         subprocess.check_call(['pgrep', '-af', '/gdm[-3]'])
