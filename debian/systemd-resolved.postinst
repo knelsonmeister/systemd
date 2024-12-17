@@ -26,7 +26,9 @@ fi
 if [ "$1" = configure ] && dpkg --compare-versions "$2" lt 251.4-2; then
     if [ "$(readlink "${DPKG_ROOT}/etc/resolv.conf")" != "../run/systemd/resolve/stub-resolv.conf" ] && [ "$(readlink "${DPKG_ROOT}/etc/resolv.conf")" != "/run/systemd/resolve/stub-resolv.conf" ]; then
         echo "Converting /etc/resolv.conf to a symlink to /run/systemd/resolve/stub-resolv.conf..."
+        mkdir -p "${DPKG_ROOT}/run/systemd/resolve"
         if [ -f "${DPKG_ROOT}/etc/resolv.conf" ]; then
+            cp "${DPKG_ROOT}/etc/resolv.conf" "${DPKG_ROOT}/run/systemd/resolve/stub-resolv.conf" || echo "Cannot copy /etc/resolv.conf to /run/systemd/resolve/stub-resolv.conf"
             mv "${DPKG_ROOT}/etc/resolv.conf" "${DPKG_ROOT}/etc/.resolv.conf.systemd-resolved.bak" || echo "Cannot take a backup of /etc/resolv.conf."
         fi
         ln -sf ../run/systemd/resolve/stub-resolv.conf "${DPKG_ROOT}/etc/resolv.conf" || echo "Cannot install symlink from /etc/resolv.conf to ../run/systemd/resolve/stub-resolv.conf"
