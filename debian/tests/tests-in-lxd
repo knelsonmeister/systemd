@@ -31,6 +31,8 @@ lxc exec systemd-lxc -- sed -i 's|/tmp/autopkgtest.[^/]*/|/root/|' /etc/apt/sour
 
 if [ -d /tmp/autopkgtest.*/build.*/src ]; then
     cd /tmp/autopkgtest.*/build.*/src
+elif [ -d /tmp/autopkgtest.*/build.*/systemd ]; then
+    cd /tmp/autopkgtest.*/build.*/systemd
 else
     cd /tmp/autopkgtest.*/build.*/real-tree
 fi
