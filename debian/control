@@ -601,6 +601,7 @@ Depends: ${misc:Depends},
 Recommends: systemd,
             systemd-boot-efi,
             systemd-repart,
+            python3-cryptography,
 Conflicts: systemd (<< 255.1-1~)
 Replaces: systemd (<< 255.1-1~)
 Description: tool to build Unified Kernel Images
