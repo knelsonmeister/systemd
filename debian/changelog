@@ -1,3 +1,30 @@
+systemd (257.1-1) unstable; urgency=medium
+
+  [ Luca Boccassi ]
+  * test: fix flaky boot-and-services test.
+  * d/t/upstream: fix mkosi syntax warnings
+  * systemd-ukify: recommend python3-cryptography. One of the verbs uses
+    it, so add a recommend to pull it in by default (Closes: #1090759)
+  * d/watch: restrict to v257.x series
+  * Update upstream source from tag 'upstream/257.1' (Closes: #1087616)
+  * Drop patches, merged upstream
+  * Install systemd-creds bash completion
+
+  [ Nick Rosbrook ]
+  * d/t/tests-in-lxd: run some tests under LXD
+  * debian/tests/boot-and-services: drop test_no_failed
+  * debian/control: add Breaks: systemd (<< ${binary:Version}) for udev.
+    This ensures that systemd is also upgraded whenever udev is upgraded.
+  * d/control: make systemd-sysv Depends: on matching version of systemd
+  * d/systemd-resolved.postinst: copy existing /etc/resolv.conf on new
+    installs
+
+  [ Balint Reczey ]
+  * debian/systemd.postinst: Skip daemon-reexec and try-restarts during
+    shutdown. LP #1803391
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 19 Dec 2024 21:41:25 +0000
+
 systemd (257-2) unstable; urgency=medium
 
   [ Aurelien Jarno ]
