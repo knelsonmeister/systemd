@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # run some autopkgtest tests in lxd
-set -eu
+set -eux
 
 RELEASE=$(
     . /etc/os-release;
