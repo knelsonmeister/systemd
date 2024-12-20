@@ -59,7 +59,9 @@ lxc image list | grep -q autopkgtest/ || autopkgtest-build-lxd "${IMAGE_SERVER}:
 lxc launch "$IMAGE" systemd-lxc
 
 lxc file push -r /etc/apt systemd-lxc/etc/
-lxc exec systemd-lxc -- sed -i 's|/tmp/autopkgtest.[^/]*/|/root/|' /etc/apt/sources.list.d/autopkgtest.list || true
+if [ -f /etc/apt/sources.list.d/autopkgtest.list ]; then
+    lxc exec systemd-lxc -- sed -i 's|/tmp/autopkgtest.[^/]*/|/root/|' /etc/apt/sources.list.d/autopkgtest.list || true
+fi
 
 if [ -d /tmp/autopkgtest.*/build.*/src ]; then
     cd /tmp/autopkgtest.*/build.*/src
