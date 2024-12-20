@@ -1,3 +1,9 @@
+systemd (257.1-2) unstable; urgency=medium
+
+  * Various fixes for d/t/tests-in-lxd
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 20 Dec 2024 15:27:15 +0000
+
 systemd (257.1-1) unstable; urgency=medium
 
   [ Luca Boccassi ]
