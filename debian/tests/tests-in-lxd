@@ -63,7 +63,9 @@ if [ -f /etc/apt/sources.list.d/autopkgtest.list ]; then
     lxc exec systemd-lxc -- sed -i 's|/tmp/autopkgtest.[^/]*/|/root/|' /etc/apt/sources.list.d/autopkgtest.list || true
 fi
 
-if [ -d /tmp/autopkgtest.*/build.*/src ]; then
+if [ -d "${AUTOPKGTEST_TMP:-}/../tree" ]; then
+    cd "${AUTOPKGTEST_TMP:-}/../tree"
+elif [ -d /tmp/autopkgtest.*/build.*/src ]; then
     cd /tmp/autopkgtest.*/build.*/src
 elif [ -d /tmp/autopkgtest.*/build.*/systemd ]; then
     cd /tmp/autopkgtest.*/build.*/systemd
