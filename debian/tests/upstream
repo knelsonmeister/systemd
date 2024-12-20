@@ -104,6 +104,7 @@ Format=disk
 WorkspaceDirectory=$workdir
 PackageCacheDirectory=$workdir/cache
 SandboxTrees=${apt_dir}:/etc/apt/
+ToolsTree=
 Environment=NO_BUILD=1 NO_SYNC=1 ARTIFACT_DIRECTORY="$AUTOPKGTEST_ARTIFACTS" TEST_SAVE_JOURNAL=fail TEST_SHOW_JOURNAL=warning
 Incremental=no
 
