@@ -3,8 +3,30 @@
 # run some autopkgtest tests in lxd
 set -eu
 
-ID="$(. /etc/os-release; echo $ID)"
-VERSION_CODENAME="$(. /etc/os-release; echo $VERSION_CODENAME)"
+RELEASE=$(
+    . /etc/os-release;
+    if [ "$ID" = "ubuntu" ]; then
+        echo "$VERSION_CODENAME"
+    elif [ "$ID" = "debian" ]; then
+        if [ -n "${VERSION_ID:-}" ] && [ -n "${VERSION_CODENAME:-}" ]; then
+            echo "$VERSION_CODENAME"
+        else
+            debian_version="$(cat /etc/debian_version)"
+            if [ "${debian_version#*/}" = sid ]; then
+                if [ "$VERSION_CODENAME" = sid ] || grep -q -r sid /etc/apt/sources.list* || grep -q -r unstable /etc/apt/sources.list*; then
+                    echo "sid"
+                else
+                    echo "$VERSION_CODENAME"
+                fi
+            fi
+        fi
+    fi
+)
+
+DISTRO=$(
+    . /etc/os-release;
+    echo "$ID"
+)
 
 snap install lxd
 lxd init --auto
@@ -13,14 +35,14 @@ lxd init --auto
 # https://github.com/canonical/lxd/issues/13631
 lxc profile set default security.nesting true
 
-IMAGE="autopkgtest/${ID}/${VERSION_CODENAME}/$(dpkg --print-architecture)"
+IMAGE="autopkgtest/${DISTRO}/${RELEASE}/$(dpkg --print-architecture)"
 
-if [ "$ID" = "ubuntu" ]; then
+if [ "$DISTRO" = "ubuntu" ]; then
     IMAGE_SERVER="ubuntu-daily"
-    IMAGE_ID="${VERSION_CODENAME}"
+    IMAGE_ID="${RELEASE}"
 else
     IMAGE_SERVER="images"
-    IMAGE_ID="${ID}/${VERSION_CODENAME}"
+    IMAGE_ID="${DISTRO}/${RELEASE}"
 fi
 
 # work around LP: #1878225 as fallback
