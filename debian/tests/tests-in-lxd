@@ -56,7 +56,7 @@ lxc image list | grep -q autopkgtest/ || autopkgtest-build-lxd "${IMAGE_SERVER}:
      exit 1)
 
 # push local apt configuration to match pinning
-lxc launch $IMAGE systemd-lxc
+lxc launch "$IMAGE" systemd-lxc
 
 lxc file push -r /etc/apt systemd-lxc/etc/
 lxc exec systemd-lxc -- sed -i 's|/tmp/autopkgtest.[^/]*/|/root/|' /etc/apt/sources.list.d/autopkgtest.list || true
@@ -75,7 +75,7 @@ if [ -d ../../binaries ]; then
 fi
 
 lxc stop systemd-lxc
-lxc publish systemd-lxc --reuse --alias $IMAGE
+lxc publish systemd-lxc --reuse --alias "$IMAGE"
 
 # Only test unprivileged LXD containers, since privileged LXD containers cause LoadCredential= (LP: #1950787),
 # and other things to break. According to upstream LXD, we should not worry to much about privileged LXD
@@ -84,5 +84,5 @@ lxc publish systemd-lxc --reuse --alias $IMAGE
 # We would like to have a simple boot smoke test for privileged LXD containers still, but cannot do
 # so until LP: #1998943 is fixed in autopkgtest.
 for t in unit-tests boot-and-services; do
-    autopkgtest -U -B . --test-name=$t -- lxd $IMAGE || [ $? = 2 ] # see Debian's #960267
+    autopkgtest -U -B . --test-name=$t -- lxd "$IMAGE" || [ $? = 2 ] # see Debian's #960267
 done
