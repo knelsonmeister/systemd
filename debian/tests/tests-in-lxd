@@ -1,8 +1,10 @@
 #!/bin/sh
 
 # run some autopkgtest tests in lxd
-
 set -eu
+
+ID="$(. /etc/os-release; echo $ID)"
+VERSION_CODENAME="$(. /etc/os-release; echo $VERSION_CODENAME)"
 
 snap install lxd
 lxd init --auto
@@ -11,14 +13,22 @@ lxd init --auto
 # https://github.com/canonical/lxd/issues/13631
 lxc profile set default security.nesting true
 
-IMAGE=autopkgtest/ubuntu/$(lsb_release -cs)/$(dpkg --print-architecture)
+IMAGE="autopkgtest/${ID}/${VERSION_CODENAME}/$(dpkg --print-architecture)"
+
+if [ "$ID" = "ubuntu" ]; then
+    IMAGE_SERVER="ubuntu-daily"
+    IMAGE_ID="${VERSION_CODENAME}"
+else
+    IMAGE_SERVER="images"
+    IMAGE_ID="${ID}/${VERSION_CODENAME}"
+fi
 
 # work around LP: #1878225 as fallback
-autopkgtest-build-lxd ubuntu-daily:$(lsb_release -cs)
+autopkgtest-build-lxd "${IMAGE_SERVER}:${IMAGE_ID}"
 
 # help debugging if building lxd image still fails
-lxc image list | grep -q autopkgtest/ || autopkgtest-build-lxd ubuntu-daily:$(lsb_release -cs) || \
-    (lxc launch ubuntu-daily:$(lsb_release -cs) systemd-lxc
+lxc image list | grep -q autopkgtest/ || autopkgtest-build-lxd "${IMAGE_SERVER}:${IMAGE_ID}" || \
+    (lxc launch "${IMAGE_SERVER}:${IMAGE_ID}" systemd-lxc
      sleep 60
      lxc exec systemd-lxc systemctl is-system-running || (lxc exec systemd-lxc -- systemctl list-units --failed ; lxc exec systemd-lxc systemctl list-jobs ; lxc exec systemd-lxc -- journalctl -a)
      exit 1)
