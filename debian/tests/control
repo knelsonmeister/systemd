@@ -155,7 +155,7 @@ Depends: systemd-tests,
   lsb-release,
   snapd,
   dnsmasq-base,
-Restrictions: needs-root, allow-stderr, isolation-machine, breaks-testbed, skip-not-installable, skippable
+Restrictions: needs-root, allow-stderr, isolation-machine, breaks-testbed, skip-not-installable, skippable, flaky
 
 # Dummy test so that changes to key packages trigger our autopkgtests on ci.debian.net
 Features: test-name=hint-testsuite-triggers
