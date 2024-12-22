@@ -144,6 +144,7 @@ export NSPAWN_TIMEOUT=2400
 export SYSTEMD_INTEGRATION_TESTS=1
 export NO_BUILD=1
 export NO_SYNC=1
+export TEST_PREFER_QEMU=1
 
 mkosi summary
 meson setup "${workdir}/btrfs/build" -Dintegration-tests=true -Dtests=true
