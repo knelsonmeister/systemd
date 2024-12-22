@@ -53,6 +53,10 @@ systemctl try-reload-or-restart systemd-resolved.service
 # We need to have a dependency the packages but no need to run them
 systemctl disable --now systemd-homed.service systemd-userdbd.service systemd-userdbd.socket
 
+# mkosi registers a pid with machined before it is assigned to a scope, so machined
+# associates it with the user session, and kills it later when the machine is shut down
+systemctl mask --now systemd-machined.service
+
 workdir="$(mktemp --directory --tmpdir=/var/tmp integration-tests.XXXXXXXXXX)"
 trap cleanup EXIT
 
