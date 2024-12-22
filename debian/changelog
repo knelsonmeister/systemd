@@ -1,3 +1,13 @@
+systemd (257.1-4) unstable; urgency=medium
+
+  * d/t/upstream: decrease parallelism to nproc - 1
+  * d/t/upstream: do not use nspawn for tests
+  * d/t/upstream: disable homed/userdbd in the test runner
+  * d/t/upstream: mask systemd-machined
+  * Backport patch to workaround issue in new mdadm
+
+ -- Luca Boccassi <bluca@debian.org>  Sun, 22 Dec 2024 13:57:12 +0000
+
 systemd (257.1-3) unstable; urgency=medium
 
   * autopkgtest: mark tests-in-lxd as flaky
