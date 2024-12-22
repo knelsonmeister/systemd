@@ -87,4 +87,4 @@ lxc publish systemd-lxc --reuse --alias "$IMAGE"
 #
 # We would like to have a simple boot smoke test for privileged LXD containers still, but cannot do
 # so until LP: #1998943 is fixed in autopkgtest.
-autopkgtest -U -B . --test-name=unit-tests --test-name=boot-and-services -- lxd "$IMAGE"
+autopkgtest --setup-commands='apt-get install --yes auto-apt-proxy' -U -B . --test-name=unit-tests --test-name=boot-and-services -- lxd "$IMAGE"
