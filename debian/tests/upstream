@@ -158,4 +158,4 @@ meson setup "${workdir}/btrfs/build" -Dintegration-tests=true -Dtests=true
 mkosi --debug genkey
 cp mkosi.key mkosi.crt "${workdir}/btrfs/build"
 meson compile -C "${workdir}/btrfs/build" mkosi
-meson test -C "${workdir}/btrfs/build" -v  --no-rebuild --suite integration-tests --print-errorlogs --no-stdsplit --num-processes "$(($(nproc) - 1))"
+meson test -C "${workdir}/btrfs/build" --no-rebuild --suite integration-tests --print-errorlogs --no-stdsplit --num-processes "$(($(nproc) - 1))"
