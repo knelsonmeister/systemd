@@ -53,10 +53,6 @@ systemctl try-reload-or-restart systemd-resolved.service
 # We need to have a dependency the packages but no need to run them
 systemctl disable --now systemd-homed.service systemd-userdbd.service systemd-userdbd.socket
 
-# mkosi registers a pid with machined before it is assigned to a scope, so machined
-# associates it with the user session, and kills it later when the machine is shut down
-systemctl mask --now systemd-machined.service
-
 workdir="$(mktemp --directory --tmpdir=/var/tmp integration-tests.XXXXXXXXXX)"
 trap cleanup EXIT
 
@@ -124,6 +120,19 @@ ${local_binaries:+"PackageDirectories=${local_binaries}"}
 [Host]
 RuntimeBuildSources=no
 EOF
+
+# mkosi registers a pid with machined before it is assigned to a scope, so machined
+# associates it with the user session, and kills it later when the machine is shut down,
+# disable registration to avoid it. This is a workaround for versions older than 25, where
+# MachinedRegister=no does the same.
+if systemd-analyze compare-versions "$(git -C "$mkosi_tree" describe | tr -d 'v')" lt 25; then
+    sed -i "/  register_machine(/d" "$mkosi_tree/mkosi/qemu.py"
+else
+    tee -a mkosi.local.conf <<EOF
+[Runtime]
+MachinedRegister=no
+EOF
+fi
 
 # Everything is already built and installed, but these dependencies will cause rebuilds which we want to
 # avoid, so patch them out
