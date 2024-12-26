@@ -63,6 +63,16 @@ if [ -f /etc/apt/sources.list.d/autopkgtest.list ]; then
     lxc exec systemd-lxc -- sed -i 's|/tmp/autopkgtest.[^/]*/|/root/|' /etc/apt/sources.list.d/autopkgtest.list || true
 fi
 
+# auto-apt-proxy is configured in debci
+if [ "$DISTRO" = "ubuntu" ]; then
+    # In Ubuntu it's in universe, so enable it
+    lxc exec systemd-lxc -- apt-get update
+    lxc exec systemd-lxc -- apt-get install --yes software-properties-common
+    lxc exec systemd-lxc -- add-apt-repository universe
+fi
+lxc exec systemd-lxc -- apt-get update
+lxc exec systemd-lxc -- apt-get install --yes auto-apt-proxy
+
 if [ -d "${AUTOPKGTEST_TMP:-}/../tree" ]; then
     cd "${AUTOPKGTEST_TMP:-}/../tree"
 elif [ -d /tmp/autopkgtest.*/build.*/src ]; then
@@ -87,4 +97,4 @@ lxc publish systemd-lxc --reuse --alias "$IMAGE"
 #
 # We would like to have a simple boot smoke test for privileged LXD containers still, but cannot do
 # so until LP: #1998943 is fixed in autopkgtest.
-autopkgtest --setup-commands='apt-get install --yes auto-apt-proxy' -U -B . --test-name=unit-tests --test-name=boot-and-services -- lxd "$IMAGE"
+autopkgtest -U -B . --test-name=unit-tests --test-name=boot-and-services -- lxd "$IMAGE"
