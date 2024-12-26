@@ -134,6 +134,9 @@ MachinedRegister=no
 EOF
 fi
 
+# kernel 6.12 broke mounting btrfs filesystems from loop devices, so switch to ext4
+sed -i "s/Format=btrfs/Format=ext4/" mkosi.repart/10-root.conf
+
 # Everything is already built and installed, but these dependencies will cause rebuilds which we want to
 # avoid, so patch them out
 sed -i "/depends : mkosi_depends/d" meson.build
@@ -160,7 +163,6 @@ export NSPAWN_TIMEOUT=2400
 export SYSTEMD_INTEGRATION_TESTS=1
 export NO_BUILD=1
 export NO_SYNC=1
-export TEST_PREFER_QEMU=1
 
 mkosi summary
 meson setup "${workdir}/btrfs/build" -Dintegration-tests=true -Dtests=true
