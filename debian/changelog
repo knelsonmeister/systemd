@@ -1,3 +1,14 @@
+systemd (257.1-5) unstable; urgency=medium
+
+  * d/t/tests-in-lxd: install auto-apt-proxy in the nested container.
+  * d/t/upstream: do not use --verbose with 'meson test'
+  * d/t/upstream: do not mask machined and instead use mkosi workaround
+  * d/t/upstream: switch from btrfs to ext4 and use nspawn again. Kernel
+    6.12 broke mounting btrfs volumes from loop devices, switch to ext4 as
+    a workaround and use nspawn again, as it's faster
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 26 Dec 2024 18:59:19 +0000
+
 systemd (257.1-4) unstable; urgency=medium
 
   * d/t/upstream: decrease parallelism to nproc - 1
