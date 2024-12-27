@@ -130,7 +130,7 @@ if systemd-analyze compare-versions "$(git -C "$mkosi_tree" describe | tr -d 'v'
 else
     tee -a mkosi.local.conf <<EOF
 [Runtime]
-MachinedRegister=no
+Register=no
 EOF
 fi
 
