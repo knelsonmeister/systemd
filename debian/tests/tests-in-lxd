@@ -62,16 +62,9 @@ lxc file push -r /etc/apt systemd-lxc/etc/
 if [ -f /etc/apt/sources.list.d/autopkgtest.list ]; then
     lxc exec systemd-lxc -- sed -i 's|/tmp/autopkgtest.[^/]*/|/root/|' /etc/apt/sources.list.d/autopkgtest.list || true
 fi
-
-# auto-apt-proxy is configured in debci
-if [ "$DISTRO" = "ubuntu" ]; then
-    # In Ubuntu it's in universe, so enable it
-    lxc exec systemd-lxc -- apt-get update
-    lxc exec systemd-lxc -- apt-get install --yes software-properties-common
-    lxc exec systemd-lxc -- add-apt-repository universe
-fi
-lxc exec systemd-lxc -- apt-get update
-lxc exec systemd-lxc -- apt-get install --yes auto-apt-proxy
+# auto-apt-proxy cannot be installed until after apt-get update, but apt-get update
+# cannot be ran successfully until auto-apt-proxy is installed
+lxc exec systemd-lxc -- rm -f /etc/apt/apt.conf.d/auto-apt-proxy.conf
 
 if [ -d "${AUTOPKGTEST_TMP:-}/../tree" ]; then
     cd "${AUTOPKGTEST_TMP:-}/../tree"
