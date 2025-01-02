@@ -163,6 +163,10 @@ usr/lib/systemd/system-generators/systemd-ssh-generator
 usr/lib/systemd/system-generators/systemd-system-update-generator
 usr/lib/systemd/system-generators/systemd-sysv-generator
 usr/lib/systemd/system-generators/systemd-tpm2-generator
+<pkg.systemd.upstream> usr/lib/systemd/system/breakpoint-pre-basic.service
+<pkg.systemd.upstream> usr/lib/systemd/system/breakpoint-pre-mount.service
+<pkg.systemd.upstream> usr/lib/systemd/system/breakpoint-pre-switch-root.service
+<pkg.systemd.upstream> usr/lib/systemd/system/breakpoint-pre-udev.service
 usr/lib/systemd/system/getty-pre.target
 usr/lib/systemd/system/getty@.service
 usr/lib/systemd/system/getty.target
@@ -180,7 +184,9 @@ usr/lib/systemd/system/initrd-switch-root.target
 usr/lib/systemd/system/initrd.target
 usr/lib/systemd/system/initrd.target.wants/systemd-battery-check.service
 <!stage1> usr/lib/systemd/system/initrd.target.wants/systemd-bsod.service
+<pkg.systemd.upstream> usr/lib/systemd/system/initrd.target.wants/systemd-confext-initrd.service
 [amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/initrd.target.wants/systemd-pcrphase-initrd.service
+<pkg.systemd.upstream> usr/lib/systemd/system/initrd.target.wants/systemd-sysext-initrd.service
 usr/lib/systemd/system/initrd-udevadm-cleanup-db.service
 usr/lib/systemd/system/initrd-usr-fs.target
 usr/lib/systemd/system/kexec.target
@@ -229,6 +235,7 @@ usr/lib/systemd/system/sleep.target
 usr/lib/systemd/system/slices.target
 usr/lib/systemd/system/smartcard.target
 usr/lib/systemd/system/sockets.target
+<pkg.systemd.upstream> usr/lib/systemd/system/sockets.target.wants/systemd-ask-password.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-creds.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-initctl.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-hostnamed.socket
@@ -280,6 +287,8 @@ usr/lib/systemd/system/sys-kernel-config.mount
 usr/lib/systemd/system/sys-kernel-debug.mount
 usr/lib/systemd/system/sys-kernel-tracing.mount
 usr/lib/systemd/system/syslog.socket
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-ask-password.socket
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-ask-password@.service
 usr/lib/systemd/system/systemd-ask-password-console.path
 usr/lib/systemd/system/systemd-ask-password-console.service
 usr/lib/systemd/system/systemd-ask-password-wall.path
@@ -405,7 +414,10 @@ usr/lib/systemd/user/session.slice
 usr/lib/systemd/user/shutdown.target
 usr/lib/systemd/user/smartcard.target
 usr/lib/systemd/user/sockets.target
+<pkg.systemd.upstream> usr/lib/systemd/user/sockets.target.wants/systemd-ask-password.socket
 usr/lib/systemd/user/sound.target
+<pkg.systemd.upstream> usr/lib/systemd/user/systemd-ask-password.socket
+<pkg.systemd.upstream> usr/lib/systemd/user/systemd-ask-password@.service
 usr/lib/systemd/user/systemd-exit.service
 usr/lib/systemd/user/systemd-tmpfiles-clean.service
 usr/lib/systemd/user/systemd-tmpfiles-clean.timer
