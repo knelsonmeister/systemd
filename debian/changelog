@@ -1,3 +1,11 @@
+systemd (257.1-6) unstable; urgency=medium
+
+  * d/t/tests-in-lxd: drop auto-apt-proxy.conf from container
+  * Drop build dependency on libxen-dev on armhf, no longer available
+    (Closes: #1091545)
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 03 Jan 2025 11:39:41 +0000
+
 systemd (257.1-5) unstable; urgency=medium
 
   * d/t/tests-in-lxd: install auto-apt-proxy in the nested container.
