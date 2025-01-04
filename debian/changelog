@@ -1,3 +1,10 @@
+systemd (257.1-7) unstable; urgency=medium
+
+  * Add missing d/copyright file to signed template packages
+  * d/t/tests-in-lxd: more fixes for debci compatibility
+
+ -- Luca Boccassi <bluca@debian.org>  Sat, 04 Jan 2025 01:55:59 +0000
+
 systemd (257.1-6) unstable; urgency=medium
 
   * d/t/tests-in-lxd: drop auto-apt-proxy.conf from container
