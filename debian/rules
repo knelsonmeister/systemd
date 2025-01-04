@@ -52,7 +52,6 @@ export DEB_BUILD_MAINT_OPTIONS = optimize=+lto hardening=+pie $(DEB_BUILD_OPTION
 
 CONFFLAGS = \
 	-Dstatic-libsystemd=true \
-	-Dmode=release \
 	-Dversion-tag="$(VERSION_TAG)" \
 	-Dquotaon-path=/usr/sbin/quotaon \
 	-Dquotacheck-path=/usr/sbin/quotacheck \
