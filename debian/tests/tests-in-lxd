@@ -13,7 +13,7 @@ RELEASE=$(
         else
             debian_version="$(cat /etc/debian_version)"
             if [ "${debian_version#*/}" = sid ]; then
-                if [ "$VERSION_CODENAME" = sid ] || grep -q -r sid /etc/apt/sources.list* || grep -q -r unstable /etc/apt/sources.list*; then
+                if [ ! -f /etc/apt/preferences.d/autopkgtest-unstable.pref ] && ( [ "$VERSION_CODENAME" = sid ] || grep -q -r sid /etc/apt/sources.list* || grep -q -r unstable /etc/apt/sources.list* ); then
                     echo "sid"
                 else
                     echo "$VERSION_CODENAME"
