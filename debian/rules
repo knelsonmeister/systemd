@@ -14,6 +14,12 @@ else ifeq (arm64,$(DEB_HOST_ARCH))
 export TEMPLATE_EFI_ARCH=aa64
 endif
 
+# We are building on OBS? Then it's an upstream build, set the profile and
+# use the addon for Secure Boot EFI signing
+ifneq ("$(wildcard /.build/build.dist)","")
+export DEB_BUILD_PROFILES += pkg.systemd.upstream noudeb
+DH_ADDONS = --with=signobs
+endif
 
 ifeq ($(DEB_VENDOR),Ubuntu)
     DEFAULT_NTP_SERVERS = ntp.ubuntu.com
@@ -318,7 +324,7 @@ endif
 endif
 
 %:
-	dh $@
+	dh $@ $(DH_ADDONS)
 
 # TODO: ideally it should be possible to disable this via an env var or DEB_BUILD_OPTIONS
 override_dh_strip_nondeterminism:
