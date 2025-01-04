@@ -43,6 +43,7 @@ usr/bin/systemd-machine-id-setup
 usr/bin/systemd-mount
 usr/bin/systemd-notify
 usr/bin/systemd-path
+<pkg.systemd.upstream> usr/bin/systemd-pty-forward
 usr/bin/systemd-run
 usr/bin/systemd-socket-activate
 usr/bin/systemd-stdio-bridge
