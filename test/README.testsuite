@@ -11,7 +11,7 @@ reconfiguring meson to make sure it is picked up properly.
 We also need to make sure the required meson options are enabled:
 
 ```shell
-$ meson setup --reconfigure build -Dremote=enabled
+$ mkosi -f sandbox meson setup --reconfigure build -Dremote=enabled
 ```
 
 To make sure `mkosi` doesn't try to build systemd from source during the image build
@@ -31,7 +31,7 @@ to /etc which is used when building the image instead.
 Next, we can build the integration test image with meson:
 
 ```shell
-$ meson compile -C build mkosi
+$ mkosi -f sandbox meson compile -C build mkosi
 ```
 
 By default, the `mkosi` meson target which builds the integration test image depends on
@@ -52,24 +52,24 @@ directory (`OutputDirectory=`) to point to the other directory using `mkosi.loca
 After the image has been built, the integration tests can be run with:
 
 ```shell
-$ env SYSTEMD_INTEGRATION_TESTS=1 meson test -C build --no-rebuild --suite integration-tests --num-processes "$(($(nproc) / 4))"
+$ env SYSTEMD_INTEGRATION_TESTS=1 mkosi -f sandbox meson test -C build --no-rebuild --suite integration-tests --num-processes "$(($(nproc) / 4))"
 ```
 
 As usual, specific tests can be run in meson by appending the name of the test
 which is usually the name of the directory e.g.
 
 ```shell
-$ env SYSTEMD_INTEGRATION_TESTS=1 meson test -C build --no-rebuild -v TEST-01-BASIC
+$ env SYSTEMD_INTEGRATION_TESTS=1 mkosi -f sandbox meson test -C build --no-rebuild -v TEST-01-BASIC
 ```
 
-See `meson introspect build --tests` for a list of tests.
+See `mkosi -f sandbox meson introspect build --tests` for a list of tests.
 
 To interactively debug a failing integration test, the `--interactive` option
 (`-i`) for `meson test` can be used. Note that this requires meson v1.5.0 or
 newer:
 
 ```shell
-$ env SYSTEMD_INTEGRATION_TESTS=1 meson test -C build --no-rebuild -i TEST-01-BASIC
+$ env SYSTEMD_INTEGRATION_TESTS=1 mkosi -f sandbox meson test -C build --no-rebuild -i TEST-01-BASIC
 ```
 
 Due to limitations in meson, the integration tests do not yet depend on the
@@ -78,7 +78,7 @@ running the integration tests. To rebuild the image and rerun a test, the
 following command can be used:
 
 ```shell
-$ meson compile -C build mkosi && env SYSTEMD_INTEGRATION_TESTS=1 meson test -C build --no-rebuild -v TEST-01-BASIC
+$ mkosi -f sandbox meson compile -C build mkosi && env SYSTEMD_INTEGRATION_TESTS=1 mkosi -f sandbox meson test -C build --no-rebuild -v TEST-01-BASIC
 ```
 
 The integration tests use the same mkosi configuration that's used when you run
@@ -92,7 +92,7 @@ To iterate on an integration test, let's first get a shell in the integration te
 the following:
 
 ```shell
-$ meson compile -C build mkosi && env SYSTEMD_INTEGRATION_TESTS=1 TEST_SHELL=1 meson test -C build --no-rebuild -i TEST-01-BASIC
+$ mkosi -f sandbox meson compile -C build mkosi && env SYSTEMD_INTEGRATION_TESTS=1 TEST_SHELL=1 mkosi -f sandbox meson test -C build --no-rebuild -i TEST-01-BASIC
 ```
 
 This will get us a shell in the integration test environment after booting the machine without running the
@@ -155,23 +155,7 @@ that make use of `run_testcases`.
 
 New PRs submitted to the project are run through regression tests, and one set
 of those is the 'autopkgtest' runs for several different architectures, called
-'Ubuntu CI'.  Part of that testing is to run all these tests.  Sometimes these
-tests are temporarily deny-listed from running in the 'autopkgtest' tests while
-debugging a flaky test; that is done by creating a file in the test directory
-named 'deny-list-ubuntu-ci', for example to prevent the TEST-01-BASIC test from
-running in the 'autopkgtest' runs, create the file
-'TEST-01-BASIC/deny-list-ubuntu-ci'.
-
-The tests may be disabled only for specific archs, by creating a deny-list file
-with the arch name at the end, e.g.
-'TEST-01-BASIC/deny-list-ubuntu-ci-arm64' to disable the TEST-01-BASIC test
-only on test runs for the 'arm64' architecture.
-
-Note the arch naming is not from 'uname -m', it is Debian arch names:
-https://wiki.debian.org/ArchitectureSpecificsMemo
-
-For PRs that fix a currently deny-listed test, the PR should include removal
-of the deny-list file.
+'Ubuntu CI'.  Part of that testing is to run all these tests.
 
 In case a test fails, the full set of artifacts, including the journal of the
 failed run, can be downloaded from the artifacts.tar.gz archive which will be
@@ -268,7 +252,7 @@ the PR (set by the `$UPSTREAM_PULL_REQUEST` env variable) you'd like to debug:
 ```shell
 $ git clone https://salsa.debian.org/systemd-team/systemd.git
 $ cd systemd
-$ git checkout upstream-ci
+$ git checkout ci/v<XYZ>-stable
 $ TEST_UPSTREAM=1 UPSTREAM_PULL_REQUEST=12345 ./debian/extra/checkout-upstream
 ```
 
@@ -278,22 +262,20 @@ Now install necessary build & test dependencies:
 # PPA with some newer Ubuntu packages required by upstream systemd
 $ add-apt-repository -y --enable-source ppa:upstream-systemd-ci/systemd-ci
 $ apt build-dep -y systemd
-$ apt install -y autopkgtest debhelper genisoimage git qemu-system-x86 \
-                 libcurl4-openssl-dev libfdisk-dev libtss2-dev libfido2-dev \
-                 libssl-dev python3-pefile
+$ apt install -y autopkgtest fakemachine qemu-system-x86
 ```
 
 Build systemd deb packages with debug info:
 
 ```shell
-$ TEST_UPSTREAM=1 DEB_BUILD_OPTIONS="nocheck nostrip noopt" dpkg-buildpackage -us -uc
+$ TEST_UPSTREAM=1 DEB_BUILD_OPTIONS="nocheck nostrip noopt pkg.systemd.upstream" dpkg-buildpackage -us -uc -b
 $ cd ..
 ```
 
 Prepare a testbed image for autopkgtest (tweak the release as necessary):
 
 ```shell
-$ autopkgtest-buildvm-ubuntu-cloud --ram-size 1024 -v -a amd64 -r jammy
+$ autopkgtest-buildvm-ubuntu-cloud --ram-size 1024 -v -a amd64 -r noble
 ```
 
 And finally run the autopkgtest itself:
@@ -304,7 +286,7 @@ $ autopkgtest -o logs *.deb systemd/ \
               --timeout-factor=3 \
               --test-name=boot-and-services \
               --shell-fail \
-              -- autopkgtest-virt-qemu --cpus 4 --ram-size 2048 autopkgtest-jammy-amd64.img
+              -- autopkgtest-virt-qemu --cpus 4 --ram-size 2048 autopkgtest-noble-amd64.img
 ```
 
 where `--test-name=` is the name of the test you want to run/debug. The
