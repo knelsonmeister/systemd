@@ -1,3 +1,10 @@
+systemd (257.2-1) unstable; urgency=medium
+
+  * Update upstream source from tag 'upstream/257.2' (Closes: #1092125)
+  * Drop all patches, merged upstream
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 07 Jan 2025 20:48:25 +0000
+
 systemd (257.1-7) unstable; urgency=medium
 
   * Add missing d/copyright file to signed template packages
