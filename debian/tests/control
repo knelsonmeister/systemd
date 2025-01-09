@@ -1,17 +1,15 @@
 Tests: timedated, hostnamed, localed-locale, localed-x11-keymap, logind
 Depends: systemd,
-  systemd-resolved,
   systemd-timesyncd,
   libpam-systemd,
   libnss-systemd,
   acl,
   locales,
   evemu-tools,
-Restrictions: needs-root, allow-stderr, isolation-container, skippable, breaks-testbed
+Restrictions: needs-root, allow-stderr, isolation-container, skippable
 
 Tests: unit-config
 Depends: systemd,
-  systemd-resolved,
   systemd-dev,
   libpam-systemd,
   libnss-systemd,
@@ -20,11 +18,10 @@ Depends: systemd,
   evemu-tools,
   python3,
   pkgconf,
-Restrictions: needs-root, allow-stderr, breaks-testbed
+Restrictions: needs-root, allow-stderr
 
 Tests: storage
 Depends: systemd,
-  systemd-resolved,
   systemd-cryptsetup,
   libpam-systemd,
   libnss-systemd,
@@ -34,7 +31,7 @@ Depends: systemd,
   python3,
   pkgconf,
   cryptsetup-bin,
-Restrictions: needs-root, isolation-machine, breaks-testbed
+Restrictions: needs-root, isolation-machine
 
 Tests: networkd-test.py
 Tests-Directory: test
@@ -57,7 +54,6 @@ Restrictions: needs-root, isolation-container, breaks-testbed
 
 Tests: build-login
 Depends: systemd,
-  systemd-resolved,
   systemd-cryptsetup,
   libpam-systemd,
   libnss-systemd,
@@ -78,7 +74,6 @@ Tests: boot-and-services
 Depends: systemd-sysv,
   systemd-container,
   systemd-coredump,
-  systemd-resolved,
   systemd-dev,
   libpam-systemd,
   libdw-dev,
@@ -96,11 +91,10 @@ Depends: systemd-sysv,
   python3,
   python3-pefile,
   dhcpcd-base | dhcpcd5,
-Restrictions: needs-root, isolation-container, breaks-testbed, allow-stderr
+Restrictions: needs-root, isolation-container, allow-stderr
 
 Tests: unit-tests
 Depends: systemd-tests,
-  systemd-resolved,
   libpam-systemd,
   libnss-myhostname,
   libnss-mymachines,
@@ -129,15 +123,14 @@ Depends: systemd-tests,
   libgcrypt20-dev,
   libcryptsetup-dev,
   tzdata-legacy | tzdata (<< 2024b-3),
-Restrictions: needs-root, isolation-container, breaks-testbed
+Restrictions: needs-root, isolation-container
 
 Tests: boot-smoke
 Depends: systemd-sysv,
-  systemd-resolved,
   network-manager,
   gdm3 [!s390x !riscv64 !armel],
   xserver-xorg-video-dummy,
-Restrictions: needs-root, isolation-container, allow-stderr, breaks-testbed
+Restrictions: needs-root, isolation-container, allow-stderr
 
 Tests: build-with-static-libsystemd
 Depends: systemd,
