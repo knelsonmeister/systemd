@@ -193,21 +193,21 @@ debian/tmp/usr/share/man/man8/systemd-networkd-wait-online.service.8
 debian/tmp/usr/share/man/man8/systemd-networkd-wait-online@.service.8
 debian/tmp/usr/share/man/man8/systemd-network-generator.8
 debian/tmp/usr/share/man/man8/systemd-network-generator.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrextend.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrfs-root.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrfs@.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-file-system.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-firmware-code.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-firmware-config.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-machine-id.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-make-policy.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-secureboot-authority.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-secureboot-policy.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrmachine.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrphase-initrd.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrphase.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrphase-sysinit.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrextend.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrfs-root.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrfs@.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-file-system.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-firmware-code.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-firmware-config.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-machine-id.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-make-policy.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-secureboot-authority.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrlock-secureboot-policy.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrmachine.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrphase-initrd.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrphase.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-pcrphase-sysinit.service.8
 debian/tmp/usr/share/man/man8/systemd-poweroff.service.8
 debian/tmp/usr/share/man/man8/systemd-pstore.8
 debian/tmp/usr/share/man/man8/systemd-pstore.service.8
@@ -250,9 +250,9 @@ debian/tmp/usr/share/man/man8/systemd-tmpfiles-setup-dev-early.service.8
 debian/tmp/usr/share/man/man8/systemd-tmpfiles-setup-dev.service.8
 debian/tmp/usr/share/man/man8/systemd-tmpfiles-setup.service.8
 debian/tmp/usr/share/man/man8/systemd-tpm2-generator.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-tpm2-setup.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-tpm2-setup-early.service.8
-[amd64 i386 arm64 armhf riscv64] <!stage1> debian/tmp/usr/share/man/man8/systemd-tpm2-setup.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-tpm2-setup.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-tpm2-setup-early.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-tpm2-setup.service.8
 debian/tmp/usr/share/man/man8/systemd-udev-settle.service.8
 debian/tmp/usr/share/man/man8/systemd-update-done.8
 debian/tmp/usr/share/man/man8/systemd-update-done.service.8

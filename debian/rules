@@ -150,7 +150,7 @@ CONFFLAGS += \
 	-Duserdb=true \
 	-Dpcre2=enabled \
 	-Dukify=enabled \
-	-Dbootloader=$(if $(filter amd64 i386 arm64 armhf riscv64,$(DEB_HOST_ARCH)),enabled,disabled) \
+	-Dbootloader=$(if $(filter amd64 i386 arm64 armhf loong64 riscv64,$(DEB_HOST_ARCH)),enabled,disabled) \
 	-Dsysupdate=enabled
 else
 CONFFLAGS += \

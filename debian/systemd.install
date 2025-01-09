@@ -63,7 +63,7 @@ usr/lib/kernel/install.d/90-loaderentry.install
 usr/lib/kernel/install.d/90-uki-copy.install
 usr/lib/modprobe.d/systemd.conf
 <!stage1> usr/lib/pcrlock.d/
-[alpha amd64 arm64 ia64 loong64 mips64el ppc64 ppc64el riscv64 s390x sparc64] usr/lib/sysctl.d/50-pid-max.conf
+[alpha amd64 arm64 ia64 loong64 mips64el ppc64 ppc64el riscv64 loong64 s390x sparc64] usr/lib/sysctl.d/50-pid-max.conf
 usr/lib/systemd/catalog/
 usr/lib/systemd/network/80-6rd-tunnel.link
 usr/lib/systemd/network/80-6rd-tunnel.network
@@ -124,7 +124,7 @@ usr/lib/systemd/systemd-modules-load
 usr/lib/systemd/systemd-networkd
 usr/lib/systemd/systemd-networkd-wait-online
 usr/lib/systemd/systemd-network-generator
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/systemd-pcrextend
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/systemd-pcrextend
 <!stage1> usr/lib/systemd/systemd-pcrlock
 usr/lib/systemd/systemd-pstore
 usr/lib/systemd/systemd-quotacheck
@@ -141,7 +141,7 @@ usr/lib/systemd/systemd-sulogin-shell
 usr/lib/systemd/systemd-sysctl
 usr/lib/systemd/systemd-sysroot-fstab-check
 usr/lib/systemd/systemd-timedated
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/systemd-tpm2-setup
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/systemd-tpm2-setup
 usr/lib/systemd/systemd-update-done
 usr/lib/systemd/systemd-user-runtime-dir
 usr/lib/systemd/systemd-user-sessions
@@ -186,7 +186,7 @@ usr/lib/systemd/system/initrd.target
 usr/lib/systemd/system/initrd.target.wants/systemd-battery-check.service
 <!stage1> usr/lib/systemd/system/initrd.target.wants/systemd-bsod.service
 <pkg.systemd.upstream> usr/lib/systemd/system/initrd.target.wants/systemd-confext-initrd.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/initrd.target.wants/systemd-pcrphase-initrd.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/initrd.target.wants/systemd-pcrphase-initrd.service
 <pkg.systemd.upstream> usr/lib/systemd/system/initrd.target.wants/systemd-sysext-initrd.service
 usr/lib/systemd/system/initrd-udevadm-cleanup-db.service
 usr/lib/systemd/system/initrd-usr-fs.target
@@ -242,8 +242,8 @@ usr/lib/systemd/system/sockets.target.wants/systemd-initctl.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-hostnamed.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-journald-dev-log.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-journald.socket
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sockets.target.wants/systemd-pcrextend.socket
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sockets.target.wants/systemd-pcrlock.socket
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sockets.target.wants/systemd-pcrextend.socket
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sockets.target.wants/systemd-pcrlock.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-sysext.socket
 usr/lib/systemd/system/soft-reboot.target
 usr/lib/systemd/system/sound.target
@@ -272,17 +272,17 @@ usr/lib/systemd/system/sysinit.target.wants/systemd-journald.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-journal-flush.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-machine-id-commit.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-modules-load.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-pcrmachine.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-pcrphase.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-pcrphase-sysinit.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-pcrmachine.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-pcrphase.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-pcrphase-sysinit.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-random-seed.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-sysctl.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-sysusers.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup-dev-early.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup-dev.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup-early.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup-early.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-update-done.service
 usr/lib/systemd/system/sys-kernel-config.mount
 usr/lib/systemd/system/sys-kernel-debug.mount
@@ -336,23 +336,23 @@ usr/lib/systemd/system/systemd-modules-load.service
 usr/lib/systemd/system/systemd-networkd*.service
 usr/lib/systemd/system/systemd-networkd.socket
 usr/lib/systemd/system/systemd-network-generator.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrextend@.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrextend.socket
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrfs-root.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrfs@.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock.socket
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock@.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-file-system.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-firmware-code.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-firmware-config.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-machine-id.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-make-policy.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-secureboot-authority.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-secureboot-policy.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrmachine.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrphase-initrd.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrphase.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-pcrphase-sysinit.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrextend@.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrextend.socket
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrfs-root.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrfs@.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock.socket
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock@.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-file-system.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-firmware-code.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-firmware-config.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-machine-id.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-make-policy.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-secureboot-authority.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-secureboot-policy.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrmachine.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrphase-initrd.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrphase.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrphase-sysinit.service
 usr/lib/systemd/system/systemd-poweroff.service
 usr/lib/systemd/system/systemd-pstore.service
 usr/lib/systemd/system/systemd-quotacheck*.service
@@ -377,8 +377,8 @@ usr/lib/systemd/system/systemd-tmpfiles-clean.timer
 usr/lib/systemd/system/systemd-tmpfiles-setup-dev-early.service
 usr/lib/systemd/system/systemd-tmpfiles-setup-dev.service
 usr/lib/systemd/system/systemd-tmpfiles-setup.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup-early.service
-[amd64 i386 arm64 armhf riscv64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup-early.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup.service
 usr/lib/systemd/system/systemd-update-done.service
 usr/lib/systemd/system/systemd-user-sessions.service
 usr/lib/systemd/system/systemd-volatile-root.service

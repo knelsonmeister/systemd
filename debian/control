@@ -74,7 +74,7 @@ Build-Depends: debhelper-compat (= 13),
                python3-jinja2:native,
                python3-lxml:native,
                python3-pefile:native <!stage1 !nocheck> <!stage1 !noinsttest>,
-               python3-pyelftools [amd64 i386 arm64 armhf riscv64] <!stage1>,
+               python3-pyelftools [amd64 i386 arm64 armhf loong64 riscv64] <!stage1>,
                jq [amd64 arm64] <!stage1 !pkg.systemd.upstream>,
                python3-pyparsing <!nocheck>,
                python3-evdev:native <!nocheck>,
@@ -538,7 +538,7 @@ Description: home area manager
 
 Package: systemd-boot
 Build-Profiles: <!stage1>
-Architecture: amd64 i386 arm64 armhf riscv64
+Architecture: amd64 i386 arm64 armhf loong64 riscv64
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          systemd (= ${binary:Version}),
@@ -562,7 +562,7 @@ Description: simple UEFI boot manager - tools and services
 
 Package: systemd-boot-efi
 Build-Profiles: <!stage1>
-Architecture: amd64 i386 arm64 armhf riscv64
+Architecture: amd64 i386 arm64 armhf loong64 riscv64
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends},
 Depends: ${misc:Depends},
