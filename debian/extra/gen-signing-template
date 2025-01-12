@@ -6,6 +6,15 @@ export DEB_VERSION="$1"
 export DEB_HOST_ARCH="$2"
 export TEMPLATE_EFI_ARCH="$3"
 
+# Upstream builds on OBS do not have these dependencies available
+TEMPLATE_BUILD_DEPS=$(
+case "${DEB_BUILD_PROFILES:-}" in
+    *pkg.systemd.upstream*) echo "dh-signobs,";;
+    *) echo "sbsigntool, systemd-boot-efi (= ${DEB_VERSION})," ;;
+esac
+)
+export TEMPLATE_BUILD_DEPS
+
 DISTRIBUTION="$(dpkg-parsechangelog -SDistribution)"
 URGENCY="$(dpkg-parsechangelog -SUrgency)"
 MAINT="$(dpkg-parsechangelog -SMaintainer)"

@@ -265,7 +265,7 @@ ifeq ($(DEB_VENDOR),Ubuntu)
 	cp -a debian/extra/units-ubuntu/* debian/systemd/usr/lib/systemd/system/
 endif
 
-ifeq (,$(filter stage1 pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
+ifeq (,$(filter stage1, $(DEB_BUILD_PROFILES)))
 ifeq ($(DEB_VENDOR),Debian)
 ifneq ($(TEMPLATE_EFI_ARCH),)
 	debian/extra/gen-signing-template $(DEB_VERSION) $(DEB_HOST_ARCH) $(TEMPLATE_EFI_ARCH)

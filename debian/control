@@ -578,7 +578,7 @@ Description: simple UEFI boot manager - EFI binaries
 Package: systemd-boot-efi-amd64-signed-template
 Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends},
-Build-Profiles: <!stage1 !pkg.systemd.upstream>
+Build-Profiles: <!stage1>
 Description: Template for signed systemd-boot-efi package (amd64)
  This package is used to control code signing by the Debian signing
  service (amd64 variant).
@@ -586,7 +586,7 @@ Description: Template for signed systemd-boot-efi package (amd64)
 Package: systemd-boot-efi-arm64-signed-template
 Architecture: arm64
 Depends: ${shlibs:Depends}, ${misc:Depends},
-Build-Profiles: <!stage1 !pkg.systemd.upstream>
+Build-Profiles: <!stage1>
 Description: Template for signed systemd-boot-efi package (arm64)
  This package is used to control code signing by the Debian signing
  service (arm64 variant).
