@@ -1,15 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Comment: This file describes only the systemd-boot-efi-$ARCH-signed source package.
 
-Files: debian/signatures/*
-License: public-domain
- Digital signatures and certificates are presumed not to be
- copyrightable works, and no copyright is claimed for them.
-Comment:
- The signatures and certificates in this package cannot be regenerated
- as-is without the associated private key material, but they can be
- replaced using alternate private keys.
-
 Files: *
 Copyright: 2024-2025 Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
 License: LGPL-2.1+
@@ -29,4 +20,14 @@ License: LGPL-2.1+
  .
  On Debian systems, the complete text of the GNU Lesser General Public
  License version 2.1 can be found in ‘/usr/share/common-licenses/LGPL-2.1’.
+
+Files: debian/signatures/*
+Copyright: N/A
+License: public-domain
+ Digital signatures and certificates are presumed not to be
+ copyrightable works, and no copyright is claimed for them.
+Comment:
+ The signatures and certificates in this package cannot be regenerated
+ as-is without the associated private key material, but they can be
+ replaced using alternate private keys.
 

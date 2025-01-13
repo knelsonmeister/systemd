@@ -2,6 +2,7 @@ Source: systemd-boot-efi-${DEB_HOST_ARCH}-signed
 Section: admin
 Priority: optional
 Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Uploaders: Luca Boccassi <bluca@debian.org>,
 Build-Depends: debhelper-compat (= 13), ${TEMPLATE_BUILD_DEPS}
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
@@ -10,6 +11,7 @@ Vcs-Browser: https://salsa.debian.org/systemd-team/systemd
 
 Package: systemd-boot-efi-${DEB_HOST_ARCH}-signed
 Architecture: ${DEB_HOST_ARCH}
+Depends: ${misc:Depends},
 Provides: systemd-boot-efi-signed
 Built-Using: systemd (= ${DEB_VERSION_SOURCE})
 Description: Tools to manage UEFI firmware updates (signed)
