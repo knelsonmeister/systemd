@@ -89,7 +89,6 @@ CONFFLAGS = \
 	-Durlify=true \
 	-Dgnutls=disabled \
 	-Dlink-udev-shared=false \
-	-Dlink-systemctl-shared=false \
 	-Dntp-servers="$(DEFAULT_NTP_SERVERS)" \
 	-Dsystem-uid-max=999 \
 	-Dsystem-gid-max=999 \
