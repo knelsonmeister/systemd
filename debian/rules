@@ -96,7 +96,6 @@ CONFFLAGS = \
 	-Dnobody-group=nogroup \
 	-Ddev-kvm-mode=0660 \
 	-Dgroup-render-mode=0660 \
-	-Dsbat-distro-url=https://tracker.debian.org/pkg/systemd \
 	-Drepart=enabled \
 	-Dfdisk=enabled \
 	-Dsysext=true \
@@ -220,6 +219,11 @@ endif
 
 ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 CONFFLAGS += -Ddns-servers=''
+CONFFLAGS += -Dsbat-distro-url=https://tracker.debian.org/pkg/systemd
+else
+CONFFLAGS += -Dsbat-distro-url=https://github.com/systemd/systemd
+CONFFLAGS += -Dsbat-distro=upstream
+CONFFLAGS += -Dsbat-distro-summary='Upstream build from git'
 endif
 
 # Increase the minimum number of sections to keep free in stub PE header in
