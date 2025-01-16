@@ -16,7 +16,7 @@ esac
 export TEMPLATE_BUILD_DEPS
 
 DISTRIBUTION="$(dpkg-parsechangelog -SDistribution)"
-URGENCY="$(dpkg-parsechangelog -SUrgency)"
+URGENCY="high"
 MAINT="$(dpkg-parsechangelog -SMaintainer)"
 DATE="$(dpkg-parsechangelog -SDate)"
 
