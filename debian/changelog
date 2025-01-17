@@ -1,3 +1,32 @@
+systemd (257.2-2) unstable; urgency=medium
+
+  [ Luca Boccassi ]
+  * Enable libseccomp on loong64 and hppa
+  * Enable UEFI on loong64
+  * Do not install sd-resolved and drop breaks-testbed from fast tests.
+  * d/t/control: remove 'flaky' from tests-in-lxd
+  * d/t/upstream: take into account autopkgtest pinning
+  * signing template: fix Lintian warnings and errors
+  * Link systemctl against libsystemd-shared. This was disabled when we
+    did not have a libsystemd-shared package, but it's now available so we
+    can change this again. This makes the stripped systemctl binary size
+    go from 1.6M down to 291K.
+  * signing template: always set urgency to 'high' The main package has
+    autopkgtest so gets a bonus, make sure the signed package also
+    migrates fast by default. It will always be blocked by the main
+    package anyway due to the dependency.
+  * Drop udeb packages. The udeb packages will be moved to a new systemd-
+    udeb repository, to reduce udeb churn and to unblock changes in the
+    main packages, such as building udev without static linking libudev
+    and libsystemd-shared, which shrinks the size of the binary from 1.6M
+    down to 611K
+
+  [ Philipp Kern ]
+  * Update README.source in the signing-template. This previously referred
+    to fwupd, which is where it was copied from.
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 17 Jan 2025 09:53:01 +0000
+
 systemd (257.2-1) unstable; urgency=medium
 
   * Update upstream source from tag 'upstream/257.2' (Closes: #1092125)
