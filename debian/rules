@@ -17,7 +17,7 @@ endif
 # We are building on OBS? Then it's an upstream build, set the profile and
 # use the addon for Secure Boot EFI signing
 ifneq ("$(wildcard /.build/build.dist)","")
-export DEB_BUILD_PROFILES += pkg.systemd.upstream noudeb
+export DEB_BUILD_PROFILES += pkg.systemd.upstream
 DH_ADDONS = --with=signobs
 endif
 
@@ -88,7 +88,6 @@ CONFFLAGS = \
 	-Doomd=true \
 	-Durlify=true \
 	-Dgnutls=disabled \
-	-Dlink-udev-shared=$(if $(filter noudeb,$(DEB_BUILD_PROFILES)),true,false) \
 	-Dntp-servers="$(DEFAULT_NTP_SERVERS)" \
 	-Dsystem-uid-max=999 \
 	-Dsystem-gid-max=999 \
@@ -308,7 +307,6 @@ override_dh_shlibdeps:
 
 override_dh_makeshlibs:
 	sed 's/SHARED_LIB_VERSION/$(PROJECT_VERSION)/' debian/shlibs.local.in > debian/shlibs.local
-	dh_makeshlibs -plibudev1 --add-udeb=libudev1-udeb -- -c$(GENSYMBOLS_LEVEL)
 	dh_makeshlibs -plibsystemd-shared -Xlibsystemd-shared -Xlibsystemd-core -- -c$(GENSYMBOLS_LEVEL)
 	dh_makeshlibs --remaining-packages -- -c$(GENSYMBOLS_LEVEL)
 

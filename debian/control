@@ -420,32 +420,6 @@ Description: libudev development files
  This package contains the files needed for developing applications that
  use libudev.
 
-Package: udev-udeb
-Build-Profiles: <!noudeb>
-Package-Type: udeb
-Section: debian-installer
-Architecture: linux-any
-Depends: ${shlibs:Depends},
-         ${misc:Depends},
-         util-linux-udeb
-Description: /dev/ and hotplug management daemon
- udev is a daemon which dynamically creates and removes device nodes from
- /dev/, handles hotplug events and loads drivers at boot time.
- .
- This is a minimal version, only for use in the installation system.
-
-Package: libudev1-udeb
-Build-Profiles: <!noudeb>
-Package-Type: udeb
-Section: debian-installer
-Architecture: linux-any
-Depends: ${shlibs:Depends},
-         ${misc:Depends}
-Description: libudev shared library
- This library provides access to udev device information.
- .
- This is a minimal version, only for use in the installation system.
-
 Package: systemd-standalone-sysusers
 Architecture: linux-any
 Conflicts: systemd-sysusers,

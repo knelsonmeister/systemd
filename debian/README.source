@@ -101,3 +101,11 @@ debian/git-cherry-pick is a nice tool to automate all that:
 
   debian/git-cherry-pick 123DEADBEEF 987654 AFFE99
   git checkout master  # switch back from patch-queue branch
+
+udeb packages
+-------------
+Packages for the installer (udebs) are built from a separate systemd-udeb
+repository, so that the build in the main repository is not constrained by
+udeb requirements, and so that udebs get updated less often, to reduce the
+workload for the D-I team. Ensure that major version updates are uploaded
+to unstable at the same time, to maintain rough parity.
