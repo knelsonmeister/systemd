@@ -43,15 +43,7 @@ remove_shim() {
         return
     fi
 
-    if [ ! -f "${esp_path}/EFI/${vendor}/grub${efi_arch}.efi" ]; then
-        return
-    fi
-
     if [ ! -f "${esp_path}/EFI/systemd/systemd-boot${efi_arch}.efi" ]; then
-        return
-    fi
-
-    if [ "$(<"${esp_path}/EFI/${vendor}/grub${efi_arch}.efi" sha256sum)" != "$(<"${esp_path}/EFI/systemd/systemd-boot${efi_arch}.efi" sha256sum)" ]; then
         return
     fi
 
@@ -70,40 +62,6 @@ remove_shim() {
         bootentry="$(efibootmgr | grep "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi" | cut -d' ' -f1 | sed -e 's/Boot//' -e 's/*//')"
         efibootmgr -q --delete-bootnum --bootnum "$bootentry"
     fi
-}
-
-remove_signed() {
-    case "$(dpkg --print-architecture)" in
-        amd64)
-        efi_arch=x64
-        grub_arch=x86_64
-        ;;
-        arm64)
-        efi_arch=aa64
-        grub_arch=arm64
-        ;;
-        *)
-        return
-    esac
-
-    # shellcheck disable=SC1091
-    . /etc/os-release || . /usr/lib/os-release
-    vendor="${ID:-debian}"
-
-    esp_path="$(bootctl --quiet --print-esp-path 2>/dev/null)"
-    if [ -z "$esp_path" ]; then
-        return
-    fi
-
-    if [ ! -f "${esp_path}/EFI/${vendor}/grub${efi_arch}.efi" ]; then
-        return
-    fi
-
-    if [ "$(<"${esp_path}/EFI/${vendor}/grub${efi_arch}.efi" sha256sum)" != "$(<"${esp_path}/EFI/systemd/systemd-boot${efi_arch}.efi" sha256sum)" ]; then
-        return
-    fi
-
-    rm -f "${esp_path}/EFI/${vendor}/grub${efi_arch}.efi"
 }
 
 install_shim() {
@@ -172,49 +130,8 @@ install_shim() {
         drive="${drive%/*}"
         drive="/dev/${drive##*/}"
         partno="$(cat "/sys/class/block/${blkpart##*/}/partition")"
-        efibootmgr -q --create --disk "$drive" --part "$partno" --loader "EFI/${vendor}/shim${efi_arch}.efi" --label "${vendor_upper}"
+        efibootmgr -q --create --disk "$drive" --part "$partno" --loader "EFI/${vendor}/shim${efi_arch}.efi" --label "${vendor_upper}" --unicode '\EFI\systemd\systemd-bootx64.efi \0'
     fi
-}
-
-install_signed() {
-    case "$(dpkg --print-architecture)" in
-        amd64)
-        efi_arch=x64
-        grub_arch=x86_64
-        ;;
-        arm64)
-        efi_arch=aa64
-        grub_arch=arm64
-        ;;
-        *)
-        return
-    esac
-
-    if [ ! -f "/usr/lib/shim/shim${efi_arch}.efi.signed" ] || [ ! -f "/usr/lib/systemd/boot/efi/systemd-boot${efi_arch}.efi.signed" ]; then
-        if [ "$1" = trigger ]; then
-            remove_signed
-        fi
-        return
-    fi
-
-    if [ -f "/usr/lib/grub/${grub_arch}-efi-signed/grub${efi_arch}.efi.signed" ]; then
-        return
-    fi
-
-    esp_path="$(bootctl --quiet --print-esp-path 2>/dev/null)"
-    if [ -z "$esp_path" ]; then
-        return
-    fi
-
-    # shellcheck disable=SC1091
-    . /etc/os-release || . /usr/lib/os-release
-    vendor="${ID:-debian}"
-
-    if [ -f "${esp_path}/EFI/${vendor}/grub${efi_arch}.efi" ] && [ "$(<"${esp_path}/EFI/${vendor}/grub${efi_arch}.efi" sha256sum)" = "$(<"/usr/lib/systemd/boot/efi/systemd-boot${efi_arch}.efi.signed" sha256sum)" ]; then
-        return
-    fi
-
-    install -p -D "/usr/lib/systemd/boot/efi/systemd-boot${efi_arch}.efi.signed" "${esp_path}/EFI/${vendor}/grub${efi_arch}.efi"
 }
 
 if [ "$1" = configure ] && bootctl --print-esp-path > /dev/null 2>&1; then
@@ -223,7 +140,6 @@ if [ "$1" = configure ] && bootctl --print-esp-path > /dev/null 2>&1; then
     else
         bootctl install --make-machine-id-directory=auto
     fi
-    install_signed install
     install_shim install
 
     if [ -z "$2" ]; then
@@ -242,7 +158,6 @@ if [ "$1" = triggered ]; then
         case $trigger in
             /usr/lib/shim|/usr/lib/grub|systemd-boot-signed)
                 install_shim trigger
-                install_signed trigger
                 ;;
         esac
     done
