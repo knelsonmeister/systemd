@@ -1,3 +1,19 @@
+systemd (257.2-3) unstable; urgency=medium
+
+  * signing template: add override for executable-not-elf-or-script
+  * libsystemd-dev/libudev-dev: depend on libcap-dev. These libraries link
+    with libcap, so a dependency is needed for static builds
+  * systemd-boot: use boot entry argument instead of installing as
+    grub.efi on ESP. It turns out Shim can load sd-boot if the boot entry
+    is set correctly.
+  * systemd-boot: always check that the boot entry is set, even with Shim
+    is already installed
+  * libudev1: add udeb back to shlibs. Without this, packages building
+    udebs against libudev-dev will end up depending on libudev1 instead of
+    libudev1-udeb.
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 23 Jan 2025 15:17:08 +0000
+
 systemd (257.2-2) unstable; urgency=medium
 
   [ Luca Boccassi ]
