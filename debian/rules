@@ -309,6 +309,9 @@ override_dh_makeshlibs:
 	sed 's/SHARED_LIB_VERSION/$(PROJECT_VERSION)/' debian/shlibs.local.in > debian/shlibs.local
 	dh_makeshlibs -plibsystemd-shared -Xlibsystemd-shared -Xlibsystemd-core -- -c$(GENSYMBOLS_LEVEL)
 	dh_makeshlibs --remaining-packages -- -c$(GENSYMBOLS_LEVEL)
+	# Ensure builds against the udeb package gets a dependency on libudev1-udeb. The last time a symbol
+	# was added was in 247, and the API is pretty much frozen, so we can have a fixed version here.
+	echo 'udeb: libudev 1 libudev1-udeb (>= 247)' >> debian/libudev1/DEBIAN/shlibs
 
 override_dh_auto_test:
 ifeq (, $(filter nocheck, $(DEB_BUILD_OPTIONS)))
