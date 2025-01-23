@@ -111,11 +111,9 @@ install_shim() {
         install -p -D "/usr/lib/shim/${f}${efi_arch}.efi.signed" "${esp_path}/EFI/${vendor}/${f}${efi_arch}.efi"
     done
 
-    if [ -f "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" ] && [ "$(<"${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" sha256sum)" = "$(<"/usr/lib/shim/shim${efi_arch}.efi.signed" sha256sum)" ]; then
-        return
+    if [ ! -f "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" ] || [ "$(<"${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" sha256sum)" != "$(<"/usr/lib/shim/shim${efi_arch}.efi.signed" sha256sum)" ]; then
+        install -p -D "/usr/lib/shim/shim${efi_arch}.efi.signed" "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi"
     fi
-
-    install -p -D "/usr/lib/shim/shim${efi_arch}.efi.signed" "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi"
 
     if [ ! -f "${esp_path}/EFI/${vendor}/BOOT${efi_arch_upper}.CSV" ]; then
         echo "shim${efi_arch}.efi,${vendor},,This is the boot entry for ${vendor}" > "${esp_path}/EFI/${vendor}/BOOT${efi_arch_upper}.CSV"
