@@ -39,6 +39,7 @@ usr/lib/udev/rules.d/60-fido-id.rules
 usr/lib/udev/rules.d/60-infiniband.rules
 usr/lib/udev/rules.d/60-input-id.rules
 usr/lib/udev/rules.d/60-persistent-alsa.rules
+<pkg.systemd.upstream> usr/lib/udev/rules.d/60-persistent-hidraw.rules
 usr/lib/udev/rules.d/60-persistent-input.rules
 usr/lib/udev/rules.d/60-persistent-storage-mtd.rules
 usr/lib/udev/rules.d/60-persistent-storage.rules
