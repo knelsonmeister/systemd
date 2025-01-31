@@ -28,6 +28,12 @@ if [ -e /etc/udev/udev.conf ]; then
   cp -p /etc/udev/udev.conf "$DESTDIR/etc/udev/"
 fi
 
+# copy hwdb.bin
+if [ -e /usr/lib/udev/hwdb.bin ]; then
+    mkdir -p "$DESTDIR/usr/lib/udev"
+    cp -p /usr/lib/udev/hwdb.bin "$DESTDIR/usr/lib/udev/hwdb.bin"
+fi
+
 # copy .link files containing interface naming definitions
 mkdir -p "$DESTDIR/usr/lib/systemd/network/"
 find -L /usr/lib/systemd/network -name '*.link*' -execdir cp -r -pt "$DESTDIR/usr/lib/systemd/network/" '{}' +
