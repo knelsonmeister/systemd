@@ -200,7 +200,10 @@ CONFFLAGS += -Dvmlinux-h-path=/usr/include/$(DEB_HOST_MULTIARCH)/linux/vmlinux.h
 # If any /usr/lib/linux-tools/*/bpftool exists, locate the most recent
 # version and point to that, otherwise `bpftool` from PATH will be
 # used.
-bpftool_binary := $(shell find /usr/lib/linux-tools/ -name 'bpftool' -perm /u=x 2>/dev/null | sort | head -n1)
+#
+# Newer versions of linux-tools-* ship the binaries in /usr/lib/linux-tools-$(uname -r).
+# Check there too.
+bpftool_binary := $(shell find /usr/lib/linux-tools/ /usr/lib/linux-tools-* -name 'bpftool' -perm /u=x 2>/dev/null | sort -r | head -n1)
 ifneq ($(bpftool_binary),)
 export PATH := $(shell dirname $(bpftool_binary)):$(PATH)
 endif
