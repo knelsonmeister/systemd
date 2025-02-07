@@ -130,7 +130,7 @@ install_shim() {
         drive="${drive%/*}"
         drive="/dev/${drive##*/}"
         partno="$(cat "/sys/class/block/${blkpart##*/}/partition")"
-        efibootmgr -q --create --disk "$drive" --part "$partno" --loader "EFI/${vendor}/shim${efi_arch}.efi" --label "${vendor_upper}" --unicode '\EFI\systemd\systemd-bootx64.efi \0'
+        efibootmgr -q --create --disk "$drive" --part "$partno" --loader "EFI/${vendor}/shim${efi_arch}.efi" --label "${vendor_upper}" --unicode "\EFI\systemd\systemd-boot${efi_arch}.efi \0"
     fi
 }
 
