@@ -181,11 +181,13 @@ ifeq (, $(filter $(DEB_BUILD_PROFILES), stage1 pkg.systemd.nobpf))
 ifneq (,$(filter $(DEB_TARGET_ARCH), amd64 arm64 ppc64el riscv64 s390x))
 CONFFLAGS += \
 	-Dvmlinux-h=provided \
-	-Dvmlinux-h-path=/usr/include/$(DEB_HOST_MULTIARCH)/linux/bpf/vmlinux.h \
 	-Dbpf-framework=enabled \
 	-Dbpf-compiler=clang
 
-ifeq ($(DEB_VENDOR),Ubuntu)
+ifneq ($(DEB_VENDOR),Ubuntu)
+CONFFLAGS += -Dvmlinux-h-path=/usr/include/$(DEB_HOST_MULTIARCH)/linux/bpf/vmlinux.h
+else
+CONFFLAGS += -Dvmlinux-h-path=/usr/include/$(DEB_HOST_MULTIARCH)/linux/vmlinux.h
 # Source: https://git.launchpad.net/ubuntu/+source/xdp-tools/tree/debian/rules
 # On Ubuntu, the `bpftool` in path is a shell wrapper pointing at
 # the binary corresponding to runtime kernel version.
