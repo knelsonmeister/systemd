@@ -117,7 +117,7 @@ ${RELEASE:+"Release=${RELEASE}"}
 [Content]
 ${local_binaries:+"PackageDirectories=${local_binaries}"}
 
-[Host]
+[Runtime]
 RuntimeBuildSources=no
 EOF
 
