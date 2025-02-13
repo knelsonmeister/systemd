@@ -574,10 +574,12 @@ Multi-Arch: foreign
 Depends: ${misc:Depends},
          python3:any,
          python3-pefile,
+         python3-zstandard,
 Recommends: systemd,
             systemd-boot-efi,
             systemd-repart,
             python3-cryptography,
+            python3-lz4,
 Conflicts: systemd (<< 255.1-1~)
 Replaces: systemd (<< 255.1-1~)
 Description: tool to build Unified Kernel Images
