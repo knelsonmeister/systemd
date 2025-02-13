@@ -1,3 +1,24 @@
+systemd (257.3-1) unstable; urgency=medium
+
+  * d/t/control: do not pull in gdm3 on loong64. Not installable, skip it
+    like s390x/riscv/armel
+  * systemd-boot: warn if efibootmgr is not installed. As it means the
+    boot entry won't be created, since it's a recommends
+  * systemd-boot: fix creating bootvar on arm64
+  * systemd-boot: check that bootvar really points to sd-boot. Otherwise
+    it could be a leftover with another second stage. Check both encoded
+    and decoded strings.
+  * Drop fallback for missing linux-bpf-dev package
+  * ukify: depend on python3-zstandard and recommend python3-lz4 arm64
+    kernels are getting zboot+zstd so zstandard will be required for uname
+    probing. lz4 might be used externally so just recommend it.
+  * Update upstream source from tag 'upstream/257.3' Update to upstream
+    version '257.3' with Debian dir
+    1531e0bcaea1d2bf600be6d542bae876d1829da9
+  * autopkgtest: fix mkosi config section
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 13 Feb 2025 19:54:00 +0000
+
 systemd (257.2-3) unstable; urgency=medium
 
   * signing template: add override for executable-not-elf-or-script
