@@ -114,6 +114,7 @@ CONFFLAGS = \
 	-Dstatus-unit-format-default=combined \
 	-Dstandalone-binaries=true \
 	-Dutmp=false \
+	-Dtty-mode=0600 \
 	-Dmode=$(if $(filter pkg.systemd.upstream,$(DEB_BUILD_PROFILES)),developer,release)
 
 ifeq ($(filter nocheck,$(DEB_BUILD_PROFILES))$(filter noinsttest,$(DEB_BUILD_PROFILES)),nochecknoinsttest)
