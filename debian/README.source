@@ -27,6 +27,13 @@ then beautify the generated debian/changelog, then run the usual "dch -r" and
 
 Patch handling
 --------------
+Only patches that backport fixes merged upstream are allowed. Do not send
+MRs or open bugs asking to take in out-of-tree or rejected patches, as such
+requests will be immediately denied. One of the core design goals of systemd
+is that the same implementation runs across all distributions. Customization
+is done via configuration settings, not out-of-tree patches, which only add
+technical debt and make updates slow and difficult.
+
 The systemd package uses gbp pq for maintaining patches with a git-like
 workflow in a "patch-queue/<branch>" local branch and then exporting them as
 quilt series.  For working on patches you run
