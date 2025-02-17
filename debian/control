@@ -597,6 +597,7 @@ Depends: ${shlibs:Depends},
          default-dbus-system-bus | dbus-system-bus
 Recommends: libnss-myhostname,
             libnss-resolve,
+            libidn2-0,
             ${dlopen:Recommends},
 Suggests: polkitd,
           ${dlopen:Suggests},
