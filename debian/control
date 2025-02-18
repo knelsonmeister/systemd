@@ -132,6 +132,7 @@ Package: systemd-sysv
 Architecture: linux-any
 Multi-Arch: foreign
 Priority: important
+Protected: yes
 Conflicts: sysvinit-core,
            file-rc,
            systemd-shim,
