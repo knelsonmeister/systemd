@@ -3,6 +3,9 @@
 # run some autopkgtest tests in lxd
 set -eux
 
+# Until setup is complete, treat all errors as skippable.
+trap 'exit 77' EXIT
+
 RELEASE=$(
     . /etc/os-release;
     if [ "$ID" = "ubuntu" ]; then
@@ -83,6 +86,9 @@ fi
 
 lxc stop systemd-lxc
 lxc publish systemd-lxc --reuse --alias "$IMAGE"
+
+# Clear the previous exit code trap.
+trap - EXIT
 
 # Only test unprivileged LXD containers, since privileged LXD containers cause LoadCredential= (LP: #1950787),
 # and other things to break. According to upstream LXD, we should not worry to much about privileged LXD
