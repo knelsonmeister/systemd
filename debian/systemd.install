@@ -175,6 +175,8 @@ usr/lib/systemd/system/graphical.target
 usr/lib/systemd/system/halt.target
 usr/lib/systemd/system/hibernate.target
 usr/lib/systemd/system/hybrid-sleep.target
+<pkg.systemd.upstream> usr/lib/systemd/system/imports-pre.target
+<pkg.systemd.upstream> usr/lib/systemd/system/imports.target
 usr/lib/systemd/system/initrd-cleanup.service
 usr/lib/systemd/system/initrd-fs.target
 usr/lib/systemd/system/initrd-parse-etc.service
@@ -284,6 +286,7 @@ usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup-early.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup.service
 usr/lib/systemd/system/sysinit.target.wants/systemd-update-done.service
+<pkg.systemd.upstream> usr/lib/systemd/system/sysinit.target.wants/imports.target
 usr/lib/systemd/system/sys-kernel-config.mount
 usr/lib/systemd/system/sys-kernel-debug.mount
 usr/lib/systemd/system/sys-kernel-tracing.mount
@@ -331,6 +334,7 @@ usr/lib/systemd/system/systemd-journal-flush.service
 usr/lib/systemd/system/systemd-kexec.service
 usr/lib/systemd/system/systemd-localed.service
 usr/lib/systemd/system/systemd-logind.service
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-loop@.service
 usr/lib/systemd/system/systemd-machine-id-commit.service
 usr/lib/systemd/system/systemd-modules-load.service
 usr/lib/systemd/system/systemd-networkd*.service

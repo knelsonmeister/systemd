@@ -180,6 +180,7 @@ debian/tmp/usr/share/man/man8/systemd-localed.8
 debian/tmp/usr/share/man/man8/systemd-localed.service.8
 debian/tmp/usr/share/man/man8/systemd-logind.8
 debian/tmp/usr/share/man/man8/systemd-logind.service.8
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-loop@.service.8
 debian/tmp/usr/share/man/man8/systemd-machine-id-commit.service.8
 debian/tmp/usr/share/man/man8/systemd-makefs.8
 debian/tmp/usr/share/man/man8/systemd-makefs@.service.8
