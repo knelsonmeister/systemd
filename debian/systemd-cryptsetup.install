@@ -1,3 +1,4 @@
+#!/usr/bin/dh-exec
 usr/bin/systemd-cryptenroll
 usr/bin/systemd-cryptsetup
 usr/lib/systemd/system/cryptsetup-pre.target
@@ -13,8 +14,10 @@ usr/lib/systemd/system-generators/systemd-cryptsetup-generator
 usr/lib/systemd/system-generators/systemd-integritysetup-generator
 usr/lib/systemd/system-generators/systemd-veritysetup-generator
 usr/lib/systemd/system/initrd-root-device.target.wants/remote-cryptsetup.target
+<pkg.systemd.upstream> usr/lib/systemd/system/initrd-root-device.target.wants/remote-integritysetup.target
 usr/lib/systemd/system/initrd-root-device.target.wants/remote-veritysetup.target
 usr/lib/systemd/system/remote-cryptsetup.target
+<pkg.systemd.upstream> usr/lib/systemd/system/remote-integritysetup.target
 usr/lib/systemd/system/remote-veritysetup.target
 usr/lib/systemd/system/sysinit.target.wants/cryptsetup.target
 usr/lib/systemd/system/sysinit.target.wants/integritysetup.target
