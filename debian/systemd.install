@@ -151,6 +151,7 @@ usr/lib/systemd/system/emergency.service
 usr/lib/systemd/system/emergency.target
 usr/lib/systemd/system/exit.target
 usr/lib/systemd/system/factory-reset.target
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1 pkg.systemd.upstream> usr/lib/systemd/system/factory-reset.target.wants/systemd-pcrphase-factory-reset.service
 usr/lib/systemd/system/final.target
 usr/lib/systemd/system/first-boot-complete.target
 usr/lib/systemd/system-generators/systemd-debug-generator
@@ -251,6 +252,7 @@ usr/lib/systemd/system/soft-reboot.target
 usr/lib/systemd/system/sound.target
 usr/lib/systemd/system/ssh-access.target
 usr/lib/systemd/system/storage-target-mode.target
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1 pkg.systemd.upstream> usr/lib/systemd/system/storage-target-mode.target.wants/systemd-pcrphase-storage-target-mode.service
 usr/lib/systemd/system/suspend.target
 usr/lib/systemd/system/suspend-then-hibernate.target
 usr/lib/systemd/system/swap.target
@@ -354,8 +356,10 @@ usr/lib/systemd/system/systemd-network-generator.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-secureboot-authority.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrlock-secureboot-policy.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrmachine.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1 pkg.systemd.upstream> usr/lib/systemd/system/systemd-pcrphase-factory-reset.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrphase-initrd.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrphase.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1 pkg.systemd.upstream> usr/lib/systemd/system/systemd-pcrphase-storage-target-mode.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-pcrphase-sysinit.service
 usr/lib/systemd/system/systemd-poweroff.service
 usr/lib/systemd/system/systemd-pstore.service
