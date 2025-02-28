@@ -4,6 +4,7 @@ etc/credstore/
 etc/credstore.encrypted/
 etc/kernel/install.d/
 etc/profile.d/70-systemd-shell-extra.sh
+<pkg.systemd.upstream> etc/profile.d/80-systemd-osc-context.sh
 etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf
 etc/systemd/journald.conf
 etc/systemd/logind.conf
@@ -82,6 +83,7 @@ usr/lib/systemd/network/80-wifi-ap.network.example
 usr/lib/systemd/network/80-wifi-station.network.example
 usr/lib/systemd/network/89-ethernet.network.example
 usr/lib/systemd/profile.d/70-systemd-shell-extra.sh
+<pkg.systemd.upstream> usr/lib/systemd/profile.d/80-systemd-osc-context.sh
 usr/lib/systemd/resolv.conf
 usr/lib/systemd/ssh_config.d/20-systemd-ssh-proxy.conf
 usr/lib/systemd/system/autovt@.service
