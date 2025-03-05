@@ -145,6 +145,12 @@ debian/tmp/usr/share/man/man8/systemd-confext.service.8
 <pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-confext-initrd.service.8
 debian/tmp/usr/share/man/man8/systemd-debug-generator.8
 debian/tmp/usr/share/man/man8/systemd-environment-d-generator.8
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-factory-reset-complete.service.8
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-factory-reset-generator.8
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-factory-reset-request.service.8
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-factory-reset.8
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-factory-reset.socket.8
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-factory-reset@.service.8
 debian/tmp/usr/share/man/man8/systemd-fsck.8
 debian/tmp/usr/share/man/man8/systemd-fsck-root.service.8
 debian/tmp/usr/share/man/man8/systemd-fsck@.service.8
@@ -250,6 +256,7 @@ debian/tmp/usr/share/man/man8/systemd-tmpfiles-clean.timer.8
 debian/tmp/usr/share/man/man8/systemd-tmpfiles-setup-dev-early.service.8
 debian/tmp/usr/share/man/man8/systemd-tmpfiles-setup-dev.service.8
 debian/tmp/usr/share/man/man8/systemd-tmpfiles-setup.service.8
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1 pkg.systemd.upstream> debian/tmp/usr/share/man/man8/systemd-tpm2-clear.service.8
 debian/tmp/usr/share/man/man8/systemd-tpm2-generator.8
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-tpm2-setup.8
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> debian/tmp/usr/share/man/man8/systemd-tpm2-setup-early.service.8

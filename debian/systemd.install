@@ -112,6 +112,7 @@ usr/lib/systemd/system/default.target
 usr/lib/systemd/system/dev-hugepages.mount
 usr/lib/systemd/system/dev-mqueue.mount
 usr/lib/systemd/systemd-executor
+<pkg.systemd.upstream> usr/lib/systemd/systemd-factory-reset
 usr/lib/systemd/systemd-fsck
 usr/lib/systemd/systemd-growfs
 usr/lib/systemd/systemd-hibernate-resume
@@ -143,6 +144,7 @@ usr/lib/systemd/systemd-sulogin-shell
 usr/lib/systemd/systemd-sysctl
 usr/lib/systemd/systemd-sysroot-fstab-check
 usr/lib/systemd/systemd-timedated
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1 pkg.systemd.upstream> usr/lib/systemd/systemd-tpm2-clear
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/systemd-tpm2-setup
 usr/lib/systemd/systemd-update-done
 usr/lib/systemd/systemd-user-runtime-dir
@@ -157,6 +159,7 @@ usr/lib/systemd/system/factory-reset.target
 usr/lib/systemd/system/final.target
 usr/lib/systemd/system/first-boot-complete.target
 usr/lib/systemd/system-generators/systemd-debug-generator
+<pkg.systemd.upstream> usr/lib/systemd/system-generators/systemd-factory-reset-generator
 usr/lib/systemd/system-generators/systemd-fstab-generator
 usr/lib/systemd/system-generators/systemd-getty-generator
 usr/lib/systemd/system-generators/systemd-gpt-auto-generator
@@ -171,6 +174,8 @@ usr/lib/systemd/system-generators/systemd-tpm2-generator
 <pkg.systemd.upstream> usr/lib/systemd/system/breakpoint-pre-mount.service
 <pkg.systemd.upstream> usr/lib/systemd/system/breakpoint-pre-switch-root.service
 <pkg.systemd.upstream> usr/lib/systemd/system/breakpoint-pre-udev.service
+<pkg.systemd.upstream> usr/lib/systemd/system/factory-reset-now.target
+<pkg.systemd.upstream> usr/lib/systemd/system/factory-reset.target.wants/systemd-factory-reset-request.service
 usr/lib/systemd/system/getty-pre.target
 usr/lib/systemd/system/getty@.service
 usr/lib/systemd/system/getty.target
@@ -243,6 +248,7 @@ usr/lib/systemd/system/smartcard.target
 usr/lib/systemd/system/sockets.target
 <pkg.systemd.upstream> usr/lib/systemd/system/sockets.target.wants/systemd-ask-password.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-creds.socket
+<pkg.systemd.upstream> usr/lib/systemd/system/sockets.target.wants/systemd-factory-reset.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-initctl.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-hostnamed.socket
 usr/lib/systemd/system/sockets.target.wants/systemd-journald-dev-log.socket
@@ -311,6 +317,11 @@ usr/lib/systemd/system/systemd-confext.service
 usr/lib/systemd/system/systemd-creds.socket
 usr/lib/systemd/system/systemd-creds@.service
 usr/lib/systemd/system/systemd-exit.service
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-factory-reset-complete.service
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-factory-reset-reboot.service
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-factory-reset-request.service
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-factory-reset.socket
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-factory-reset@.service
 usr/lib/systemd/system/systemd-firstboot.service
 usr/lib/systemd/system/systemd-fsck-root.service
 usr/lib/systemd/system/systemd-fsck@.service
@@ -387,6 +398,7 @@ usr/lib/systemd/system/systemd-tmpfiles-clean.timer
 usr/lib/systemd/system/systemd-tmpfiles-setup-dev-early.service
 usr/lib/systemd/system/systemd-tmpfiles-setup-dev.service
 usr/lib/systemd/system/systemd-tmpfiles-setup.service
+[amd64 i386 arm64 armhf riscv64 loong64] <!stage1 pkg.systemd.upstream> usr/lib/systemd/system/systemd-tpm2-clear.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup-early.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup.service
 usr/lib/systemd/system/systemd-update-done.service
