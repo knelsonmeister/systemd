@@ -519,6 +519,7 @@ Architecture: amd64 i386 arm64 armhf loong64 riscv64
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          systemd (= ${binary:Version}),
+         systemd-boot-tools (= ${binary:Version}),
          systemd-boot-efi (= ${binary:Version}) [!amd64 !arm64],
          systemd-boot-efi-signed (>= ${source:Version}) [amd64 arm64] | systemd-boot-efi (= ${binary:Version}) [amd64 arm64],
 Recommends: efibootmgr,
@@ -535,7 +536,24 @@ Description: simple UEFI boot manager - tools and services
  Installing systemd-boot will configure and install it in the ESP.
  .
  This package contains various tools and services to manage systems using
- systemd-boot.
+ systemd-boot, and serves as the main integration point to autoconfigure
+ the system.
+
+Package: systemd-boot-tools
+Build-Profiles: <!stage1>
+Architecture: amd64 i386 arm64 armhf loong64 riscv64
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+Recommends: ${dlopen:Recommends},
+Suggests: ${dlopen:Suggests},
+Breaks: systemd-boot (<< 257.4-1~),
+Replaces: systemd-boot (<< 257.4-1~),
+Description: simple UEFI boot manager - tools and services
+ systemd-boot (short: sd-boot) is a simple UEFI boot manager. It provides a
+ textual menu to select the entry to boot and an editor for the kernel command
+ line. It supports systems with UEFI firmware only.
+ .
+ This package contains various tools to manage systems using systemd-boot.
 
 Package: systemd-boot-efi
 Build-Profiles: <!stage1>
