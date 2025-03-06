@@ -1,3 +1,29 @@
+systemd (257.4-1) unstable; urgency=medium
+
+  [ Nick Rosbrook ]
+  * d/rules: fix bpftool path discovery on ubuntu
+  * initramfs-tools: copy hwdb.bin to initramfs. The contents of hwdb.bin
+    may influence udev during early boot. E.g., this may change network
+    interface naming decisions. Hence, make sure it is available in the
+    initrd. This adds about 2MB to the size of the compressed initrd.
+  * d/t/tests-in-lxd: skip test on any setup error. When this test fails
+    becacuse of snap install, or lxd tools, we prefer to skip because we
+    never reached the stage where we are actually testing systemd.
+
+  [ Luca Boccassi ]
+  * Set tty device node mode to 0600 (Closes: #1093870)
+  * d/rules: ignore more blhc false positives
+  * systemd-resolved: recommend libidn2-0. Without it in some cases
+    hostname resolution fails (Closes: #1097699)
+  * README: add note about out-of-tree patches being forbidden. Prompted
+    by #1098221
+  * systemd-sysv: add Protected: yes (Closes: #1098260)
+  * Update upstream source from tag 'upstream/257.4' Update to upstream
+    version '257.4' with Debian dir
+    2121ac2e2a87e081b31f819aea969e38b6147ce3
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 06 Mar 2025 14:52:08 +0000
+
 systemd (257.3-1) unstable; urgency=medium
 
   * d/t/control: do not pull in gdm3 on loong64. Not installable, skip it
