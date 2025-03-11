@@ -1,3 +1,9 @@
+systemd (257.4-2) unstable; urgency=medium
+
+  * Split bootctl to new systemd-boot-tools package (Closes: #1086860)
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 11 Mar 2025 14:48:10 +0000
+
 systemd (257.4-1) unstable; urgency=medium
 
   [ Nick Rosbrook ]
