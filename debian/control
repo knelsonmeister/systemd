@@ -546,8 +546,8 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
 Recommends: ${dlopen:Recommends},
 Suggests: ${dlopen:Suggests},
-Breaks: systemd-boot (<< 257.4-1~),
-Replaces: systemd-boot (<< 257.4-1~),
+Breaks: systemd-boot (<< 257.4-2~),
+Replaces: systemd-boot (<< 257.4-2~),
 Description: simple UEFI boot manager - tools and services
  systemd-boot (short: sd-boot) is a simple UEFI boot manager. It provides a
  textual menu to select the entry to boot and an editor for the kernel command
