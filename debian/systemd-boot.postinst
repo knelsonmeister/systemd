@@ -58,8 +58,8 @@ remove_shim() {
     rm -f "${esp_path}/EFI/${vendor}/BOOT${efi_arch_upper}.CSV"
     rmdir --ignore-fail-on-non-empty "${esp_path}/EFI/${vendor}" || true
 
-    if command -v efibootmgr >/dev/null 2>&1 && efibootmgr | grep -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi"; then
-        bootentry="$(efibootmgr | grep "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi" | cut -d' ' -f1 | sed -e 's/Boot//' -e 's/*//')"
+    if command -v efibootmgr >/dev/null 2>&1 && efibootmgr | grep -i -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi"; then
+        bootentry="$(efibootmgr | grep -i "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi" | cut -d' ' -f1 | sed -e 's/Boot//' -e 's/*//')"
         efibootmgr -q --delete-bootnum --bootnum "$bootentry"
     fi
 }
@@ -122,7 +122,7 @@ install_shim() {
     # 730079007300740065006d0064002d0062006f006f007400 is 'systemd-boot' encoded in UTF-16-LE"
     if ! command -v efibootmgr >/dev/null 2>&1; then
         echo "efibootmgr not found, skipping boot entry creation"
-    elif ! efibootmgr | grep -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi.*systemd-boot${efi_arch}.efi\|Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi.*730079007300740065006d0064002d0062006f006f007400"; then
+    elif ! efibootmgr | grep -i -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi.*systemd-boot${efi_arch}.efi\|Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi.*730079007300740065006d0064002d0062006f006f007400"; then
         blkpart="$(findmnt -nvo SOURCE "$esp_path")"
         if [ ! -L "/sys/class/block/${blkpart##*/}" ]; then
             return
