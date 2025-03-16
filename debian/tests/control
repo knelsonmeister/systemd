@@ -122,7 +122,7 @@ Depends: systemd-tests,
   libarchive-dev,
   libgcrypt20-dev,
   libcryptsetup-dev,
-  tzdata-legacy | tzdata (<< 2024b-3),
+  tzdata-legacy | tzdata (<< 2025a-2),
 Restrictions: needs-root, isolation-container
 
 Tests: boot-smoke
@@ -205,7 +205,7 @@ Depends:
   locales-all,
   stress,
   curl,
-  tzdata-legacy | tzdata (<< 2024b-3),
+  tzdata-legacy | tzdata (<< 2025a-2),
   nvme-cli,
   mdadm,
   lvm2,
