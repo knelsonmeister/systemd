@@ -54,6 +54,7 @@ usr/share/dbus-1/system-services/org.freedesktop.machine1.service
 usr/share/dbus-1/system-services/org.freedesktop.portable1.service
 <pkg.systemd.upstream> usr/share/dbus-1/system-services/org.freedesktop.sysupdate1.service
 usr/share/polkit-1/actions/io.systemd.mount-file-system.policy
+<pkg.systemd.upstream> usr/share/polkit-1/actions/io.systemd.namespace-resource.policy
 usr/share/polkit-1/actions/org.freedesktop.import1.policy
 usr/share/polkit-1/actions/org.freedesktop.machine1.policy
 usr/share/polkit-1/actions/org.freedesktop.portable1.policy
