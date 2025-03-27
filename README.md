@@ -1,3 +1,27 @@
+# systemd with systemd-shim support for MX Linux
+This repo contains the debian directory necessary to build a Debian Trixie based debian package for MX Linux that has support for systemd-shim.  It needs a modified systemd-shim (available here: https://salsa.debian.org/knelsonmeister/systemd-shim or https://github.com/knelsonmeister/systemd-shim)
+
+## Background:
+Systemd-shim allows a system to boot up using a SYSV init, but still be able to support the modern programs that depend on systemd.  It is not perfect, but it allows for a Linux distribution to support both SYSV init and systemd as a choice in the grub boot menu.  MX Linux does just that.
+Debian used to support systemd-shim, but support was dropped in Debian Buster.  This repo and the systemd-shim repo linked above are an effort to maintain the systemd-shim support in Debian Trixie.
+
+## Changes:
+  - Propped forward 4 patches from old systemd that were removed when systemd-shim was removed
+  - Updated debian/patches/series file to add the 4 patches
+  - Added a new patch for Debian Trixie
+
+## How To Build:
+NOTE: The tests phase of the compile will fail if compiling on a system not running systemd as init.  By default MX Linux does not run systemd as init, but it can be selected in the grub menu on boot.
+```
+git clone https://salsa.debian.org/knelsonmeister/systemd.git
+or
+git clone https://github.com/knelsonmeister/systemd.git
+cd systemd
+git checkout debian/trixie
+dpkg-buildpackage -uc -us -b
+cd ..
+```
+
 ![Systemd](http://brand.systemd.io/assets/page-logo.png)
 
 System and Service Manager
