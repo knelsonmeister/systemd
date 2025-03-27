@@ -50,7 +50,7 @@ Depends: systemd,
   polkitd,
   netlabel-tools,
   dnsmasq-base
-Restrictions: needs-root, isolation-container, breaks-testbed
+Restrictions: needs-root, isolation-container, breaks-testbed, skip-not-installable, skippable
 
 Tests: build-login
 Depends: systemd,
@@ -98,7 +98,6 @@ Depends: systemd-tests,
   libpam-systemd,
   libnss-myhostname,
   libnss-mymachines,
-  libnss-resolve,
   libnss-systemd,
   udev,
   tree,
@@ -134,7 +133,6 @@ Restrictions: needs-root, isolation-container, allow-stderr
 
 Tests: build-with-static-libsystemd
 Depends: systemd,
-  systemd-resolved,
   pkgconf,
   build-essential,
   libsystemd-dev,
@@ -292,4 +290,4 @@ Depends: systemd (>= 254~),
   zstd,
   uidmap,
   jq,
-Restrictions: needs-root, allow-stderr, isolation-machine, needs-internet, breaks-testbed
+Restrictions: needs-root, allow-stderr, isolation-machine, needs-internet, breaks-testbed, skip-not-installable, skippable

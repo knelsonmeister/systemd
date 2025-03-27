@@ -304,6 +304,7 @@ Description: nss module to resolve hostnames for local container instances
 Package: libnss-resolve
 Architecture: linux-any
 Multi-Arch: same
+Build-Profiles: <pkg.systemd.upstream>
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -610,6 +611,7 @@ Description: tool to build Unified Kernel Images
 Package: systemd-resolved
 Multi-Arch: foreign
 Architecture: linux-any
+Build-Profiles: <pkg.systemd.upstream>
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends},
          ${misc:Depends},

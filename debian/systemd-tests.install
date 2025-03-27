@@ -1,1 +1,2 @@
 usr/lib/systemd/tests
+<!pkg.systemd.upstream> test/test-resolve usr/lib/systemd/tests/testdata/

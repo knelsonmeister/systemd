@@ -230,6 +230,12 @@ ifneq (,$(filter $(DEB_TARGET_ARCH), arm64 armhf riscv64))
 CONFFLAGS += -Defi-stub-extra-sections=500
 endif
 
+ifneq ($(DEB_VENDOR),Ubuntu)
+ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
+CONFFLAGS += -Dresolve=false -Dnss-resolve=disabled
+endif
+endif
+
 override_dh_auto_configure:
 	dh_auto_configure \
 		-- $(CONFFLAGS) $(CONFFLAGS_DISTRO) $(CONFFLAGS_UPSTREAM)
