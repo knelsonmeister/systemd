@@ -39,7 +39,6 @@ debian/tmp/usr/share/man/man1/timedatectl.1
 debian/tmp/usr/share/man/man1/varlinkctl.1
 debian/tmp/usr/share/man/man5/binfmt.d.5
 debian/tmp/usr/share/man/man5/capsule@.service.5
-debian/tmp/usr/share/man/man5/dnssec-trust-anchors.d.5
 debian/tmp/usr/share/man/man5/environment.d.5
 debian/tmp/usr/share/man/man5/extension-release.5
 debian/tmp/usr/share/man/man5/hostname.5
@@ -74,17 +73,14 @@ debian/tmp/usr/share/man/man5/sysctl.d.5
 debian/tmp/usr/share/man/man5/system.conf.d.5
 debian/tmp/usr/share/man/man5/systemd.automount.5
 debian/tmp/usr/share/man/man5/systemd.device.5
-debian/tmp/usr/share/man/man5/systemd.dnssd.5
 debian/tmp/usr/share/man/man5/systemd.exec.5
 debian/tmp/usr/share/man/man5/systemd.kill.5
 debian/tmp/usr/share/man/man5/systemd.mount.5
-debian/tmp/usr/share/man/man5/systemd.negative.5
 debian/tmp/usr/share/man/man5/systemd.netdev.5
 debian/tmp/usr/share/man/man5/systemd.network.5
 debian/tmp/usr/share/man/man5/systemd.path.5
 debian/tmp/usr/share/man/man5/systemd.pcrlock.5
 debian/tmp/usr/share/man/man5/systemd.pcrlock.d.5
-debian/tmp/usr/share/man/man5/systemd.positive.5
 debian/tmp/usr/share/man/man5/systemd.preset.5
 debian/tmp/usr/share/man/man5/systemd.resource-control.5
 debian/tmp/usr/share/man/man5/systemd.scope.5

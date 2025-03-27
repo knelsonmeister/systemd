@@ -1,5 +1,6 @@
 etc/systemd/resolved.conf
 usr/bin/resolvectl
+usr/lib/systemd/resolv.conf
 usr/lib/systemd/systemd-resolved
 usr/lib/systemd/system/systemd-resolved.service
 usr/lib/sysusers.d/systemd-resolve.conf
