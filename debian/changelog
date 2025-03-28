@@ -1,3 +1,9 @@
+systemd (257.4-5) unstable; urgency=medium
+
+  * Add missing dh-exec shbang to d/systemd-tests.install
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 28 Mar 2025 10:28:09 +0000
+
 systemd (257.4-4) unstable; urgency=medium
 
   [ Luca Boccassi ]
