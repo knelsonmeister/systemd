@@ -1,3 +1,56 @@
+systemd (257.4-4) unstable; urgency=medium
+
+  [ Luca Boccassi ]
+  * Update tzdata-legacy version constraint for new bookworm-p-u tzdata
+    version
+  * systemd-boot: do case-insensitive parsing of efibootmgr output
+    (Closes: #1100653)
+  * userdbd: use wildcard to install units
+  * systemd-container: use more wildcards to install files
+  * Handle new tmp mount on upgrade in preinst rather than postinst. Avoid
+    race with new units being activated and pulling it in at the same time
+    (Closes: #1101175)
+  * autopkgtest: remove workaround for 'meson compiile mkosi' and use
+    'mkosi -f' instead to avoid slow rebuilds
+  * autopkgtest: drop versioning constraints on tzdata. These do not seem
+    to be necessary in order for autopkgtest to pull in the package, so
+    drop them as they need to be constantly updated due to p-u uploads
+  * Move leftover resolved files to its own package. A few files were
+    mistakenly shipping in the main systemd package even though they are
+    part of resolved, due to a refactor from some time ago. Move them
+    over.
+  * Drop systemd-resolved package. The ctte has declared that the way the
+    systemd-resolved tool works is incompatible with their decision to
+    prioritize avahi in Debian. Furthermore, the resolved tool is being
+    used to inflict pain on the maintainer, and induce burnout.
+    Regrettably, the only safe solution to ensure this package is
+    compliant with this decision is to drop it, as all reasonable
+    alternatives put forward have been rejected:
+    https://salsa.debian.org/systemd-team/systemd/-/merge_requests/289
+    (Closes: #1098914)
+  * Drop systemd-nspawn on arm64. The ctte has declared that the way the
+    systemd-nspawn binary works on arm64 is incompatible with their
+    decision to leave in place a recently introduced change in the debian-
+    specific base-files package, which caused a dpkg regression.
+    Furthermore, the nspawn tool is being used to inflict pain on the
+    maintainer, and induce burnout. Regrettably, the only safe solution to
+    ensure this package is compliant with this decision is to drop the
+    binary on arm64, as all reasonable alternatives put forward have been
+    rejected:
+    https://salsa.debian.org/systemd-team/systemd/-/merge_requests/289
+    (Closes: #1079329)
+
+  [ Nick Rosbrook ]
+  * Add myself to Uploaders
+
+  [ Andrea Pappacoda ]
+  * d/control: only conflict against opensysusers << 0.7.3-4.1~
+    opensysusers 0.7.3-4.1 is no longer co-installable with systemd as it
+    conflicts with systemd-sysusers, so it is no longer needed to conflict
+    against it systemd-side.
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 28 Mar 2025 01:24:32 +0000
+
 systemd (257.4-3) unstable; urgency=medium
 
   * Fix versioned breaks/replaces for sd-boot-tools (Closes: #1100412)
