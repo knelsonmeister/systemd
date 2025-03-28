@@ -1,3 +1,15 @@
+systemd (257.4-6) unstable; urgency=medium
+
+  * systemd: conflict with dracut on arm64. Same as the systemd-
+    nspawn/arm64 changes of 257.4-4. As correctly pointed out on the
+    reopened #1079329 this combination also creates incompatibilities, so
+    add an explicit package conflict to fix this occurrence too as
+    requested by the reporter. (Closes: #1079329)
+  * d/control: fix systemd-boot and systemd-boot-tools descriptions
+  * Add Lintian override for 'unknown-field Protected'
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 28 Mar 2025 23:33:26 +0000
+
 systemd (257.4-5) unstable; urgency=medium
 
   * Add missing dh-exec shbang to d/systemd-tests.install
