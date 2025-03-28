@@ -3,10 +3,12 @@ debian/tmp/usr/share/man/man1/importctl.1
 <pkg.systemd.upstream> debian/tmp/usr/share/man/man1/updatectl.1
 <pkg.systemd.upstream> debian/tmp/usr/share/man/man1/systemd-vmspawn.1
 debian/tmp/usr/share/man/man1/mount.ddi.1
-debian/tmp/usr/share/man/man1/systemd-nspawn.1
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man1/systemd-nspawn.1
+[!arm64] <!pkg.systemd.upstream> debian/tmp/usr/share/man/man1/systemd-nspawn.1
 debian/tmp/usr/share/man/man5/org.freedesktop.import1.5
 <pkg.systemd.upstream> debian/tmp/usr/share/man/man5/org.freedesktop.sysupdate1.5
-debian/tmp/usr/share/man/man5/systemd.nspawn.5
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man5/systemd.nspawn.5
+[!arm64] <!pkg.systemd.upstream> debian/tmp/usr/share/man/man5/systemd.nspawn.5
 debian/tmp/usr/share/man/man5/sysupdate.d.5
 debian/tmp/usr/share/man/man5/sysupdate.features.5
 debian/tmp/usr/share/man/man1/machinectl.1

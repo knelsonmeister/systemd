@@ -252,6 +252,21 @@ ifneq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
 	debian/extra/checkout-upstream
 endif
 
+execute_after_dh_auto_install:
+	# TODO: drop once there's a -Dnspawn=disabled option
+ifneq ($(DEB_VENDOR),Ubuntu)
+ifneq (,$(filter $(DEB_TARGET_ARCH), arm64))
+ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
+	rm -f debian/tmp/usr/bin/systemd-nspawn \
+		debian/tmp/usr/lib/systemd/system/systemd-nspawn@.service \
+		debian/tmp/usr/share/zsh/vendor-completions/_systemd-nspawn \
+		debian/tmp/usr/share/bash-completion/completions/systemd-nspawn \
+		debian/tmp/usr/share/man/man1/systemd-nspawn.1 \
+		debian/tmp/usr/share/man/man5/systemd.nspawn.5
+endif
+endif
+endif
+
 execute_before_dh_install:
 	# remove unnecessary / unused files that are picked up by wildcards/directory listings in dh_install
 	rm -rf debian/tmp/usr/share/doc/systemd/LICENSES/
