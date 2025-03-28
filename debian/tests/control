@@ -98,6 +98,7 @@ Depends: systemd-tests,
   libpam-systemd,
   libnss-myhostname,
   libnss-mymachines,
+  libnss-resolve,
   libnss-systemd,
   udev,
   tree,
@@ -122,7 +123,7 @@ Depends: systemd-tests,
   libgcrypt20-dev,
   libcryptsetup-dev,
   tzdata-legacy | tzdata,
-Restrictions: needs-root, isolation-container
+Restrictions: needs-root, isolation-container, skip-not-installable, skippable
 
 Tests: boot-smoke
 Depends: systemd-sysv,
