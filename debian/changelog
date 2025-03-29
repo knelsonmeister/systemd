@@ -1,3 +1,11 @@
+systemd (257.4-7) unstable; urgency=medium
+
+  * autopkgtest: when nested tests-in-lxd skips don't fail outer run
+  * Backport patches to fix integration tests skipping
+  * autopkgtest: re-enable integration tests
+
+ -- Luca Boccassi <bluca@debian.org>  Sat, 29 Mar 2025 19:07:36 +0000
+
 systemd (257.4-6) unstable; urgency=medium
 
   * systemd: conflict with dracut on arm64. Same as the systemd-
