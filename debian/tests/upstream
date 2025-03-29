@@ -166,4 +166,4 @@ mkosi --debug genkey
 cp mkosi.key mkosi.crt "${workdir}/btrfs/build"
 ln -sf "${workdir}/btrfs/build" build
 mkosi -f
-meson test -C "${workdir}/btrfs/build" --no-rebuild --suite integration-tests --print-errorlogs --no-stdsplit --num-processes "$(($(nproc) - 1))" TEST-01-BASIC
+meson test -C "${workdir}/btrfs/build" --no-rebuild --suite integration-tests --print-errorlogs --no-stdsplit --num-processes "$(($(nproc) - 1))"
