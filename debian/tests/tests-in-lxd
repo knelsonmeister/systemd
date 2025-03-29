@@ -96,4 +96,12 @@ trap - EXIT
 #
 # We would like to have a simple boot smoke test for privileged LXD containers still, but cannot do
 # so until LP: #1998943 is fixed in autopkgtest.
+#
+# Ensure that skipped nested tests do not fail the outer test invocation.
+set +e
 autopkgtest -U -B . --test-name=unit-tests --test-name=boot-and-services -- lxd "$IMAGE"
+r=$?
+if [ $r -eq 2 ]; then
+    exit 0
+fi
+exit $r
