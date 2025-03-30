@@ -69,8 +69,9 @@ handle_tmp() {
   # Unless it's already running, ensure /tmp/ does not get overwritten by
   # the tmpfs from tmp.mount in case a unit is later activated that implicitly
   # depends on it (for example with PrivateTmp=yes) by runtime masking it
-  if [ -z "$DPKG_ROOT" ] && [ -d /run/systemd/system ] && ! systemctl is-active --quiet tmp.mount; then
-    systemctl mask --runtime tmp.mount
+  # Do not use systemctl here, as libsystemd-shared might not be unpacked yet
+  if [ -z "$DPKG_ROOT" ] && [ -d /run/systemd/system ] && ! df --output=fstype /tmp | grep -q tmpfs; then
+    touch /run/systemd/system/tmp.mount
   fi
 }
 # end-remove-after
