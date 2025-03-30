@@ -3,7 +3,7 @@
 set -e
 
 is_merged() {
-  local directories="/bin /sbin /lib"
+  directories="/bin /sbin /lib"
   for dir in $directories; do
     [ -e "$DPKG_ROOT$dir" ] || continue
     [ "$(readlink -f "$DPKG_ROOT$dir")" = "$DPKG_ROOT/usr$dir" ] || return 1
@@ -14,7 +14,7 @@ is_merged() {
   # /usr/lib/aarch64-linux-gnu on arm64, while on amd64 debootstrap links it to
   # /usr/lib64 and doesn't create it at all on arm64.
   # See: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1019575
-  local arch_directories="/lib64 /lib32 /libo32 /libx32"
+  arch_directories="/lib64 /lib32 /libo32 /libx32"
   for dir in $arch_directories; do
     [ -e "$DPKG_ROOT$dir" ] || continue
     case "$(readlink -f "$DPKG_ROOT$dir")" in
