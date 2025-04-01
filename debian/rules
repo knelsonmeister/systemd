@@ -229,11 +229,15 @@ ifneq (,$(filter $(DEB_TARGET_ARCH), arm64 armhf riscv64))
 CONFFLAGS += -Defi-stub-extra-sections=500
 endif
 
+RESOLVED_CONFLICTS=
 ifneq ($(DEB_VENDOR),Ubuntu)
 ifeq (, $(filter pkg.systemd.upstream, $(DEB_BUILD_PROFILES)))
-CONFFLAGS += -Dresolve=false -Dnss-resolve=disabled
+RESOLVED_CONFLICTS += avahi-daemon
 endif
 endif
+
+override_dh_gencontrol:
+	dh_gencontrol -- -Vresolved:Conflicts=$(RESOLVED_CONFLICTS)
 
 override_dh_auto_configure:
 	dh_auto_configure \

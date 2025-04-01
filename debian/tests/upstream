@@ -160,11 +160,6 @@ export SYSTEMD_INTEGRATION_TESTS=1
 export NO_BUILD=1
 export NO_SYNC=1
 
-# TODO: drop once package is out of unstable
-if echo "${DEB_BUILD_PROFILES:-}" | grep -v -q "pkg.systemd.upstream" && . /etc/os-release && [ "$ID" = debian ]; then
-    sed -i -e "/libnss-resolve/d" -e "/systemd-resolved/d" mkosi.conf.d/10-debian-ubuntu/mkosi.conf mkosi.conf.d/10-debian-ubuntu/mkosi.conf.d/10-debug.conf
-fi
-
 mkosi summary
 meson setup "${workdir}/btrfs/build" -Dintegration-tests=true -Dtests=true
 mkosi --debug genkey
