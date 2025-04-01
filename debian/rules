@@ -98,7 +98,6 @@ CONFFLAGS = \
 	-Drepart=enabled \
 	-Dfdisk=enabled \
 	-Dsysext=true \
-	-Dnscd=true \
 	-Dselinux=enabled \
 	-Dhwdb=true \
 	-Dsysusers=true \
