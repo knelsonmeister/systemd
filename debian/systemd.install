@@ -148,6 +148,7 @@ usr/lib/systemd/systemd-timedated
 usr/lib/systemd/systemd-update-done
 usr/lib/systemd/systemd-user-runtime-dir
 usr/lib/systemd/systemd-user-sessions
+<pkg.systemd.upstream> usr/lib/systemd/systemd-validatefs
 usr/lib/systemd/systemd-volatile-root
 usr/lib/systemd/systemd-xdg-autostart-condition
 usr/lib/systemd/system/emergency.service
@@ -402,6 +403,7 @@ usr/lib/systemd/system/systemd-tmpfiles-setup.service
 [amd64 i386 arm64 armhf riscv64 loong64] <!stage1> usr/lib/systemd/system/systemd-tpm2-setup.service
 usr/lib/systemd/system/systemd-update-done.service
 usr/lib/systemd/system/systemd-user-sessions.service
+<pkg.systemd.upstream> usr/lib/systemd/system/systemd-validatefs@.service
 usr/lib/systemd/system/systemd-volatile-root.service
 usr/lib/systemd/system/system-update-cleanup.service
 usr/lib/systemd/system/system-update-pre.target
