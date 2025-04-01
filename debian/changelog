@@ -1,3 +1,24 @@
+systemd (257.4-8) unstable; urgency=medium
+
+  [ Luca Boccassi ]
+  * systemd.preinst: do not use systemctl libsystemd-shared might not be
+    unpacked yet, so check things manually (Closes: #1101698)
+  * systemd.preinst: fix shellcheck warnings
+  * d/t/boot-and-services: skip gdm3 test in nested LXD run. It is flaky
+    and fails half the times, not much value in checking a desktop session
+    inside a nested container
+  * reintroduce systemd-resolved, with conflict on avahi-daemon. It turns
+    out the cloud images have a hard dependency on resolved. In order to
+    avoid having to change them, reintroduce the package, with a hard
+    conflict on avahi-daemon to avoid reintroducing #1098914 (Closes:
+    #1101532)
+
+  [ Yu Watanabe ]
+  * d/rules: drop nscd meson option. The meson option was deprecated by
+    28f1f1a5e652508d6e61ace8918e8b831e4b62b4 (v257).
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 01 Apr 2025 21:43:18 +0100
+
 systemd (257.4-7) unstable; urgency=medium
 
   * autopkgtest: when nested tests-in-lxd skips don't fail outer run
