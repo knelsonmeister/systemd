@@ -1,3 +1,13 @@
+systemd (257.4-9) unstable; urgency=medium
+
+  * resolved: break mDNS, remove conflict with avahi. Feedback from users
+    is to prefer breaking mDNS rather than avoiding avahi. Ship a drop-in
+    to disable mDNS by default, so that users relying on mDNS for
+    reachability can hopefully notice it and mask it before upgrading
+    (Closes: #1098914)
+
+ -- Luca Boccassi <bluca@debian.org>  Wed, 02 Apr 2025 11:19:09 +0100
+
 systemd (257.4-8) unstable; urgency=medium
 
   [ Luca Boccassi ]
