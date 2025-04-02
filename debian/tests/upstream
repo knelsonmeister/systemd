@@ -135,7 +135,7 @@ EOF
 fi
 
 # kernel 6.12 broke mounting btrfs filesystems from loop devices, so switch to ext4
-sed -i "s/Format=btrfs/Format=ext4/" mkosi.repart/10-root.conf
+sed -i "s/Format=btrfs/Format=ext4/" mkosi.repart/10-root.conf || true
 
 # qemu/vsock does not appear to work on ppc64el/s390x, so skip those tests
 # qemu tests time out on arm64, so skip them
