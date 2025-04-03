@@ -108,6 +108,7 @@ debian/tmp/usr/share/man/man7/smbios-type-11.7
 debian/tmp/usr/share/man/man7/systemd.directives.7
 debian/tmp/usr/share/man/man7/systemd.environment-generator.7
 debian/tmp/usr/share/man/man7/systemd.generator.7
+<pkg.systemd.upstream> debian/tmp/usr/share/man/man7/systemd.image-filter.7
 debian/tmp/usr/share/man/man7/systemd.image-policy.7
 debian/tmp/usr/share/man/man7/systemd.index.7
 debian/tmp/usr/share/man/man7/systemd.journal-fields.7

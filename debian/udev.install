@@ -61,6 +61,7 @@ usr/lib/udev/rules.d/80-drivers.rules
 usr/lib/udev/rules.d/80-net-setup-link.rules
 <pkg.systemd.upstream> usr/lib/udev/rules.d/81-net-bridge.rules
 usr/lib/udev/rules.d/81-net-dhcp.rules
+<pkg.systemd.upstream> usr/lib/udev/rules.d/90-image-dissect.rules
 usr/lib/udev/rules.d/90-iocost.rules
 usr/share/bash-completion/completions/udevadm
 usr/share/zsh/vendor-completions/_udevadm
