@@ -166,9 +166,9 @@ export SYSTEMD_INTEGRATION_TESTS=1
 export NO_BUILD=1
 export NO_SYNC=1
 
+mkosi --debug genkey
 mkosi summary
 meson setup "${workdir}/btrfs/build" -Dintegration-tests=true -Dtests=true
-mkosi --debug genkey
 cp mkosi.key mkosi.crt "${workdir}/btrfs/build"
 ln -sf "${workdir}/btrfs/build" build
 mkosi -f
