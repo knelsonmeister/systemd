@@ -1,3 +1,16 @@
+systemd (257.5-1) UNRELEASED; urgency=medium
+
+  * Add NEWS entry to warn about network connectivity loss due to mDNS,
+    and workaround
+  * Use Conflicts instead of Breaks/Replaces for file move (Closes:
+    #1101965)
+  * Update upstream source from tag 'upstream/257.5' Update to upstream
+    version '257.5' with Debian dir
+    2218d137fd911b8d5c2849535b066d27f01406b2
+  * Drop backports, included in 257.5
+
+ -- Luca Boccassi <bluca@debian.org>  Thu, 03 Apr 2025 21:44:03 +0100
+
 systemd (257.4-9) unstable; urgency=medium
 
   * resolved: break mDNS, remove conflict with avahi. Feedback from users
