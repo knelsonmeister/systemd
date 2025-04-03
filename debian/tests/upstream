@@ -99,7 +99,13 @@ if [ -d "${AUTOPKGTEST_TMP}/../binaries" ]; then
     done
 fi
 
-tee mkosi.local.conf <<EOF
+# Moved in v258
+mkosi_local_conf="mkosi.local.conf"
+if [ -d mkosi ]; then
+    mkosi_local_conf="mkosi/mkosi.local.conf"
+fi
+
+tee "${mkosi_local_conf}" <<EOF
 [Output]
 Format=disk
 
@@ -128,7 +134,7 @@ EOF
 if systemd-analyze compare-versions "$(git -C "$mkosi_tree" describe | tr -d 'v')" lt 25; then
     sed -i "/  register_machine(/d" "$mkosi_tree/mkosi/qemu.py"
 else
-    tee -a mkosi.local.conf <<EOF
+    tee -a "${mkosi_local_conf}" <<EOF
 [Runtime]
 Register=no
 EOF
