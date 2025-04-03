@@ -624,9 +624,8 @@ Suggests: polkitd,
           ${dlopen:Suggests},
 Provides: resolvconf
 Conflicts: resolvconf,
+           systemd (<< 257.4-4~),
 Replaces: resolvconf,
-          systemd (<< 257.4-4~)
-Breaks: systemd (<< 257.4-4~)
 Description: systemd DNS resolver
  This package provides systemd's DNS resolver and the command line tool to
  manage it.
