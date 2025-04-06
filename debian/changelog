@@ -1,4 +1,4 @@
-systemd (257.5-1) UNRELEASED; urgency=medium
+systemd (257.5-1) unstable; urgency=medium
 
   * Add NEWS entry to warn about network connectivity loss due to mDNS,
     and workaround
@@ -8,8 +8,12 @@ systemd (257.5-1) UNRELEASED; urgency=medium
     version '257.5' with Debian dir
     2218d137fd911b8d5c2849535b066d27f01406b2
   * Drop backports, included in 257.5
+  * Remove conflicts with dracut:arm64 and build nspawn:arm64 again. A
+    mutually satisfactory solution for #1079329 has been agreed and is
+    being worked on, so temporarily reintroduce #1079329 until it's ready
+    in a few days as per agreement with ctte.
 
- -- Luca Boccassi <bluca@debian.org>  Thu, 03 Apr 2025 21:44:03 +0100
+ -- Luca Boccassi <bluca@debian.org>  Sun, 06 Apr 2025 18:41:17 +0100
 
 systemd (257.4-9) unstable; urgency=medium
 
