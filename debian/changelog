@@ -1,3 +1,10 @@
+systemd (257.5-2) unstable; urgency=medium
+
+  * Backport new patch to workaround /lib64 symlink incompatibility
+    (Closes: #1079329)
+
+ -- Luca Boccassi <bluca@debian.org>  Mon, 07 Apr 2025 18:39:22 +0100
+
 systemd (257.5-1) unstable; urgency=medium
 
   * Add NEWS entry to warn about network connectivity loss due to mDNS,
