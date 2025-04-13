@@ -2,27 +2,6 @@ From: Kevin Nelson <github.com/knelsonmeister>
 Date: Wed, 12 Mar 2025 20:12:34 +0500
 Subject: trixie-support
 
-Index: systemd/debian/control
-===================================================================
---- systemd.orig/debian/control
-+++ systemd/debian/control
-@@ -111,7 +111,6 @@ Depends: ${shlibs:Depends},
-          mount,
- Conflicts: consolekit,
-            libpam-ck-connector,
--           systemd-shim,
-            opensysusers,
- Breaks: less (<< 563),
-         sicherboot (<< 0.1.6),
-@@ -246,7 +245,7 @@ Depends: ${shlibs:Depends},
-          systemd (= ${binary:Version}),
-          libpam-runtime,
-          default-dbus-system-bus | dbus-system-bus,
--         systemd-sysv
-+         systemd-shim (>= 10-5~) | systemd-sysv
- Recommends: dbus-user-session,
-             ${dlopen:Recommends},
- Suggests: ${dlopen:Suggests},
 Index: systemd/src/shared/bus-unit-util.c
 ===================================================================
 --- systemd.orig/src/shared/bus-unit-util.c
@@ -35,7 +14,7 @@ Index: systemd/src/shared/bus-unit-util.c
  #include "seccomp-util.h"
  #include "securebits-util.h"
  #include "signal-util.h"
-@@ -2828,10 +2829,12 @@ int bus_append_scope_pidref(sd_bus_messa
+@@ -2906,10 +2907,12 @@ int bus_append_scope_pidref(sd_bus_messa
          if (!pidref_is_set(pidref))
                  return -ESRCH;
 
@@ -56,7 +35,7 @@ Index: systemd/src/login/logind-session.c
 ===================================================================
 --- systemd.orig/src/login/logind-session.c
 +++ systemd/src/login/logind-session.c
-@@ -1326,8 +1326,10 @@ bool session_may_gc(Session *s, bool dro
+@@ -1338,8 +1338,10 @@ bool session_may_gc(Session *s, bool dro
                  return true;
          if (r < 0)
                  log_debug_errno(r, "Unable to determine if leader PID " PID_FMT " is still alive, assuming not: %m", s->leader.pid);
@@ -73,15 +52,7 @@ Index: systemd/src/login/logind-user.c
 ===================================================================
 --- systemd.orig/src/login/logind-user.c
 +++ systemd/src/login/logind-user.c
-@@ -27,6 +27,7 @@
- #include "path-util.h"
- #include "percent-util.h"
- #include "rm-rf.h"
-+#include "sd-daemon.h"
- #include "serialize.h"
- #include "special.h"
- #include "stdio-util.h"
-@@ -782,18 +783,34 @@ bool user_may_gc(User *u, bool drop_not_
+@@ -874,18 +874,34 @@ bool user_may_gc(User *u, bool drop_not_
 
          /* Check if our job is still pending */
          const char *j;
@@ -126,3 +97,48 @@ Index: systemd/src/login/logind-user.c
          }
 
          /* Note that we don't care if the three units we manage for each user object are up or not, as we are
+Index: systemd/src/test/test-mempress.c
+===================================================================
+--- systemd.orig/src/test/test-mempress.c
++++ systemd/src/test/test-mempress.c
+@@ -7,6 +7,7 @@
+
+ #include <sd-bus.h>
+ #include <sd-event.h>
++#include <sd-daemon.h>
+
+ #include "bus-locator.h"
+ #include "bus-wait-for-jobs.h"
+@@ -264,7 +265,8 @@ TEST(real_pressure) {
+         assert_se(uo = unit_dbus_path_from_name(scope));
+
+         uint64_t mcurrent = UINT64_MAX;
+-        assert_se(sd_bus_get_property_trivial(bus, "org.freedesktop.systemd1", uo, "org.freedesktop.systemd1.Scope", "MemoryCurrent", &error, 't', &mcurrent) >= 0);
++        if (sd_booted())
++                assert_se(sd_bus_get_property_trivial(bus, "org.freedesktop.systemd1", uo, "org.freedesktop.systemd1.Scope", "MemoryCurrent", &error, 't', &mcurrent) >= 0);
+
+         printf("current: %" PRIu64 "\n", mcurrent);
+         if (mcurrent == UINT64_MAX) {
+Index: systemd/src/fuzz/fuzz-compress.c
+===================================================================
+--- systemd.orig/src/fuzz/fuzz-compress.c
++++ systemd/src/fuzz/fuzz-compress.c
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: LGPL-2.1-or-later */
+
+ #include <errno.h>
++#include <sd-daemon.h>
+
+ #include "alloc-util.h"
+ #include "compress.h"
+@@ -22,7 +23,10 @@ int LLVMFuzzerTestOneInput(const uint8_t
+         _cleanup_free_ void *buf = NULL, *buf2 = NULL;
+         int r;
+
++        if (!sd_booted())
++                return EXIT_TEST_SKIP;
++
+         if (size < offsetof(header, data) + 1)
+                 return 0;
+
+         const header *h = (struct header*) data;
