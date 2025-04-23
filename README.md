@@ -13,12 +13,22 @@ Debian used to support systemd-shim, but support was dropped in Debian Buster.  
 ## How To Build:
 NOTE: The tests phase of the compile will fail if compiling on a system not running systemd as init.  By default MX Linux does not run systemd as init, but it can be selected in the grub menu on boot.
 ```
+# Clone from Salsa or...
 git clone https://salsa.debian.org/knelsonmeister/systemd.git
-or
+# Clone from GitHub
 git clone https://github.com/knelsonmeister/systemd.git
+# To build just the binary packages
 cd systemd
 git checkout debian/trixie
 dpkg-buildpackage -uc -us -b
+cd ..
+# To build both the binary and source packages
+wget http://deb.debian.org/debian/pool/main/s/systemd/systemd_257.5.orig.tar.gz
+cd systemd
+git checkout debian/trixie
+# NOTE: the "-i.*" will ignore all changes to the repo from the
+# orig.tar.gz above (ex: this README.md file)
+dpkg-buildpackage -uc -us -i.*
 cd ..
 ```
 
