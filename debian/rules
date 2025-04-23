@@ -98,7 +98,6 @@ CONFFLAGS = \
 	-Drepart=enabled \
 	-Dfdisk=enabled \
 	-Dsysext=true \
-	-Dnscd=true \
 	-Dselinux=enabled \
 	-Dhwdb=true \
 	-Dsysusers=true \
@@ -189,6 +188,8 @@ ifneq ($(DEB_VENDOR),Ubuntu)
 CONFFLAGS += -Dvmlinux-h-path=/usr/include/$(DEB_HOST_MULTIARCH)/linux/bpf/vmlinux.h
 else
 CONFFLAGS += -Dvmlinux-h-path=/usr/include/$(DEB_HOST_MULTIARCH)/linux/vmlinux.h
+# TODO: drop this and the alternative build dep once support for Noble is dropped
+#
 # Source: https://git.launchpad.net/ubuntu/+source/xdp-tools/tree/debian/rules
 # On Ubuntu, the `bpftool` in path is a shell wrapper pointing at
 # the binary corresponding to runtime kernel version.

@@ -47,8 +47,8 @@ remove_shim() {
     rm -f "${esp_path}/EFI/${vendor}/BOOT${efi_arch_upper}.CSV"
     rmdir --ignore-fail-on-non-empty "${esp_path}/EFI/${vendor}" || true
 
-    if command -v efibootmgr >/dev/null 2>&1 && efibootmgr | grep -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi"; then
-        bootentry="$(efibootmgr | grep "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi" | cut -d' ' -f1 | sed -e 's/Boot//' -e 's/*//')"
+    if command -v efibootmgr >/dev/null 2>&1 && efibootmgr | grep -i -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi"; then
+        bootentry="$(efibootmgr | grep -i "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi" | cut -d' ' -f1 | sed -e 's/Boot//' -e 's/*//')"
         efibootmgr -q --delete-bootnum --bootnum "$bootentry"
     fi
 }

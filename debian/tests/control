@@ -50,7 +50,7 @@ Depends: systemd,
   polkitd,
   netlabel-tools,
   dnsmasq-base
-Restrictions: needs-root, isolation-container, breaks-testbed
+Restrictions: needs-root, isolation-container, breaks-testbed, skip-not-installable, skippable
 
 Tests: build-login
 Depends: systemd,
@@ -122,8 +122,8 @@ Depends: systemd-tests,
   libarchive-dev,
   libgcrypt20-dev,
   libcryptsetup-dev,
-  tzdata-legacy | tzdata (<< 2024b-3),
-Restrictions: needs-root, isolation-container
+  tzdata-legacy | tzdata,
+Restrictions: needs-root, isolation-container, skip-not-installable, skippable
 
 Tests: boot-smoke
 Depends: systemd-sysv,
@@ -134,7 +134,6 @@ Restrictions: needs-root, isolation-container, allow-stderr
 
 Tests: build-with-static-libsystemd
 Depends: systemd,
-  systemd-resolved,
   pkgconf,
   build-essential,
   libsystemd-dev,
@@ -205,7 +204,7 @@ Depends:
   locales-all,
   stress,
   curl,
-  tzdata-legacy | tzdata (<< 2024b-3),
+  tzdata-legacy | tzdata,
   nvme-cli,
   mdadm,
   lvm2,
@@ -232,14 +231,12 @@ Depends: systemd (>= 254~),
   systemd-timesyncd,
   systemd-oomd,
   systemd-homed,
-  systemd-resolved,
   systemd-boot [amd64 arm64 armhf i386 loong64 riscv64],
   systemd-repart,
   systemd-cryptsetup,
   systemd-boot-efi [amd64 arm64 armhf i386 loong64 riscv64],
   libnss-myhostname,
   libnss-mymachines,
-  libnss-resolve,
   libnss-systemd,
   libsystemd-dev,
   libudev-dev,
@@ -292,4 +289,4 @@ Depends: systemd (>= 254~),
   zstd,
   uidmap,
   jq,
-Restrictions: needs-root, allow-stderr, isolation-machine, needs-internet, breaks-testbed
+Restrictions: needs-root, allow-stderr, isolation-machine, needs-internet, breaks-testbed, skip-not-installable, skippable

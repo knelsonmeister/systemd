@@ -1,3 +1,4 @@
+0001-base-filesystem-avoid-creating-lib64-symlink-on-exis.patch
 debian/don-t-try-to-start-autovt-units-when-not-running-wit.patch
 debian/Make-logind-hostnamed-localed-timedated-D-Bus-activa.patch
 debian/Start-logind-on-demand-via-libpam-systemd.patch

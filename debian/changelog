@@ -1,3 +1,137 @@
+systemd (257.5-2) unstable; urgency=medium
+
+  * Backport new patch to workaround /lib64 symlink incompatibility
+    (Closes: #1079329)
+
+ -- Luca Boccassi <bluca@debian.org>  Mon, 07 Apr 2025 18:39:22 +0100
+
+systemd (257.5-1) unstable; urgency=medium
+
+  * Add NEWS entry to warn about network connectivity loss due to mDNS,
+    and workaround
+  * Use Conflicts instead of Breaks/Replaces for file move (Closes:
+    #1101965)
+  * Update upstream source from tag 'upstream/257.5' Update to upstream
+    version '257.5' with Debian dir
+    2218d137fd911b8d5c2849535b066d27f01406b2
+  * Drop backports, included in 257.5
+  * Remove conflicts with dracut:arm64 and build nspawn:arm64 again. A
+    mutually satisfactory solution for #1079329 has been agreed and is
+    being worked on, so temporarily reintroduce #1079329 until it's ready
+    in a few days as per agreement with ctte.
+
+ -- Luca Boccassi <bluca@debian.org>  Sun, 06 Apr 2025 18:41:17 +0100
+
+systemd (257.4-9) unstable; urgency=medium
+
+  * resolved: break mDNS, remove conflict with avahi. Feedback from users
+    is to prefer breaking mDNS rather than avoiding avahi. Ship a drop-in
+    to disable mDNS by default, so that users relying on mDNS for
+    reachability can hopefully notice it and mask it before upgrading
+    (Closes: #1098914)
+
+ -- Luca Boccassi <bluca@debian.org>  Wed, 02 Apr 2025 11:19:09 +0100
+
+systemd (257.4-8) unstable; urgency=medium
+
+  [ Luca Boccassi ]
+  * systemd.preinst: do not use systemctl libsystemd-shared might not be
+    unpacked yet, so check things manually (Closes: #1101698)
+  * systemd.preinst: fix shellcheck warnings
+  * d/t/boot-and-services: skip gdm3 test in nested LXD run. It is flaky
+    and fails half the times, not much value in checking a desktop session
+    inside a nested container
+  * reintroduce systemd-resolved, with conflict on avahi-daemon. It turns
+    out the cloud images have a hard dependency on resolved. In order to
+    avoid having to change them, reintroduce the package, with a hard
+    conflict on avahi-daemon to avoid reintroducing #1098914 (Closes:
+    #1101532)
+
+  [ Yu Watanabe ]
+  * d/rules: drop nscd meson option. The meson option was deprecated by
+    28f1f1a5e652508d6e61ace8918e8b831e4b62b4 (v257).
+
+ -- Luca Boccassi <bluca@debian.org>  Tue, 01 Apr 2025 21:43:18 +0100
+
+systemd (257.4-7) unstable; urgency=medium
+
+  * autopkgtest: when nested tests-in-lxd skips don't fail outer run
+  * Backport patches to fix integration tests skipping
+  * autopkgtest: re-enable integration tests
+
+ -- Luca Boccassi <bluca@debian.org>  Sat, 29 Mar 2025 19:07:36 +0000
+
+systemd (257.4-6) unstable; urgency=medium
+
+  * systemd: conflict with dracut on arm64. Same as the systemd-
+    nspawn/arm64 changes of 257.4-4. As correctly pointed out on the
+    reopened #1079329 this combination also creates incompatibilities, so
+    add an explicit package conflict to fix this occurrence too as
+    requested by the reporter. (Closes: #1079329)
+  * d/control: fix systemd-boot and systemd-boot-tools descriptions
+  * Add Lintian override for 'unknown-field Protected'
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 28 Mar 2025 23:33:26 +0000
+
+systemd (257.4-5) unstable; urgency=medium
+
+  * Add missing dh-exec shbang to d/systemd-tests.install
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 28 Mar 2025 10:28:09 +0000
+
+systemd (257.4-4) unstable; urgency=medium
+
+  [ Luca Boccassi ]
+  * Update tzdata-legacy version constraint for new bookworm-p-u tzdata
+    version
+  * systemd-boot: do case-insensitive parsing of efibootmgr output
+    (Closes: #1100653)
+  * userdbd: use wildcard to install units
+  * systemd-container: use more wildcards to install files
+  * Handle new tmp mount on upgrade in preinst rather than postinst. Avoid
+    race with new units being activated and pulling it in at the same time
+    (Closes: #1101175)
+  * autopkgtest: remove workaround for 'meson compiile mkosi' and use
+    'mkosi -f' instead to avoid slow rebuilds
+  * autopkgtest: drop versioning constraints on tzdata. These do not seem
+    to be necessary in order for autopkgtest to pull in the package, so
+    drop them as they need to be constantly updated due to p-u uploads
+  * Move leftover resolved files to its own package. A few files were
+    mistakenly shipping in the main systemd package even though they are
+    part of resolved, due to a refactor from some time ago. Move them
+    over.
+  * Drop systemd-resolved package. The ctte has declared that the way the
+    systemd-resolved tool works is incompatible with their decision to
+    prioritize avahi in Debian. Furthermore, the resolved tool is being
+    used to inflict pain on the maintainer, and induce burnout.
+    Regrettably, the only safe solution to ensure this package is
+    compliant with this decision is to drop it, as all reasonable
+    alternatives put forward have been rejected:
+    https://salsa.debian.org/systemd-team/systemd/-/merge_requests/289
+    (Closes: #1098914)
+  * Drop systemd-nspawn on arm64. The ctte has declared that the way the
+    systemd-nspawn binary works on arm64 is incompatible with their
+    decision to leave in place a recently introduced change in the debian-
+    specific base-files package, which caused a dpkg regression.
+    Furthermore, the nspawn tool is being used to inflict pain on the
+    maintainer, and induce burnout. Regrettably, the only safe solution to
+    ensure this package is compliant with this decision is to drop the
+    binary on arm64, as all reasonable alternatives put forward have been
+    rejected:
+    https://salsa.debian.org/systemd-team/systemd/-/merge_requests/289
+    (Closes: #1079329)
+
+  [ Nick Rosbrook ]
+  * Add myself to Uploaders
+
+  [ Andrea Pappacoda ]
+  * d/control: only conflict against opensysusers << 0.7.3-4.1~
+    opensysusers 0.7.3-4.1 is no longer co-installable with systemd as it
+    conflicts with systemd-sysusers, so it is no longer needed to conflict
+    against it systemd-side.
+
+ -- Luca Boccassi <bluca@debian.org>  Fri, 28 Mar 2025 01:24:32 +0000
+
 systemd (257.4-3) unstable; urgency=medium
 
   * Fix versioned breaks/replaces for sd-boot-tools (Closes: #1100412)

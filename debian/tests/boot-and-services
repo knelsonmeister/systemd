@@ -39,6 +39,9 @@ class ServicesTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('gdm3') is not None, 'gdm3 not found')
     def test_gdm3(self):
+        if 'lxc' in subprocess.run(['systemd-detect-virt', '--container'], check=False, stdout=subprocess.PIPE).stdout.decode():
+            # this test often fails in tests-in-lxd
+            self.skipTest('gdm3 is flaky under lxd')
         subprocess.check_call(['pgrep', '-af', '/gdm[-3]'])
         self.active_unit('gdm')
 

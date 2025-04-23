@@ -7,6 +7,7 @@ Uploaders: Marco d'Itri <md@linux.it>,
            Martin Pitt <mpitt@debian.org>,
            Felipe Sateler <fsateler@debian.org>,
            Luca Boccassi <bluca@debian.org>,
+           Nick Rosbrook <enr0n@ubuntu.com>,
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Vcs-Git: https://salsa.debian.org/systemd-team/systemd.git
@@ -78,7 +79,7 @@ Build-Depends: debhelper-compat (= 13),
                jq [amd64 arm64] <!stage1>,
                python3-pyparsing <!nocheck>,
                python3-evdev:native <!nocheck>,
-               tzdata-legacy <!nocheck> | tzdata (<< 2024b-3) <!nocheck>,
+               tzdata-legacy <!nocheck> | tzdata (<< 2025a-2) <!nocheck>,
                libcap2-bin <!nocheck>,
                iproute2 <!nocheck>,
                zstd <!nocheck>,
@@ -111,7 +112,7 @@ Depends: ${shlibs:Depends},
          mount,
 Conflicts: consolekit,
            libpam-ck-connector,
-           opensysusers,
+           opensysusers (<< 0.7.3-4.1~),
 Breaks: less (<< 563),
         sicherboot (<< 0.1.6),
         dracut-core (<< 102-2~),
@@ -527,7 +528,7 @@ Recommends: efibootmgr,
 Suggests: systemd-ukify,
           ${dlopen:Suggests},
 Conflicts: systemd (<< 256-2~), systemd-boot-efi (<< 256-2~),
-Description: simple UEFI boot manager - tools and services
+Description: simple UEFI boot manager - integration and services
  systemd-boot (short: sd-boot) is a simple UEFI boot manager. It provides a
  textual menu to select the entry to boot and an editor for the kernel command
  line. It supports systems with UEFI firmware only.
@@ -547,7 +548,7 @@ Recommends: ${dlopen:Recommends},
 Suggests: ${dlopen:Suggests},
 Breaks: systemd-boot (<< 257.4-2~),
 Replaces: systemd-boot (<< 257.4-2~),
-Description: simple UEFI boot manager - tools and services
+Description: simple UEFI boot manager - tools
  systemd-boot (short: sd-boot) is a simple UEFI boot manager. It provides a
  textual menu to select the entry to boot and an editor for the kernel command
  line. It supports systems with UEFI firmware only.
@@ -620,10 +621,9 @@ Recommends: libnss-myhostname,
 Suggests: polkitd,
           ${dlopen:Suggests},
 Provides: resolvconf
-Conflicts: resolvconf
+Conflicts: resolvconf,
+           systemd (<< 257.4-4~),
 Replaces: resolvconf,
-          systemd (<< 251.3-2~)
-Breaks: systemd (<< 251.3-2~)
 Description: systemd DNS resolver
  This package provides systemd's DNS resolver and the command line tool to
  manage it.
