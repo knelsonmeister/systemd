@@ -1,4 +1,4 @@
-## NOTE: This project was broken by a change in tbe 6.12 kernel that turns off cgroup v1 support by default. Therefore, this project is effectively retired.
+## NOTE: This project was broken by a change in the 6.12 kernel that turns off cgroup v1 support by default. Therefore, this project is effectively retired.
 
 # systemd with systemd-shim support for MX Linux
 This repo contains the debian directory necessary to build a Debian Trixie based debian package for MX Linux that has support for systemd-shim.  It needs a modified systemd-shim (available here: https://salsa.debian.org/knelsonmeister/systemd-shim or https://github.com/knelsonmeister/systemd-shim)
